@@ -76,5 +76,5 @@ set BLINKA_FT232H=1
 
 ### MacOS
 ```
-pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 
+pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n1 pip3 install -U 
 ```
