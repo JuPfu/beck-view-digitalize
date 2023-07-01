@@ -14,7 +14,7 @@ connects to your computer via USB-C. See the link [Adafruit FT232H Breakout Boar
 to come to know the capabilities of this microcontroller.
 
 The breakout board ist based on the chip manufactured by [FTDI Chip](https://ftdichip.com/products/ft232hq/). A lot of
-additional documentation, e.g. the datasheet, references to drivers is also available on this site.
+additional documentation, e.g. the datasheet and references to drivers are also available on this site.
 
 This project is coded in Python. The PyFTDI library cannot be praised enough. It has a terrific support for the FT232H, FT2232H and FT4232H devices.
 A detailed step-by-step instruction on how to install PyFTDI for Windows, MacOS or Linux can be found here:
