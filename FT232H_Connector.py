@@ -4,11 +4,12 @@ import board
 import digitalio
 import usb.util
 
+# see circuit diagram in README.md
 
 class FT232H_Connector:
-    # 15-m-Kassette etwa 3.600 Bilder (±50 Bilder Belichtungs- und Schnitttoleranz an Anfang und Ende)
-    # 30-m-Kassette etwa 7.200 Bilder (±50 Bilder Belichtungs- und Schnitttoleranz an Anfang und Ende).
-    MAXCOUNT = 50
+    # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
+    MAXCOUNT = 7250 # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
     def __init__(self, optoCouplerSignalSubject):
         self.__optoCouplerSignalSubject = optoCouplerSignalSubject
@@ -17,27 +18,33 @@ class FT232H_Connector:
         self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         print(self.__dev)
 
-        # LED an, wenn Bild / Frame verarbeitet wird
+        # turn LED on while processing a frame
         self.__led = digitalio.DigitalInOut(board.C1)
         self.__led.direction = digitalio.Direction.OUTPUT
         self.__led.value = False
 
-        # Sensor triggert Digitalisierung eines Bildes / Frames
+        # opto-coupler OK1 triggers digitalizing of current frame
         self.__optoCoupler = digitalio.DigitalInOut(board.C2)
         self.__optoCoupler.direction = digitalio.Direction.INPUT
 
-        # Sensor triggert EOF (End Of Film)
+        # opto-coupler OK2 triggers EOF (End Of Film)
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
-        print(f"self.__eof={self.__eof.value}")
 
     def signal_input(self, cap):
         while self.__eof.value and self.__count < self.MAXCOUNT:
             if self.__optoCoupler.value:
+                # turn on led to show processing of frame has started
                 self.__led.value = True
+                # ...todo: explain what is going on here
                 self.__optoCouplerSignalSubject.on_next(cap)
                 self.__count = self.__count + 1
-                # Wechsel Status Opto-Koppler abwarten
+                #
+                # Wait for self.__optoCoupler (OK1) to change to false
+                # Latency of OK1 is about one millisecond
+                #
                 # while self.photocell.value:
-                #     time.sleep(0.002)
+                #     time.sleep(0.001)
+                #
+                # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False

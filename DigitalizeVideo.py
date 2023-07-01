@@ -27,7 +27,7 @@ class DigitalizeVideo:
         self.__thread_pool_scheduler = ThreadPoolScheduler(self.__thread_count)
         print("Cpu count is : {0}".format(self.__thread_count))
 
-        self.__photoCellSignalDisposable = photoCellSignalSubject.pipe(
+        self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
             ops.do_action(self.grab_image),
             ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(

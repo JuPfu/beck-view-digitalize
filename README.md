@@ -1,6 +1,10 @@
 # beck-view-digitalize
 Digitalize Super 8 films with Python &amp; FT232H &amp; reactivex 
 
+# Project Summary
+
+... to be done
+
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
 
 # FT232H
@@ -29,15 +33,14 @@ It is helpful but not mandatory to have the EEPROM of FT232H initialized
 pip3 install --upgrade pip
 
 pip3 install opencv-python
-
+```
 NumPy should have been installed along with OpenCV. If that had not been the case add numpy
-
+```
 pip3 install numpy
-
+```
 ReactiveX is being used to parallelize processes
-
+```
 pip3 install reactivex
-
 
 pip3 install pyusb==1.1.0
 
