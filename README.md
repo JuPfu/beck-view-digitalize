@@ -1,5 +1,9 @@
 # beck-view-digitalize
-Digitalize Super 8 films with Python &amp; reactivex &amp; FT232H
+Digitalize Super 8 films with Python &amp; FT232H &amp; reactivex 
+
+![FT232H](./assets/img/FT232-Board_Optocoupler.png)
+
+# FT232H
 
 # Installation
 
