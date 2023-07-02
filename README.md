@@ -57,7 +57,9 @@ pip3 install numpy
 ReactiveX is being used to parallelize processes
 ```
 pip3 install reactivex
+```
 
+```
 pip3 install pyusb==1.1.0
 
 pip3 install pyftdi

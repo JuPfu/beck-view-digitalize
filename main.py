@@ -10,7 +10,7 @@ from FT232H_Connector import FT232H_Connector
 
 optoCouplerSignalSubject: rx.subject.subject.Subject = rx.subject.Subject()
 
-# create class instance
+# create class instances
 pc = FT232H_Connector(optoCouplerSignalSubject)
 dv = DigitalizeVideo(optoCouplerSignalSubject)
 # initialize usb camera
