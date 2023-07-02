@@ -9,7 +9,7 @@ Digitalize Super 8 films with Python &amp; FT232H &amp; reactivex
 
 # FT232H
 
-The FT232H is a general purpose USB to GPIO, SPI, I2C - USB C & Stemma QT breakout board. The FT232H microcontroller 
+The FT232H is a general purpose USB to GPIO, SPI, I2C - USB-C & Stemma QT breakout board. The FT232H microcontroller 
 connects to your computer via USB-C. See the link [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) 
 to come to know the capabilities of this microcontroller.
 
@@ -17,7 +17,7 @@ The breakout board ist based on the chip manufactured by [FTDI Chip](https://ftd
 additional documentation, e.g. the datasheet and references to drivers are also available on this site.
 
 This project is coded in Python. The PyFTDI library cannot be praised enough. It has a terrific support for the FT232H, FT2232H and FT4232H devices.
-A detailed step-by-step instruction on how to install PyFTDI for Windows, MacOS or Linux can be found here:
+A detailed step-by-step instruction on how to install PyFTDI for Windows, macOS or Linux can be found here:
 
 [PyFtdi Documentation](https://eblot.github.io/pyftdi/)
 
