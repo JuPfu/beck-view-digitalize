@@ -105,11 +105,10 @@ class DigitalizeVideo:
         # self.__monitorFrameDisposable.dispose()
         # self.__photoCellSignalDisposable.dispose()
 
-        print("-------ENDE---------")
+        print("-------End Of Film---------")
         print((time.time() - self.start_time))
 
     def grab_image(self, cap) -> None:
-        print(f"=====>>>>>IN GRAB IMAGE image count={self.__count + 1}")
         self.__count = self.__count + 1
         self.__state = {"img": self.take_picture(cap), "count": self.__count}
         self.__writeFrameSubject.on_next(self.__state)
