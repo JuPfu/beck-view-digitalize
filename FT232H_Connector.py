@@ -9,7 +9,7 @@ import usb.util
 class FT232H_Connector:
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
-    MAXCOUNT = 7250 # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+    MAXCOUNT = 50 # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
     def __init__(self, optoCouplerSignalSubject):
         self.__optoCouplerSignalSubject = optoCouplerSignalSubject
@@ -31,14 +31,16 @@ class FT232H_Connector:
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.OUTPUT
         # set initial eof value
-        self.__eof.value = False
+        self.__eof.value = True
 
         # switch to INPUT mode
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
+        print(f"INPUT self.__eof.value = {self.__eof.value}")
 
     def signal_input(self, cap):
-        while not self.__eof.value and self.__count < self.MAXCOUNT:
+        while self.__eof.value and self.__count < self.MAXCOUNT:
+            print(f"LOOP self.__optoCoupler.value={self.__optoCoupler.value}")
             if self.__optoCoupler.value:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
@@ -54,3 +56,6 @@ class FT232H_Connector:
                 #
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
+
+        print(f"AFTER LOOP self.__eof.value={self.__eof.value}")
+        print(f"AFTER LOOP self.__optoCoupler.value:={self.__optoCoupler.value}")

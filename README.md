@@ -1,11 +1,31 @@
 # beck-view-digitalize
-Digitalize Super 8 films with Python &amp; FT232H &amp; reactivex 
+Digitalize Super 8 films with Python &amp; OpenCV &amp; reactivex &amp; Adafruit FT232H Breakout Board
 
 # Project Summary
 
-... to be done
+This application can digitalize Super 8 films. A Super 8 projector has been modified for this purpose. A
+USB-camera is mounted in front of the lens of the projector. When a frame is positioned behind the lens and 
+at rest, an opto-coupler delivers a signal to a connected Adafruit FT232H Microcontroller. This signal is used
+to trigger the USB-camera to take a picture of the currently visible frame. OpenCV is used for processing the image.
 
+
+![FT232H](./assets/img/BauerProjektorT610.png)
+
+Von Joergsam - Eigenes Werk, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)
+
+The circuit diagram looks like so
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
+The FT232H Board is connected via USB-C to the computer. It delivers the opto-coupler signals
+to the computer, where openCV is used to control the USB-camera and for image processing. 
+- The opto-coupler OK1 (connected to GPIO C2 as input) synchronizes the image capture
+- The opto-coupler Ok2 (connected to GPIO C3 as input) delivers an end of film signal
+- The LED (connected to GPIO C1 as output) is switched on while an image is processed
+
+There are many other use cases for this application. You can use this project to take 
+pictures from any USB-camera connected to your computer by the press of a button or 
+in specified time intervals (timelapse), or you could take a picture when signalled by a sensor, e.g. an opto-coupler.
+
+In a second step this project allows you to reassemble the list of pictures into a movie, again.
 
 # FT232H
 
@@ -29,15 +49,23 @@ When stuck, troubleshooting hints from the Arduino Help Center might be a door o
 
 ## Prerequisites
 
-###  Mac OS
+###  macOS (Intel)
 
-Make sure libusb version 1.1.0 is installed.
-
+Make sure libusb is installed.  See [Homebrew Formulae libusb](https://formulae.brew.sh/formula/libusb)
+```
 brew install libusb
-
+```
+The output from `brew ls libusb` should look like so
+```
+/usr/local/Cellar/libusb/1.0.26/include/libusb-1.0/libusb.h
+/usr/local/Cellar/libusb/1.0.26/lib/libusb-1.0.0.dylib
+/usr/local/Cellar/libusb/1.0.26/lib/pkgconfig/libusb-1.0.pc
+/usr/local/Cellar/libusb/1.0.26/lib/ (2 other files)
+/usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
+```
 ### Tools
 
-Python3 and pip3 have to be installed
+Python3 and pip3 have to be installed first.
 
 ### FT232H
 
@@ -80,3 +108,9 @@ set BLINKA_FT232H=1
 ```
 pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n1 pip3 install -U 
 ```
+# Step By Step Description
+
+Successfully connect the Adafruit Breakout Board FT232H to your computer. This should work for macOS, Windows and Linux.
+
+We activate the internal USB-camera or any other USB-camera connected to your computer 
+via openCV. On the press of a button connected to the FT232H
