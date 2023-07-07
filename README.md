@@ -27,7 +27,13 @@ in specified time intervals (timelapse), or you could take a picture when signal
 
 In a second step this project allows you to reassemble the list of pictures into a movie, again.
 
-# BLINKA
+# Project  Installation
+
+## Prerequisites
+
+The FT232H Breakout Board is connected via USB to your computer.
+
+## BLINKA
 
 Blinka is a pip installable Python library that runs in normal "desktop" Python.
 
@@ -45,7 +51,7 @@ installed before attempting to install any libraries.
 
 Before you proceed, check that the environment variable BLINKA is set as described in the installation guide.
 
-# FT232H
+## FT232H
 
 The FT232H is a general purpose USB to GPIO, SPI, I2C - USB-C & Stemma QT breakout board. The FT232H microcontroller 
 connects to your computer via USB-C. See the link [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) 
@@ -62,19 +68,13 @@ A detailed step-by-step instruction on how to install PyFTDI for Windows, macOS 
 When stuck, troubleshooting hints from the Arduino Help Center might be a door opener
 
 [Install or update FTDI drivers](https://support.arduino.cc/hc/en-us/articles/4411305694610-Install-or-update-FTDI-drivers)
-## FT232H EEPROM
+### FT232H EEPROM
 
 The EEPROM of the FT232H should be initialized. 
 
 The [User_Guide_For_FT_PROG.pdf](https://ftdichip.com/wp-content/uploads/2020/07/AN_124_User_Guide_For_FT_PROG.pdf)
 gives a detailed description on how to do this using the
 [FT_PROG - EEPROM Programming Utility](https://ftdichip.com/utilities/).
-
-# Project  Installation
-
-## Prerequisites
-
-The FT232H Breakout Board is connected via USB to your computer.
 
 ###  macOS (Intel)
 
@@ -90,7 +90,7 @@ The output from `brew ls libusb` should look like so
 /usr/local/Cellar/libusb/1.0.26/lib/ (2 other files)
 /usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
 ```
-### Tools
+## Tools
 
 Python3 and pip3 have to be installed first.
 
