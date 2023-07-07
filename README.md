@@ -29,6 +29,8 @@ In a second step this project allows you to reassemble the list of pictures into
 
 # Project  Installation
 
+<alert style="background:yellow">Follow the Blinka installation instructions precisely. It will save you time!</alert>
+
 ## Prerequisites
 
 The FT232H Breakout Board is connected via USB to your computer.
@@ -36,6 +38,8 @@ The FT232H Breakout Board is connected via USB to your computer.
 ## Tools
 
 Python3 and pip3 have to be installed first.
+
+Use the current version of pip.
 
 ```
 pip3 install --upgrade pip
@@ -107,14 +111,14 @@ Blinka
 pip3 install adafruit-blinka
 ```
 
-PyFtdi
-```
-pip3 install pyftdi
-```
-
 PyUSB
 ```
 pip3 install pyusb==1.1.0
+```
+
+PyFtdi
+```
+pip3 install pyftdi
 ```
 
 OpenCV
