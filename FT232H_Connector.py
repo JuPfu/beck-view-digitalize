@@ -36,11 +36,9 @@ class FT232H_Connector:
         # switch to INPUT mode
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
-        print(f"INPUT self.__eof.value = {self.__eof.value}")
 
     def signal_input(self, cap):
         while self.__eof.value and self.__count < self.MAXCOUNT:
-            print(f"LOOP self.__optoCoupler.value={self.__optoCoupler.value}")
             if self.__optoCoupler.value:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
@@ -51,8 +49,8 @@ class FT232H_Connector:
                 # Wait for self.__optoCoupler (OK1) to change to false
                 # Latency of OK1 is about one millisecond
                 #
-                # while self.photocell.value:
-                #     time.sleep(0.001)
-                #
+                while self.__optoCoupler.value:
+                    time.sleep(0.0005)
+
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False

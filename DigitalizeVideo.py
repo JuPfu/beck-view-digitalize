@@ -33,8 +33,6 @@ class DigitalizeVideo:
         ).subscribe(
             on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
             on_error=lambda e: print(e),
-            # on_completed=lambda: print("PROCESS photoCellSignal done!"),
-            # scheduler=self.thread_pool_scheduler
         )
 
         self.__writeFrameSubject: rx.subject.Subject = rx.subject.Subject()
@@ -45,7 +43,6 @@ class DigitalizeVideo:
         ).subscribe(
             on_next=lambda i: print(f"PROCESS writeFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
-            # on_completed=lambda: print("PROCESS writeFrame done!"),
         )
 
         self.__monitorFrameSubject: rx.subject.Subject = rx.subject.Subject()
@@ -57,7 +54,6 @@ class DigitalizeVideo:
             on_next=lambda i: print(
                 f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
-            # on_completed=lambda: print("PROCESS monitorFrame done!"),
         )
 
         self.start_time = time.time()
