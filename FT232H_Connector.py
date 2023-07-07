@@ -24,8 +24,8 @@ class FT232H_Connector:
         self.__led.value = False
 
         # opto-coupler OK1 triggers digitalizing of current frame
-        self.__optoCoupler = digitalio.DigitalInOut(board.C2)
-        self.__optoCoupler.direction = digitalio.Direction.INPUT
+        self.__optoCouplerOK1 = digitalio.DigitalInOut(board.C2)
+        self.__optoCouplerOK1.direction = digitalio.Direction.INPUT
 
         # opto-coupler OK2 triggers EOF (End Of Film)
         self.__eof = digitalio.DigitalInOut(board.C3)
@@ -39,17 +39,17 @@ class FT232H_Connector:
 
     def signal_input(self, cap):
         while self.__eof.value and self.__count < self.MAXCOUNT:
-            if self.__optoCoupler.value:
+            if self.__optoCouplerOK1.value:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # ...todo: explain what is going on here
                 self.__optoCouplerSignalSubject.on_next(cap)
                 self.__count = self.__count + 1
                 #
-                # Wait for self.__optoCoupler (OK1) to change to false
+                # Wait for self.__optoCouplerOK1 (OK1) to change to false
                 # Latency of OK1 is about one millisecond
                 #
-                while self.__optoCoupler.value:
+                while self.__optoCouplerOK1.value:
                     time.sleep(0.0005)
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished

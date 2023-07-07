@@ -106,6 +106,8 @@ class DigitalizeVideo:
 
     def grab_image(self, cap) -> None:
         self.__count = self.__count + 1
-        self.__state = {"img": self.take_picture(cap), "count": self.__count}
+        img = self.take_picture(cap)
+        #  The projector delivers mirrored images, so we flip the image at the y-axis
+        self.__state = {"img": cv2.flip(img, 1), "count": self.__count}
         self.__writeFrameSubject.on_next(self.__state)
         self.__monitorFrameSubject.on_next(self.__state)
