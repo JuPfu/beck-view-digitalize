@@ -11,7 +11,7 @@ to trigger the USB-camera to take a picture of the currently visible frame. Open
 
 ![FT232H](./assets/img/BauerProjektorT610.png)
 
-Von Joergsam - Eigenes Werk, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)
+Von Joergsam - Eigenes Werk, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617) - unmodified sample of a Super  8 projector
 
 The circuit diagram looks like so
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
@@ -33,14 +33,22 @@ In a second step this project allows you to reassemble the list of pictures into
 
 The FT232H Breakout Board is connected via USB to your computer.
 
+## Tools
+
+Python3 and pip3 have to be installed first.
+
+```
+pip3 install --upgrade pip
+```
+
 ## BLINKA
 
-Blinka is a pip installable Python library that runs in normal "desktop" Python.
+Blinka is a pip installable Python library that runs in normal "desktop" Python. Blinka is  a
+great library!
 
 On Windows, macOS, or Linux computers, you can use USB adapter boards like the 
-FT232H Adafruit breakout board, to provide hardware pins you can control.  
-This board connects via regular USB to your computer, and let you do 
-GPIO, I2C, SPI, and other hardware operations.
+FT232H Adafruit breakout board, to provide hardware pins you can control. This board 
+connects via regular USB to your computer, and let you do GPIO, I2C, SPI, and other hardware operations.
 
 [Overview of supported hardware](https://circuitpython.org/blinka)
 
@@ -51,7 +59,7 @@ installed before attempting to install any libraries.
 
 Before you proceed, check that the environment variable BLINKA is set as described in the installation guide.
 
-## FT232H
+## PyFtdi for FT232H
 
 The FT232H is a general purpose USB to GPIO, SPI, I2C - USB-C & Stemma QT breakout board. The FT232H microcontroller 
 connects to your computer via USB-C. See the link [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) 
@@ -90,33 +98,38 @@ The output from `brew ls libusb` should look like so
 /usr/local/Cellar/libusb/1.0.26/lib/ (2 other files)
 /usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
 ```
-## Tools
-
-Python3 and pip3 have to be installed first.
 
 ## Python Packages 
 
-```
-pip3 install --upgrade pip
+Blinka
 
+```
+pip3 install adafruit-blinka
+```
+
+PyFtdi
+```
+pip3 install pyftdi
+```
+
+PyUSB
+```
+pip3 install pyusb==1.1.0
+```
+
+OpenCV
+```
 pip3 install opencv-python
 ```
-NumPy should have been installed along with OpenCV. If that had not been the case add numpy
+
+NumPy should have been installed along with OpenCV. If that had not been the case add numpy yourself
 ```
 pip3 install numpy
 ```
+
 ReactiveX is being used to parallelize processes
 ```
 pip3 install reactivex
-```
-
-```
-pip3 install pyusb==1.1.0
-
-pip3 install pyftdi
-
-pip3 install adafruit-blinka
-
 ```
 
 ## Update Packages
