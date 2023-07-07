@@ -27,6 +27,24 @@ in specified time intervals (timelapse), or you could take a picture when signal
 
 In a second step this project allows you to reassemble the list of pictures into a movie, again.
 
+# BLINKA
+
+Blinka is a pip installable Python library that runs in normal "desktop" Python.
+
+On Windows, macOS, or Linux computers, you can use USB adapter boards like the 
+FT232H Adafruit breakout board, to provide hardware pins you can control.  
+This board connects via regular USB to your computer, and let you do 
+GPIO, I2C, SPI, and other hardware operations.
+
+[Overview of supported hardware](https://circuitpython.org/blinka)
+
+Follow the guide section specific to your platform and make sure Blinka is properly
+installed before attempting to install any libraries.
+
+[Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)
+
+Before you proceed, check that the environment variable BLINKA is set as described in the installation guide.
+
 # FT232H
 
 The FT232H is a general purpose USB to GPIO, SPI, I2C - USB-C & Stemma QT breakout board. The FT232H microcontroller 
