@@ -62,10 +62,19 @@ A detailed step-by-step instruction on how to install PyFTDI for Windows, macOS 
 When stuck, troubleshooting hints from the Arduino Help Center might be a door opener
 
 [Install or update FTDI drivers](https://support.arduino.cc/hc/en-us/articles/4411305694610-Install-or-update-FTDI-drivers)
+## FT232H EEPROM
 
-# Installation
+The EEPROM of the FT232H should be initialized. 
+
+The [User_Guide_For_FT_PROG.pdf](https://ftdichip.com/wp-content/uploads/2020/07/AN_124_User_Guide_For_FT_PROG.pdf)
+gives a detailed description on how to do this using the
+[FT_PROG - EEPROM Programming Utility](https://ftdichip.com/utilities/).
+
+# Project  Installation
 
 ## Prerequisites
+
+The FT232H Breakout Board is connected via USB to your computer.
 
 ###  macOS (Intel)
 
@@ -84,10 +93,6 @@ The output from `brew ls libusb` should look like so
 ### Tools
 
 Python3 and pip3 have to be installed first.
-
-### FT232H
-
-It is helpful but not mandatory to have the EEPROM of FT232H initialized
 
 ## Python Packages 
 
@@ -114,12 +119,6 @@ pip3 install adafruit-blinka
 
 ```
 
-## Environment Variable BLINKA_FT232H
-
-```
-set BLINKA_FT232H=1
-```
-
 ## Update Packages
 
 ### MacOS
@@ -131,4 +130,4 @@ pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n1 
 Successfully connect the Adafruit Breakout Board FT232H to your computer. This should work for macOS, Windows and Linux.
 
 We activate the internal USB-camera or any other USB-camera connected to your computer 
-via openCV. On the press of a button connected to the FT232H
+via openCV. ToDo...
