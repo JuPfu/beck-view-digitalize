@@ -92,6 +92,12 @@ class DigitalizeVideo:
         # destroy all windows created
         cv2.destroyAllWindows()
 
+    def grab_image(self, cap) -> None:
+        self.__count = self.__count + 1
+        self.__state = {"img": self.take_picture(cap), "count": self.__count}
+        self.__writeFrameSubject.on_next(self.__state)
+        self.__monitorFrameSubject.on_next(self.__state)
+
     def __del__(self) -> None:
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 
@@ -103,11 +109,3 @@ class DigitalizeVideo:
 
         print("-------End Of Film---------")
         print((time.time() - self.start_time))
-
-    def grab_image(self, cap) -> None:
-        self.__count = self.__count + 1
-        img = self.take_picture(cap)
-        #  The projector delivers mirrored images. To reverse it, we flip the image at the y-axis
-        self.__state = {"img": cv2.flip(img, 1), "count": self.__count}
-        self.__writeFrameSubject.on_next(self.__state)
-        self.__monitorFrameSubject.on_next(self.__state)
