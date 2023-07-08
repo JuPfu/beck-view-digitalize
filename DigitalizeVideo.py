@@ -28,7 +28,7 @@ class DigitalizeVideo:
         print("Cpu count is : {0}".format(self.__thread_count))
 
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
-            ops.do_action(self.grab_image),
+            ops.do_action(self.handle_image),
             ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(
             on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
@@ -68,9 +68,6 @@ class DigitalizeVideo:
         # height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         return cap
 
-    def release_camera(self, camera) -> None:
-        camera.release()
-
     def take_picture(self, camera) -> numpy.ndarray:
         ret, frame = camera.read()
         return frame if ret else []
@@ -88,16 +85,19 @@ class DigitalizeVideo:
         cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
-    def delete_monitoring_window(self) -> None:
-        # destroy all windows created
-        cv2.destroyAllWindows()
-
-    def grab_image(self, cap) -> None:
+    def handle_image(self, cap) -> None:
         self.__count = self.__count + 1
         self.__state = {"img": self.take_picture(cap), "count": self.__count}
         self.__writeFrameSubject.on_next(self.__state)
         self.__monitorFrameSubject.on_next(self.__state)
 
+    def delete_monitoring_window(self) -> None:
+        # destroy all windows created
+        cv2.destroyAllWindows()
+
+    def release_camera(self, camera) -> None:
+        camera.release()
+        
     def __del__(self) -> None:
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 
