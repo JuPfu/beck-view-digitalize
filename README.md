@@ -144,7 +144,8 @@ pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n1 
 ```
 # Step By Step Description
 
-Successfully connect the Adafruit Breakout Board FT232H to your computer. This should work for macOS, Windows and Linux.
+## Press Of A Button
 
-We activate the internal USB-camera or any other USB-camera connected to your computer 
-via openCV. ToDo...
+![Press of a button 1](./assets/img/press_of_a_button_1.png)
+
+![Press of a button 2](./assets/img/press_of_a_button_2.png)

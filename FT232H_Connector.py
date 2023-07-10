@@ -31,14 +31,14 @@ class FT232H_Connector:
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.OUTPUT
         # set initial eof value
-        self.__eof.value = True
+        self.__eof.value = False
 
         # switch to INPUT mode
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
 
     def signal_input(self, cap):
-        while self.__eof.value and self.__count < self.MAXCOUNT:
+        while not self.__eof.value and self.__count < self.MAXCOUNT:
             if self.__optoCouplerOK1.value:
                 # turn on led to show processing of frame has started
                 self.__led.value = True

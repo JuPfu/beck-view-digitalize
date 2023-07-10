@@ -28,7 +28,7 @@ class DigitalizeVideo:
         print("Cpu count is : {0}".format(self.__thread_count))
 
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
-            ops.do_action(self.handle_image),
+            ops.do_action(self.grab_image),
             ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(
             on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
@@ -85,7 +85,7 @@ class DigitalizeVideo:
         cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
-    def handle_image(self, cap) -> None:
+    def grab_image(self, cap) -> None:
         self.__count = self.__count + 1
         self.__state = {"img": self.take_picture(cap), "count": self.__count}
         self.__writeFrameSubject.on_next(self.__state)
