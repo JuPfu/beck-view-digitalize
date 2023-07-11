@@ -144,7 +144,11 @@ pip3 list outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n1 
 ```
 # Step By Step Description
 
-## Press Of A Button
+## Take A Photograph At The Press Of A Button
+
+A simple start to check if everything is set up fine.
+
+ToDo: Detailed description
 
 ![Press of a button 1](./assets/img/press_of_a_button_1.png)
 
