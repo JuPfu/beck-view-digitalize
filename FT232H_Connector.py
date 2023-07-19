@@ -40,11 +40,11 @@ class FT232H_Connector:
     def signal_input(self, cap):
         while not self.__eof.value and self.__count < self.MAXCOUNT:
             if self.__optoCouplerOK1.value:
+                self.__count = self.__count + 1
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # ...todo: explain what is going on here
                 self.__optoCouplerSignalSubject.on_next(cap)
-                self.__count = self.__count + 1
                 #
                 # Wait for self.__optoCouplerOK1 (OK1) to change to false
                 # Latency of OK1 is about one millisecond

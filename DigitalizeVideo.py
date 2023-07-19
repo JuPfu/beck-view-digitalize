@@ -28,20 +28,21 @@ class DigitalizeVideo:
         print("Cpu count is : {0}".format(self.__thread_count))
 
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
+            ops.subscribe_on(self.__thread_pool_scheduler),
             ops.do_action(self.grab_image),
             ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(
-            on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
+            # on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
             on_error=lambda e: print(e),
         )
 
         self.__writeFrameSubject: rx.subject.Subject = rx.subject.Subject()
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
             # ops.filter(lambda state: len(state["img"]) > 0),
-            ops.do_action(self.write_picture),
-            ops.observe_on(self.__thread_pool_scheduler)
+            ops.observe_on(self.__thread_pool_scheduler),
+            ops.do_action(self.write_picture)
         ).subscribe(
-            on_next=lambda i: print(f"PROCESS writeFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            # on_next=lambda i: print(f"PROCESS writeFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
         )
 
@@ -51,8 +52,8 @@ class DigitalizeVideo:
             ops.do_action(self.monitor_picture),
             ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(
-            on_next=lambda i: print(
-                f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            # on_next=lambda i: print(
+            #    f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
         )
 
