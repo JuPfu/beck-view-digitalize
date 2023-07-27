@@ -1,13 +1,14 @@
 import reactivex as rx
 from pyftdi.ftdi import Ftdi
 
+ftdi = Ftdi()
 # list available ftdi devices
 # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
-print(f"List Devices: {Ftdi().list_devices()}")
+print(f"List Devices: {ftdi.list_devices()}")
 # open a dedicated ftdi device contained in the list of ftdi devices
 # URL Scheme
 # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
-Ftdi().open_from_url("ftdi://ftdi:232h:FT66CVI0/1")
+ftdi.open_from_url("ftdi:///1")
 
 from DigitalizeVideo import DigitalizeVideo
 from FT232H_Connector import FT232H_Connector
@@ -28,3 +29,5 @@ pc.signal_input(cap)
 dv.delete_monitoring_window()
 # release usb camera
 dv.release_camera(cap)
+# disconnect FT232H
+ftdi.close()

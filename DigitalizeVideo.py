@@ -70,8 +70,13 @@ class DigitalizeVideo:
         return cap
 
     def take_picture(self, camera) -> numpy.ndarray:
-        ret, frame = camera.read()
-        return frame if ret else []
+        grabbed = camera.grab()
+        if grabbed:
+            grabbed = camera.grab()
+            if grabbed:
+                ret, frame = camera.retrieve()
+                return frame if ret else []
+        return []
 
     def monitor_picture(self, state: StateType) -> None:
         cv2.putText(img=state['img'], text=f"Gerald{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
@@ -98,7 +103,7 @@ class DigitalizeVideo:
 
     def release_camera(self, camera) -> None:
         camera.release()
-        
+
     def __del__(self) -> None:
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 

@@ -7,7 +7,7 @@
     <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FT232H_Connector.py" beforeDir="false" afterPath="$PROJECT_DIR$/FT232H_Connector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -29,7 +29,7 @@
     </option>
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="main" />
+        <entry key="$PROJECT_DIR$" value="pyftdi" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -415,6 +415,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="setup project" />
-    <option name="LAST_COMMIT_MESSAGE" value="setup project" />
+    <MESSAGE value="pyftdi - no blinka" />
+    <option name="LAST_COMMIT_MESSAGE" value="pyftdi - no blinka" />
   </component>
 </project>
