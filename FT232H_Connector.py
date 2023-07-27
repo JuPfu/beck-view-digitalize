@@ -4,12 +4,13 @@ import board
 import digitalio
 import usb.util
 
+
 # see circuit diagram in README.md
 
 class FT232H_Connector:
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
-    MAXCOUNT = 7250 # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+    MAXCOUNT = 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
     def __init__(self, optoCouplerSignalSubject):
         self.__optoCouplerSignalSubject = optoCouplerSignalSubject

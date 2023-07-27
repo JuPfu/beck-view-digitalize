@@ -1,7 +1,5 @@
 import multiprocessing
-import os
 import time
-from threading import current_thread
 from typing import TypedDict
 
 import cv2
@@ -97,11 +95,13 @@ class DigitalizeVideo:
         self.__writeFrameSubject.on_next(self.__state)
         self.__monitorFrameSubject.on_next(self.__state)
 
-    def delete_monitoring_window(self) -> None:
+    @staticmethod
+    def delete_monitoring_window() -> None:
         # destroy all windows created
         cv2.destroyAllWindows()
 
-    def release_camera(self, camera) -> None:
+    @staticmethod
+    def release_camera(camera) -> None:
         camera.release()
 
     def __del__(self) -> None:
