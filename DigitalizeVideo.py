@@ -1,21 +1,21 @@
 import multiprocessing
 import time
-from typing import TypedDict
 
 import cv2
 import numpy
+import numpy.typing as npt
 import reactivex as rx
 from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
+from typing import TypedDict
 
 
 class DigitalizeVideo:
-    StateType = TypedDict('StateType', {'img': numpy.ndarray, 'count': int})
+    StateType = TypedDict('StateType', {'img': npt.ArrayLike, 'count': int})
 
-    def __init__(self, photoCellSignalSubject) -> None:
-        self.__photoCellSignalSubject = photoCellSignalSubject
+    def __init__(self, device_number, photo_cell_signal_subject) -> None:
+        self.__photoCellSignalSubject = photo_cell_signal_subject
 
-        self.__count = 0
         self.__state = {"img": [], "count": 0}
 
         self.__optimal_thread_count = multiprocessing.cpu_count()
@@ -55,25 +55,26 @@ class DigitalizeVideo:
             on_error=lambda e: print(e),
         )
 
+        self.__cap = cv2.VideoCapture(device_number)
+
+        self.initialize_camera(self.__cap)
+
         self.start_time = time.time()
 
-    def initialize_camera(self, device_number: int):
-        cap = cv2.VideoCapture(device_number)
-        # cap.set(cv2.CAP_PROP_FPS, 60)
+    # initialize usb camera
+    def initialize_camera(self, cap) -> None:
+        # self.__camera.set(cv2.CAP_PROP_FPS, 60)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         # width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         # height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        return cap
 
     def take_picture(self, camera) -> numpy.ndarray:
         grabbed = camera.grab()
         if grabbed:
-            grabbed = camera.grab()
-            if grabbed:
-                ret, frame = camera.retrieve()
-                return frame if ret else []
+            ret, frame = camera.retrieve()
+            return frame if ret else []
         return []
 
     def monitor_picture(self, state: StateType) -> None:
@@ -89,20 +90,18 @@ class DigitalizeVideo:
         cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
-    def grab_image(self, cap) -> None:
-        self.__count = self.__count + 1
-        self.__state = {"img": self.take_picture(cap), "count": self.__count}
+    def grab_image(self, count) -> None:
+        print(f"grap_image {count}")
+        self.__state = {"img": self.take_picture(self.__cap), "count": count}
         self.__writeFrameSubject.on_next(self.__state)
         self.__monitorFrameSubject.on_next(self.__state)
 
-    @staticmethod
-    def delete_monitoring_window() -> None:
+    def delete_monitoring_window(self) -> None:
         # destroy all windows created
         cv2.destroyAllWindows()
 
-    @staticmethod
-    def release_camera(camera) -> None:
-        camera.release()
+    def release_camera(self) -> None:
+        self.__cap.release()
 
     def __del__(self) -> None:
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)

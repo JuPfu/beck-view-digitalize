@@ -7,13 +7,13 @@ import usb.util
 
 # see circuit diagram in README.md
 
-class FT232H_Connector:
+class Ft232hConnector:
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
-    MAXCOUNT = 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+    MAXCOUNT = 50  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-    def __init__(self, optoCouplerSignalSubject):
-        self.__optoCouplerSignalSubject = optoCouplerSignalSubject
+    def __init__(self, opto_coupler_signal_subject):
+        self.__optoCouplerSignalSubject = opto_coupler_signal_subject
         self.__count = 0
 
         self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
@@ -38,14 +38,14 @@ class FT232H_Connector:
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
 
-    def signal_input(self, cap):
+    def signal_input(self):
         while not self.__eof.value and self.__count < self.MAXCOUNT:
-            if self.__optoCouplerOK1.value:
+            if True or self.__optoCouplerOK1.value:
                 self.__count = self.__count + 1
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # ...todo: explain what is going on here
-                self.__optoCouplerSignalSubject.on_next(cap)
+                self.__optoCouplerSignalSubject.on_next(self.__count)
                 #
                 # Wait for self.__optoCouplerOK1 (OK1) to change to false
                 # Latency of OK1 is about one millisecond
