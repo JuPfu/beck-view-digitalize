@@ -1,44 +1,35 @@
 import multiprocessing
+import os
 import time
+from threading import current_thread
+from typing import TypedDict
 
 import cv2
-import numpy
-import numpy.typing as npt
 import reactivex as rx
+from numpy import uint8
+from numpy.typing import NDArray
 from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
-from typing import TypedDict
 
 
 class DigitalizeVideo:
-    StateType = TypedDict('StateType', {'img': npt.ArrayLike, 'count': int})
+    StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
-    def __init__(self, device_number, photo_cell_signal_subject) -> None:
+    def __init__(self, device_number: int, photo_cell_signal_subject: rx.Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
         self.__state = {"img": [], "count": 0}
 
-        self.__optimal_thread_count = multiprocessing.cpu_count()
-        self.__pool_scheduler = ThreadPoolScheduler(self.__optimal_thread_count)
         # calculate cpu count which will be used to create a ThreadPoolScheduler
-        self.__thread_count = multiprocessing.cpu_count()
-        self.__thread_pool_scheduler = ThreadPoolScheduler(self.__thread_count)
-        print("Cpu count is : {0}".format(self.__thread_count))
+        optimal_thread_count = multiprocessing.cpu_count()
+        self.__thread_pool_scheduler = ThreadPoolScheduler()
 
-        self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
-            ops.subscribe_on(self.__thread_pool_scheduler),
-            ops.do_action(self.grab_image),
-            ops.observe_on(self.__thread_pool_scheduler)
-        ).subscribe(
-            # on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
-            on_error=lambda e: print(e),
-        )
+        print("Cpu count is : {0}".format(optimal_thread_count))
 
         self.__writeFrameSubject: rx.subject.Subject = rx.subject.Subject()
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
-            # ops.filter(lambda state: len(state["img"]) > 0),
             ops.observe_on(self.__thread_pool_scheduler),
-            ops.do_action(self.write_picture)
+            ops.do_action(lambda x: self.write_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(f"PROCESS writeFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
@@ -46,16 +37,33 @@ class DigitalizeVideo:
 
         self.__monitorFrameSubject: rx.subject.Subject = rx.subject.Subject()
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
-            # ops.filter(lambda state: len(state["img"]) > 0),
-            ops.do_action(self.monitor_picture),
-            ops.observe_on(self.__thread_pool_scheduler)
+            ops.do_action(lambda x: self.monitor_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(
-            #    f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            #     f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
             on_error=lambda e: print(e),
         )
 
-        self.__cap = cv2.VideoCapture(device_number)
+        self.__takePictureSubject: rx.subject.Subject = rx.subject.Subject()
+        self.__takePictureDisposable = self.__takePictureSubject.pipe(
+            ops.map(self.take_picture),
+            ops.do_action(lambda x: self.__writeFrameSubject.on_next(x)),
+            ops.do_action(lambda x: self.__monitorFrameSubject.on_next(x)),
+        ).subscribe(
+            # on_next=lambda i: print(f"PROCESS takePicture: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            on_error=lambda e: print(e),
+        )
+
+        self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
+            ops.subscribe_on(self.__thread_pool_scheduler),
+            ops.map(lambda count: self.__takePictureSubject.on_next(count)),
+        ).subscribe(
+            # on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
+            on_error=lambda e: print(e),
+        )
+
+        self.__cap = cv2.VideoCapture(device_number, cv2.CAP_ANY,
+                                      [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         self.initialize_camera(self.__cap)
 
@@ -63,19 +71,21 @@ class DigitalizeVideo:
 
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
-        # self.__camera.set(cv2.CAP_PROP_FPS, 60)
+        print(f"!!!WIDTH = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        print(f"!!!HEIGHT = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        # width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        # height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
+        cap.set(cv2.CAP_PROP_EXPOSURE, -3)
 
-    def take_picture(self, camera) -> numpy.ndarray:
-        grabbed = camera.grab()
+    def take_picture(self, count) -> StateType:
+        grabbed = self.__cap.grab()
         if grabbed:
-            ret, frame = camera.retrieve()
-            return frame if ret else []
-        return []
+            ret, frame = self.__cap.retrieve()
+            return {"img": frame, "count": count} if ret else {"img": [], "count": count}
+        return {"img": [], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
         cv2.putText(img=state['img'], text=f"Gerald{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
@@ -84,17 +94,12 @@ class DigitalizeVideo:
         cv2.waitKey(3) & 0XFF
 
     def write_picture(self, state: StateType) -> None:
-        cv2.imwrite(f"Gerald{state['count']}.jpg", state["img"], [cv2.IMWRITE_JPEG_QUALITY, 100])
+        filename = f"Gerald{state['count']}.png"
+        cv2.imwrite(filename, state["img"])
 
     def create_monitoring_window(self) -> None:
         cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
-
-    def grab_image(self, count) -> None:
-        print(f"grap_image {count}")
-        self.__state = {"img": self.take_picture(self.__cap), "count": count}
-        self.__writeFrameSubject.on_next(self.__state)
-        self.__monitorFrameSubject.on_next(self.__state)
 
     def delete_monitoring_window(self) -> None:
         # destroy all windows created

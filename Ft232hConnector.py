@@ -10,7 +10,7 @@ import usb.util
 class Ft232hConnector:
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
-    MAXCOUNT = 50  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+    MAXCOUNT = 60  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
     def __init__(self, opto_coupler_signal_subject):
         self.__optoCouplerSignalSubject = opto_coupler_signal_subject
