@@ -71,11 +71,9 @@ class DigitalizeVideo:
 
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
-        print(f"!!!WIDTH = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        print(f"!!!HEIGHT = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
         cap.set(cv2.CAP_PROP_EXPOSURE, -3)
@@ -88,20 +86,22 @@ class DigitalizeVideo:
         return {"img": [], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
-        cv2.putText(img=state['img'], text=f"Gerald{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
+        cv2.putText(img=state['img'], text=f"frame{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', state['img'])
         cv2.waitKey(3) & 0XFF
 
     def write_picture(self, state: StateType) -> None:
-        filename = f"Gerald{state['count']}.png"
+        filename = f"frame{state['count']}.png"
         cv2.imwrite(filename, state["img"])
 
-    def create_monitoring_window(self) -> None:
+    @staticmethod
+    def create_monitoring_window() -> None:
         cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
-    def delete_monitoring_window(self) -> None:
+    @staticmethod
+    def delete_monitoring_window() -> None:
         # destroy all windows created
         cv2.destroyAllWindows()
 
