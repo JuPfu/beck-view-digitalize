@@ -15,8 +15,12 @@ from reactivex.scheduler import ThreadPoolScheduler
 class DigitalizeVideo:
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
+    picture_start = 0
+
     def __init__(self, device_number: int, photo_cell_signal_subject: rx.Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
+
+        self.__picture_start = 0
 
         self.__state = {"img": [], "count": 0}
 
@@ -73,16 +77,24 @@ class DigitalizeVideo:
     def initialize_camera(self, cap) -> None:
         print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        print(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
         cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+        print(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
 
     def take_picture(self, count) -> StateType:
+        t1  = time.time()
         grabbed = self.__cap.grab()
         if grabbed:
             ret, frame = self.__cap.retrieve()
+            if ret is False:
+                print(f"take_picture retrieve error at frame {count}")
+            print(f"f{count} {time.time()  - t1}")
             return {"img": frame, "count": count} if ret else {"img": [], "count": count}
+        else:
+            print(f"take_picture grab error at frame {count}")
         return {"img": [], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
