@@ -18,8 +18,6 @@ class DigitalizeVideo:
     def __init__(self, device_number: int, photo_cell_signal_subject: rx.Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
-        self.__picture_start = 0
-
         self.__state = {"img": [], "count": 0}
 
         # calculate cpu count which will be used to create a ThreadPoolScheduler
@@ -86,7 +84,7 @@ class DigitalizeVideo:
         cap.set(cv2.CAP_PROP_EXPOSURE, -3)
         print(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
         print(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
-        
+
     def take_picture(self, count) -> StateType:
         grabbed = self.__cap.grab()
         if grabbed:

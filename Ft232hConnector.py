@@ -41,7 +41,6 @@ class Ft232hConnector:
     def signal_input(self):
         while not self.__eof.value and self.__count < self.MAXCOUNT:
             if True or self.__optoCouplerOK1.value:
-                signal_start = time.time()
                 self.__count = self.__count + 1
                 # turn on led to show processing of frame has started
                 self.__led.value = True
@@ -56,4 +55,3 @@ class Ft232hConnector:
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
-                print(f"g{self.__count} {time.time() - signal_start}")
