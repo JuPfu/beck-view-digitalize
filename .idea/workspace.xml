@@ -6,6 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -18,6 +20,9 @@
         <option value="Python Script" />
       </list>
     </option>
+  </component>
+  <component name="Git.Merge.Settings">
+    <option name="BRANCH" value="main" />
   </component>
   <component name="Git.Settings">
     <option name="PREVIOUS_COMMIT_AUTHORS">
@@ -254,11 +259,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.usbtools" />
         <item itemvalue="Python.main" />
         <item itemvalue="Python.i2cscan" />
         <item itemvalue="Python.ftdi_urls" />
         <item itemvalue="Python.ftconf" />
-        <item itemvalue="Python.usbtools" />
       </list>
     </recent_temporary>
   </component>
