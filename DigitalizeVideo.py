@@ -15,6 +15,8 @@ from reactivex.scheduler import ThreadPoolScheduler
 class DigitalizeVideo:
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
+    et =  time.time()
+
     def __init__(self, device_number: int, photo_cell_signal_subject: rx.Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
@@ -86,11 +88,15 @@ class DigitalizeVideo:
         print(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
 
     def take_picture(self, count) -> StateType:
+        t1  = time.time()
+        print(f"dt{count} {t1 - DigitalizeVideo.et}")
+        DigitalizeVideo.et = t1
         grabbed = self.__cap.grab()
         if grabbed:
             ret, frame = self.__cap.retrieve()
             if ret is False:
                 print(f"take_picture retrieve error at frame {count}")
+            print(f"f{count} {time.time()  - t1}")
             return {"img": frame, "count": count} if ret else {"img": [], "count": count}
         else:
             print(f"take_picture grab error at frame {count}")
