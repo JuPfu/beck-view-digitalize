@@ -1,21 +1,20 @@
 import multiprocessing
 import os
 import time
-from threading import current_thread
 from typing import TypedDict
 
 import cv2
-import reactivex as rx
 from numpy import uint8
 from numpy.typing import NDArray
 from reactivex import operators as ops
+from reactivex.subject import Subject
 from reactivex.scheduler import ThreadPoolScheduler
 
 
 class DigitalizeVideo:
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
-    def __init__(self, device_number: int, photo_cell_signal_subject: rx.Subject) -> None:
+    def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
         self.__state = {"img": [], "count": 0}
@@ -26,7 +25,7 @@ class DigitalizeVideo:
 
         print("Cpu count is : {0}".format(optimal_thread_count))
 
-        self.__writeFrameSubject: rx.subject.Subject = rx.subject.Subject()
+        self.__writeFrameSubject: Subject = Subject()
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
             ops.observe_on(self.__thread_pool_scheduler),
             ops.do_action(lambda x: self.write_picture(x)),
@@ -35,7 +34,7 @@ class DigitalizeVideo:
             on_error=lambda e: print(e),
         )
 
-        self.__monitorFrameSubject: rx.subject.Subject = rx.subject.Subject()
+        self.__monitorFrameSubject: Subject = Subject()
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
             ops.do_action(lambda x: self.monitor_picture(x)),
         ).subscribe(
@@ -44,19 +43,11 @@ class DigitalizeVideo:
             on_error=lambda e: print(e),
         )
 
-        self.__takePictureSubject: rx.subject.Subject = rx.subject.Subject()
-        self.__takePictureDisposable = self.__takePictureSubject.pipe(
-            ops.map(self.take_picture),
-            ops.do_action(lambda x: self.__writeFrameSubject.on_next(x)),
-            ops.do_action(lambda x: self.__monitorFrameSubject.on_next(x)),
-        ).subscribe(
-            # on_next=lambda i: print(f"PROCESS takePicture: {os.getpid()} {current_thread().name} {len(i['img'])}"),
-            on_error=lambda e: print(e),
-        )
-
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
             ops.subscribe_on(self.__thread_pool_scheduler),
-            ops.map(lambda count: self.__takePictureSubject.on_next(count)),
+            ops.map(self.take_picture),
+            ops.do_action(self.__writeFrameSubject.on_next),
+            ops.do_action(self.__monitorFrameSubject.on_next),
         ).subscribe(
             # on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
             on_error=lambda e: print(e),
@@ -71,10 +62,10 @@ class DigitalizeVideo:
 
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         print(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
