@@ -4,9 +4,9 @@ adafruit-circuitpython-requests==2.0.1
 adafruit-circuitpython-typing==1.9.4
 Adafruit-PlatformDetect==3.49.0
 Adafruit-PureIO==1.1.11
-mypy==1.5.0
+mypy==1.5.1
 mypy-extensions==1.0.0
-numpy==1.25.2
+numpy==1.26.0b1
 opencv-contrib-python==4.8.0.76
 opencv-python==4.8.0.76
 pyftdi==0.55.0

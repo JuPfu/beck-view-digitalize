@@ -1,21 +1,22 @@
 import multiprocessing
-import os
+import threading
 import time
-from typing import TypedDict
+from typing import TypedDict, Callable, Any
 
 import cv2
 from numpy import uint8
 from numpy.typing import NDArray
-from reactivex import operators as ops
-from reactivex.subject import Subject
+from reactivex import create, operators as ops, Observable, pipe
 from reactivex.scheduler import ThreadPoolScheduler
+from reactivex.subject import Subject
 
 
 class DigitalizeVideo:
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
-    def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, device_number: int, photo_cell_signal_subject: Subject, eof_signal_subject: Subject) -> None:
         self.__photoCellSignalSubject = photo_cell_signal_subject
+        self.__eofSignalSubject = eof_signal_subject
 
         self.__state = {"img": [], "count": 0}
 
@@ -25,14 +26,8 @@ class DigitalizeVideo:
 
         print("Cpu count is : {0}".format(optimal_thread_count))
 
-        self.__writeFrameSubject: Subject = Subject()
-        self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
-            ops.observe_on(self.__thread_pool_scheduler),
-            ops.do_action(lambda x: self.write_picture(x)),
-        ).subscribe(
-            # on_next=lambda i: print(f"PROCESS writeFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
-            on_error=lambda e: print(e),
-        )
+        # thread_pool_scheduler does  not wait for shutdown until all iameges are written
+        self.__write_complete_event = threading.Event()
 
         self.__monitorFrameSubject: Subject = Subject()
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
@@ -44,13 +39,13 @@ class DigitalizeVideo:
         )
 
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
-            ops.subscribe_on(self.__thread_pool_scheduler),
             ops.map(self.take_picture),
-            ops.do_action(self.__writeFrameSubject.on_next),
             ops.do_action(self.__monitorFrameSubject.on_next),
+            ops.observe_on(self.__thread_pool_scheduler),
+            self.write_picture(),
         ).subscribe(
-            # on_next=lambda i: print(f"VIEW PROCESS photoCellSignal: {os.getpid()} {current_thread().name}"),
             on_error=lambda e: print(e),
+            on_completed=lambda: print(f"PHOTOCELL COMPLETED")
         )
 
         self.__cap = cv2.VideoCapture(device_number, cv2.CAP_ANY,
@@ -62,10 +57,11 @@ class DigitalizeVideo:
 
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        cap.set(cv2.CAP_PROP_FPS, 30)
         print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         print(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
@@ -73,8 +69,11 @@ class DigitalizeVideo:
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
         cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+        cap.set(cv2.CAP_PROP_GAIN, 0)
+        print(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
         print(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
         print(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
+        print(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def take_picture(self, count) -> StateType:
         grabbed = self.__cap.grab()
@@ -93,9 +92,10 @@ class DigitalizeVideo:
         cv2.imshow('Monitor', state['img'])
         cv2.waitKey(3) & 0XFF
 
-    def write_picture(self, state: StateType) -> None:
-        filename = f"frame{state['count']}.png"
-        cv2.imwrite(filename, state["img"])
+    def write_picture(self) -> Callable[[Observable[Any]], Observable[bool]]:
+        return pipe(
+            ops.map(lambda state: cv2.imwrite(f"frame{state['count']}.png", state["img"]))
+        )
 
     @staticmethod
     def create_monitoring_window() -> None:
@@ -113,11 +113,9 @@ class DigitalizeVideo:
     def __del__(self) -> None:
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 
-        # self.__writeFrameSubject.dispose()
-        # self.__monitorFrameSubject.dispose()
-        # self.__writeFrameDisposable.dispose()
-        # self.__monitorFrameDisposable.dispose()
-        # self.__photoCellSignalDisposable.dispose()
+        self.__monitorFrameDisposable.dispose()
+        self.__monitorFrameSubject.dispose()
+        self.__photoCellSignalDisposable.dispose()
 
         print("-------End Of Film---------")
         print((time.time() - self.start_time))

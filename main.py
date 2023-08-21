@@ -16,12 +16,13 @@ def main():
     from Ft232hConnector import Ft232hConnector
 
     optoCouplerSignalSubject: rx.subject.subject.Subject = rx.subject.Subject()
+    opto_coupler_eof_subject: rx.subject.subject.Subject = rx.subject.Subject()
 
-    device_number = 0  # number of camera device
+    device_number = 1  # number of camera device
 
     # create class instances
-    ft232h = Ft232hConnector(optoCouplerSignalSubject)
-    dv = DigitalizeVideo(device_number, optoCouplerSignalSubject)
+    ft232h = Ft232hConnector(optoCouplerSignalSubject, opto_coupler_eof_subject)
+    dv = DigitalizeVideo(device_number, optoCouplerSignalSubject, opto_coupler_eof_subject)
 
     # create monitoring window
     dv.create_monitoring_window()

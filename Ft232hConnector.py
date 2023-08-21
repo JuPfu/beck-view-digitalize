@@ -12,8 +12,9 @@ class Ft232hConnector:
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
     MAXCOUNT = 1500  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-    def __init__(self, opto_coupler_signal_subject):
+    def __init__(self, opto_coupler_signal_subject, opto_coupler_eof_subject):
         self.__optoCouplerSignalSubject = opto_coupler_signal_subject
+        self.__optoCouplerEoFSubject = opto_coupler_eof_subject
         self.__count = 0
 
         self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
@@ -55,3 +56,7 @@ class Ft232hConnector:
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
+
+        print(f"end of film {self.__count}")
+        self.__optoCouplerSignalSubject.on_completed()
+        self.__optoCouplerEoFSubject.on_next(self.__count)
