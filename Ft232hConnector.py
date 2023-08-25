@@ -58,4 +58,4 @@ class Ft232hConnector:
                 self.__led.value = False
 
         print(f"end of film {self.__count}")
-        self.__optoCouplerEoFSubject.on_next(False)
+        self.__optoCouplerEoFSubject.on_next(self.__count)
