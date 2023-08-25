@@ -8,28 +8,48 @@ import usb.util
 # see circuit diagram in README.md
 
 class Ft232hConnector:
+    """
+    Ft232hConnector class for interfacing with the opto-coupler signals and controlling frame processing.
+
+    This class provides the necessary functionality to control the digital signals from opto-couplers,
+    manage frame processing, and handle the End Of Film (EoF) signal.
+
+    Args:
+        opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
+        opto_coupler_eof_subject (Subject): A subject that emits signals when EoF (End Of Film) is detected.
+    """
+
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
     MAXCOUNT = 1500  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
     def __init__(self, opto_coupler_signal_subject, opto_coupler_eof_subject):
+        """
+        Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
+
+        Args:
+            opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
+            opto_coupler_eof_subject (Subject): A subject that emits signals when EoF (End Of Film) is detected.
+        """
+
         self.__optoCouplerSignalSubject = opto_coupler_signal_subject
         self.__optoCouplerEoFSubject = opto_coupler_eof_subject
         self.__count = 0
 
+        # Find the USB device with specified Vendor and Product IDs
         self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         print(self.__dev)
 
-        # turn LED on while processing a frame
+        # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
         self.__led.direction = digitalio.Direction.OUTPUT
         self.__led.value = False
 
-        # opto-coupler OK1 triggers digitalizing of current frame
+        # Set up opto-coupler OK1 to trigger frame processing
         self.__optoCouplerOK1 = digitalio.DigitalInOut(board.C2)
         self.__optoCouplerOK1.direction = digitalio.Direction.INPUT
 
-        # opto-coupler OK2 triggers EOF (End Of Film)
+        # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.OUTPUT
         # set initial eof value
@@ -40,12 +60,15 @@ class Ft232hConnector:
         self.__eof.direction = digitalio.Direction.INPUT
 
     def signal_input(self):
+        """
+        Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
+        """
         while not self.__eof.value and self.__count < self.MAXCOUNT:
-            if True or self.__optoCouplerOK1.value:
+            if self.__optoCouplerOK1.value:
                 self.__count += 1
                 # turn on led to show processing of frame has started
                 self.__led.value = True
-                # ...todo: explain what is going on here
+                # Emit the frame count through the opto_coupler_signal_subject
                 self.__optoCouplerSignalSubject.on_next(self.__count)
                 #
                 # Wait for self.__optoCouplerOK1 (OK1) to change to false
@@ -57,6 +80,7 @@ class Ft232hConnector:
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
+        # Signal the completion of frame processing and EoF detection
         print(f"end of film {self.__count}")
         self.__optoCouplerSignalSubject.on_completed()
         self.__optoCouplerEoFSubject.on_next(self.__count)
