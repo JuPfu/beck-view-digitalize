@@ -1,15 +1,19 @@
 import multiprocessing
 import threading
 import time
+import logging
 from typing import TypedDict, Callable, Any
 
 import cv2
 from numpy import uint8
 from numpy.typing import NDArray
-from reactivex import create, operators as ops, Observable, pipe
+from reactivex import create, operators as ops, Observable, pipe, compose
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
+# Set up logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DigitalizeVideo:
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
@@ -26,10 +30,14 @@ class DigitalizeVideo:
 
         print("Cpu count is : {0}".format(optimal_thread_count))
 
-        # thread_pool_scheduler does  not wait for shutdown until all iameges are written
-        self.__write_complete_event = threading.Event()
+        logger.info("Cpu count is : %d", optimal_thread_count)
 
+        self.processed_frames = 0
+
+        # Subject for monitoring frames
         self.__monitorFrameSubject: Subject = Subject()
+
+        # Subscription to monitor frames and handle errors
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
             ops.do_action(lambda x: self.monitor_picture(x)),
         ).subscribe(
@@ -38,6 +46,7 @@ class DigitalizeVideo:
             on_error=lambda e: print(e),
         )
 
+        # Subscription to process photo cell signals
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
             ops.map(self.take_picture),
             ops.do_action(self.__monitorFrameSubject.on_next),
@@ -48,6 +57,7 @@ class DigitalizeVideo:
             on_completed=lambda: print(f"PHOTOCELL COMPLETED")
         )
 
+        # Initialize camera and start time
         self.__cap = cv2.VideoCapture(device_number, cv2.CAP_ANY,
                                       [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
@@ -57,6 +67,7 @@ class DigitalizeVideo:
 
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
+        # Set camera properties
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -76,6 +87,7 @@ class DigitalizeVideo:
         print(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def take_picture(self, count) -> StateType:
+        # Grab and retrieve a frame from the camera
         grabbed = self.__cap.grab()
         if grabbed:
             ret, frame = self.__cap.retrieve()
@@ -87,19 +99,25 @@ class DigitalizeVideo:
         return {"img": [], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
+        # Display the frame with added text
         cv2.putText(img=state['img'], text=f"frame{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', state['img'])
         cv2.waitKey(3) & 0XFF
 
     def write_picture(self) -> Callable[[Observable[Any]], Observable[bool]]:
-        return pipe(
-            ops.map(lambda state: cv2.imwrite(f"frame{state['count']}.png", state["img"]))
+        return compose(
+            ops.map(lambda state: cv2.imwrite(f"frame{state['count']}.png", state["img"])),
+            ops.do_action(self.update_processed_frames)
         )
+
+    def update_processed_frames(self, _):
+        # Update the processed frames counter
+        self.processed_frames += 1
 
     @staticmethod
     def create_monitoring_window() -> None:
-        cv2.startWindowThread()
+        # cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
     @staticmethod
@@ -116,6 +134,15 @@ class DigitalizeVideo:
         self.__monitorFrameDisposable.dispose()
         self.__monitorFrameSubject.dispose()
         self.__photoCellSignalDisposable.dispose()
+
+        elapsed_time = time.time() - self.start_time
+        average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
+
+        logger.info("-------End Of Film---------")
+        logger.info("Total processed frames: %d", self.processed_frames)
+        logger.info("Total elapsed time: %.2f seconds", elapsed_time)
+        logger.info("Average FPS: %.2f", average_fps)
+
 
         print("-------End Of Film---------")
         print((time.time() - self.start_time))
