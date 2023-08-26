@@ -25,23 +25,20 @@ class DigitalizeVideo:
     Args:
         device_number (int): The device number of the camera.
         photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
-        eof_signal_subject (Subject): A subject emitting signals for End Of Film (EoF) detection.
     """
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
-    def __init__(self, device_number: int, photo_cell_signal_subject: Subject, eof_signal_subject: Subject) -> None:
+    def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         Args:
             device_number (int): The device number of the camera.
             photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
-            eof_signal_subject (Subject): A subject emitting signals for End Of Film (EoF) detection.
         """
         self.__photoCellSignalSubject = photo_cell_signal_subject
-        self.__eofSignalSubject = eof_signal_subject
 
-        self.__state = {"img": [], "count": 0}
+        self.__state: DigitalizeVideo.StateType = {"img": [], "count": 0}
 
         # calculate cpu count which will be used to create a ThreadPoolScheduler
         optimal_thread_count = multiprocessing.cpu_count()
@@ -87,19 +84,19 @@ class DigitalizeVideo:
     # initialize usb camera
     def initialize_camera(self, cap) -> None:
         # Set camera properties
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_FPS, 30)
         print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         print(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
-        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
-        cap.set(cv2.CAP_PROP_EXPOSURE, -3)
-        cap.set(cv2.CAP_PROP_GAIN, 0)
+        # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
+        # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
+        # cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+        # cap.set(cv2.CAP_PROP_GAIN, 0)
         print(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
         print(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
         print(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
@@ -130,7 +127,7 @@ class DigitalizeVideo:
             ops.do_action(self.update_processed_frames)
         )
 
-    def update_processed_frames(self, _):
+    def update_processed_frames(self, _) -> None:
         """
         Update the processed frames counter.
 
@@ -141,7 +138,6 @@ class DigitalizeVideo:
 
     @staticmethod
     def create_monitoring_window() -> None:
-        # cv2.startWindowThread()
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
     @staticmethod
@@ -169,6 +165,3 @@ class DigitalizeVideo:
         logger.info("Total processed frames: %d", self.processed_frames)
         logger.info("Total elapsed time: %.2f seconds", elapsed_time)
         logger.info("Average FPS: %.2f", average_fps)
-
-        print("-------End Of Film---------")
-        print((time.time() - self.start_time))

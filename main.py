@@ -1,5 +1,5 @@
-import reactivex as rx
 from pyftdi.ftdi import Ftdi
+from reactivex.subject import Subject
 
 
 def main():
@@ -15,14 +15,13 @@ def main():
     from DigitalizeVideo import DigitalizeVideo
     from Ft232hConnector import Ft232hConnector
 
-    optoCouplerSignalSubject: rx.subject.subject.Subject = rx.subject.Subject()
-    opto_coupler_eof_subject: rx.subject.subject.Subject = rx.subject.Subject()
+    optocoupler_signal_subject: Subject = Subject()
 
-    device_number = 1  # number of camera device
+    device_number = 1  # number of camera device used as source
 
     # create class instances
-    ft232h = Ft232hConnector(optoCouplerSignalSubject, opto_coupler_eof_subject)
-    dv = DigitalizeVideo(device_number, optoCouplerSignalSubject, opto_coupler_eof_subject)
+    ft232h = Ft232hConnector(optocoupler_signal_subject)
+    dv = DigitalizeVideo(device_number, optocoupler_signal_subject)
 
     # create monitoring window
     dv.create_monitoring_window()

@@ -16,24 +16,21 @@ class Ft232hConnector:
 
     Args:
         opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
-        opto_coupler_eof_subject (Subject): A subject that emits signals when EoF (End Of Film) is detected.
     """
 
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
     MAXCOUNT = 1500  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-    def __init__(self, opto_coupler_signal_subject, opto_coupler_eof_subject):
+    def __init__(self, opto_coupler_signal_subject) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
             opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
-            opto_coupler_eof_subject (Subject): A subject that emits signals when EoF (End Of Film) is detected.
         """
 
         self.__optoCouplerSignalSubject = opto_coupler_signal_subject
-        self.__optoCouplerEoFSubject = opto_coupler_eof_subject
         self.__count = 0
 
         # Find the USB device with specified Vendor and Product IDs
@@ -59,12 +56,12 @@ class Ft232hConnector:
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
 
-    def signal_input(self):
+    def signal_input(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
         while not self.__eof.value and self.__count < self.MAXCOUNT:
-            if self.__optoCouplerOK1.value:
+            if True or  self.__optoCouplerOK1.value:
                 self.__count += 1
                 # turn on led to show processing of frame has started
                 self.__led.value = True
@@ -81,6 +78,4 @@ class Ft232hConnector:
                 self.__led.value = False
 
         # Signal the completion of frame processing and EoF detection
-        print(f"end of film {self.__count}")
         self.__optoCouplerSignalSubject.on_completed()
-        self.__optoCouplerEoFSubject.on_next(self.__count)
