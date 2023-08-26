@@ -1,13 +1,12 @@
-import multiprocessing
-import threading
-import time
 import logging
+import multiprocessing
+import time
 from typing import TypedDict, Callable, Any
 
 import cv2
 from numpy import uint8
 from numpy.typing import NDArray
-from reactivex import create, operators as ops, Observable, pipe, compose
+from reactivex import operators as ops, Observable, compose
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
@@ -15,10 +14,30 @@ from reactivex.subject import Subject
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 class DigitalizeVideo:
+    """
+    DigitalizeVideo class for processing and digitalizing video frames.
+
+    This class provides methods to initialize the video capturing process,
+    process frames using reactive programming, monitor frames, and more.
+
+    Args:
+        device_number (int): The device number of the camera.
+        photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
+        eof_signal_subject (Subject): A subject emitting signals for End Of Film (EoF) detection.
+    """
     StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject, eof_signal_subject: Subject) -> None:
+        """
+        Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
+
+        Args:
+            device_number (int): The device number of the camera.
+            photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
+            eof_signal_subject (Subject): A subject emitting signals for End Of Film (EoF) detection.
+        """
         self.__photoCellSignalSubject = photo_cell_signal_subject
         self.__eofSignalSubject = eof_signal_subject
 
@@ -112,7 +131,12 @@ class DigitalizeVideo:
         )
 
     def update_processed_frames(self, _):
-        # Update the processed frames counter
+        """
+        Update the processed frames counter.
+
+        Args:
+            _ (Any): Placeholder argument.
+        """
         self.processed_frames += 1
 
     @staticmethod
@@ -129,6 +153,9 @@ class DigitalizeVideo:
         self.__cap.release()
 
     def __del__(self) -> None:
+        """
+        Clean up resources and log statistics upon instance destruction.
+        """
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 
         self.__monitorFrameDisposable.dispose()
@@ -142,7 +169,6 @@ class DigitalizeVideo:
         logger.info("Total processed frames: %d", self.processed_frames)
         logger.info("Total elapsed time: %.2f seconds", elapsed_time)
         logger.info("Average FPS: %.2f", average_fps)
-
 
         print("-------End Of Film---------")
         print((time.time() - self.start_time))

@@ -6,6 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -531,7 +532,15 @@
       <option name="project" value="LOCAL" />
       <updated>1693002580129</updated>
     </task>
-    <option name="localTasksCounter" value="32" />
+    <task id="LOCAL-00032" summary="added some documentation">
+      <option name="closed" value="true" />
+      <created>1693003154980</created>
+      <option name="number" value="00032" />
+      <option name="presentableId" value="LOCAL-00032" />
+      <option name="project" value="LOCAL" />
+      <updated>1693003154980</updated>
+    </task>
+    <option name="localTasksCounter" value="33" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -567,6 +576,7 @@
     <MESSAGE value="update dependencies" />
     <MESSAGE value="some small optimizations" />
     <MESSAGE value="logging added" />
-    <option name="LAST_COMMIT_MESSAGE" value="logging added" />
+    <MESSAGE value="added some documentation" />
+    <option name="LAST_COMMIT_MESSAGE" value="added some documentation" />
   </component>
 </project>
