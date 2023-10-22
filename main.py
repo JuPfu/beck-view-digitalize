@@ -17,7 +17,7 @@ def main():
 
     optocoupler_signal_subject: Subject = Subject()
 
-    device_number = 1  # number of camera device used as source
+    device_number = 0  # number of camera device used as source
 
     # create class instances
     ft232h = Ft232hConnector(optocoupler_signal_subject)

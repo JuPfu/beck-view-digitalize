@@ -4,8 +4,9 @@ import time
 from typing import TypedDict, Callable, Any
 
 import cv2
-from numpy import uint8
-from numpy.typing import NDArray
+import numpy as np
+from numpy._typing import NDArray
+
 from reactivex import operators as ops, Observable, compose
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
@@ -26,7 +27,7 @@ class DigitalizeVideo:
         device_number (int): The device number of the camera.
         photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
     """
-    StateType = TypedDict('StateType', {'img': NDArray[uint8], 'count': int})
+    StateType = TypedDict('StateType', {'img': NDArray[np.uint8], 'count': int})
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
@@ -38,7 +39,7 @@ class DigitalizeVideo:
         """
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
-        self.__state: DigitalizeVideo.StateType = {"img": [], "count": 0}
+        self.__state: DigitalizeVideo.StateType = {"img": NDArray[np.uint8], "count": 0}
 
         # calculate cpu count which will be used to create a ThreadPoolScheduler
         optimal_thread_count = multiprocessing.cpu_count()
@@ -70,7 +71,6 @@ class DigitalizeVideo:
             self.write_picture(),
         ).subscribe(
             on_error=lambda e: print(e),
-            on_completed=lambda: print(f"PHOTOCELL COMPLETED")
         )
 
         # Initialize camera and start time
@@ -109,10 +109,10 @@ class DigitalizeVideo:
             ret, frame = self.__cap.retrieve()
             if ret is False:
                 print(f"take_picture retrieve error at frame {count}")
-            return {"img": frame, "count": count} if ret else {"img": [], "count": count}
+            return {"img": frame, "count": count} if ret else {"img": NDArray[np.uint8], "count": count}
         else:
             print(f"take_picture grab error at frame {count}")
-        return {"img": [], "count": count}
+        return {"img": NDArray[np.uint8], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
         # Display the frame with added text
