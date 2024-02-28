@@ -6,7 +6,6 @@ from typing import TypedDict, Callable, Any
 import cv2
 import numpy as np
 from numpy._typing import NDArray
-
 from reactivex import operators as ops, Observable, compose
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
@@ -65,12 +64,15 @@ class DigitalizeVideo:
 
         # Subscription to process photo cell signals
         self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
+            # get picture from camera
             ops.map(self.take_picture),
+            #  display picture in monitor window
             ops.do_action(self.__monitorFrameSubject.on_next),
-            ops.observe_on(self.__thread_pool_scheduler),
+            # write picture to storage
             self.write_picture(),
+            ops.observe_on(self.__thread_pool_scheduler)
         ).subscribe(
-            on_error=lambda e: print(e),
+            on_error=lambda e: logger.error(e),
         )
 
         # Initialize camera and start time
@@ -89,18 +91,18 @@ class DigitalizeVideo:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_FPS, 30)
-        print(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        print(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        print(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
+        logger.info(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        logger.info(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        logger.info(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
         # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
         # cap.set(cv2.CAP_PROP_EXPOSURE, -3)
         # cap.set(cv2.CAP_PROP_GAIN, 0)
-        print(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
-        print(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        print(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
-        print(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+        logger.info(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
+        logger.info(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        logger.info(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
+        logger.info(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def take_picture(self, count) -> StateType:
         # Grab and retrieve a frame from the camera
@@ -108,10 +110,10 @@ class DigitalizeVideo:
         if grabbed:
             ret, frame = self.__cap.retrieve()
             if ret is False:
-                print(f"take_picture retrieve error at frame {count}")
+                logger.error(f"take_picture retrieve error at frame {count}")
             return {"img": frame, "count": count} if ret else {"img": NDArray[np.uint8], "count": count}
         else:
-            print(f"take_picture grab error at frame {count}")
+            logger.error(f"take_picture grab error at frame {count}")
         return {"img": NDArray[np.uint8], "count": count}
 
     def monitor_picture(self, state: StateType) -> None:
