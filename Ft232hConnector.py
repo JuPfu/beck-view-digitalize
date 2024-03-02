@@ -63,6 +63,7 @@ class Ft232hConnector:
         while not self.__eof.value and self.__count < self.MAXCOUNT:
             if True or self.__optoCouplerOK1.value:
                 self.__count += 1
+
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # Emit the frame count through the opto_coupler_signal_subject
@@ -79,3 +80,4 @@ class Ft232hConnector:
 
         # Signal the completion of frame processing and EoF detection
         self.__optoCouplerSignalSubject.on_completed()
+

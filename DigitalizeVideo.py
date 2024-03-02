@@ -1,12 +1,12 @@
 import logging
 import multiprocessing
 import time
-from typing import TypedDict, Callable, Any
+from typing import TypedDict
 
 import cv2
 import numpy as np
 from numpy._typing import NDArray
-from reactivex import operators as ops, Observable, compose
+from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
@@ -55,7 +55,17 @@ class DigitalizeVideo:
 
         # Subscription to monitor frames and handle errors
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
-            ops.do_action(lambda x: self.monitor_picture(x)),
+            ops.map(lambda x: self.monitor_picture(x)),
+        ).subscribe(
+            # on_next=lambda i: print(
+            #     f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            on_error=lambda e: print(e),
+        )
+
+        self.__writeFrameSubject: Subject = Subject()
+
+        self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
+            ops.map(lambda x: self.write_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(
             #     f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
@@ -67,12 +77,13 @@ class DigitalizeVideo:
             # get picture from camera
             ops.map(self.take_picture),
             #  display picture in monitor window
-            ops.do_action(self.__monitorFrameSubject.on_next),
+            ops.do_action(lambda state: self.__monitorFrameSubject.on_next(state)),
+            ops.observe_on(self.__thread_pool_scheduler),
             # write picture to storage
-            self.write_picture(),
-            ops.observe_on(self.__thread_pool_scheduler)
+            ops.map(lambda state: self.__writeFrameSubject.on_next(state)),
         ).subscribe(
-            on_error=lambda e: logger.error(e),
+            on_completed=logger.info(f"digitization completed"),
+            on_error=lambda e: logger.error(e)
         )
 
         # Initialize camera and start time
@@ -96,10 +107,11 @@ class DigitalizeVideo:
         logger.info(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
-        # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
-        # cap.set(cv2.CAP_PROP_EXPOSURE, -3)
-        # cap.set(cv2.CAP_PROP_GAIN, 0)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
+        cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+        cap.set(cv2.CAP_PROP_GAIN, 0)
         logger.info(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
+        logger.info(f"auto exposure = {cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
         logger.info(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
         logger.info(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
         logger.info(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
@@ -116,30 +128,19 @@ class DigitalizeVideo:
             logger.error(f"take_picture grab error at frame {count}")
         return {"img": NDArray[np.uint8], "count": count}
 
-    def monitor_picture(self, state: StateType) -> None:
+    def monitor_picture(self, state: StateType) -> StateType:
         # Display the frame with added text
         cv2.putText(img=state['img'], text=f"frame{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', state['img'])
         cv2.waitKey(3) & 0XFF
+        return state
 
-    def write_picture(self) -> Callable[[Observable[Any]], Observable[bool]]:
-        return compose(
-            ops.map(lambda state: cv2.imwrite(f"frame{state['count']}.png", state["img"])),
-            ops.do_action(self.update_processed_frames)
-        )
-
-    def update_processed_frames(self, _) -> None:
-        """
-        Update the processed frames counter.
-
-        Args:
-            _ (Any): Placeholder argument.
-        """
+    def write_picture(self, state: StateType):
+        cv2.imwrite(f"frame{state['count']}.png", state["img"])
         self.processed_frames += 1
 
-    @staticmethod
-    def create_monitoring_window() -> None:
+    def create_monitoring_window(self) -> None:
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
     @staticmethod
@@ -156,10 +157,6 @@ class DigitalizeVideo:
         """
         self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
 
-        self.__monitorFrameDisposable.dispose()
-        self.__monitorFrameSubject.dispose()
-        self.__photoCellSignalDisposable.dispose()
-
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
@@ -167,3 +164,7 @@ class DigitalizeVideo:
         logger.info("Total processed frames: %d", self.processed_frames)
         logger.info("Total elapsed time: %.2f seconds", elapsed_time)
         logger.info("Average FPS: %.2f", average_fps)
+
+        self.__monitorFrameDisposable.dispose()
+        self.__writeFrameDisposable.dispose()
+        self.__photoCellSignalDisposable.dispose()
