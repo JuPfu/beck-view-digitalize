@@ -1,6 +1,8 @@
 import logging
 import multiprocessing
+import os
 import time
+from threading import current_thread
 from typing import TypedDict
 
 import cv2
@@ -56,20 +58,22 @@ class DigitalizeVideo:
         # Subscription to monitor frames and handle errors
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
             ops.map(lambda x: self.monitor_picture(x)),
+            ops.observe_on(self.__thread_pool_scheduler),
         ).subscribe(
             # on_next=lambda i: print(
-            #     f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
-            on_error=lambda e: print(e),
+            #      f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
+            on_error=lambda e: logger.error(e)
         )
 
         self.__writeFrameSubject: Subject = Subject()
 
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
+            ops.observe_on(self.__thread_pool_scheduler),
             ops.map(lambda x: self.write_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(
-            #     f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
-            on_error=lambda e: print(e),
+            #      f"WRITE PROCESS frame: {os.getpid()} {current_thread().name} {i}"),
+            on_error=lambda e: logger.error(e)
         )
 
         # Subscription to process photo cell signals
@@ -80,7 +84,7 @@ class DigitalizeVideo:
             ops.do_action(lambda state: self.__monitorFrameSubject.on_next(state)),
             ops.observe_on(self.__thread_pool_scheduler),
             # write picture to storage
-            ops.map(lambda state: self.__writeFrameSubject.on_next(state)),
+            ops.do_action(lambda state: self.__writeFrameSubject.on_next(state)),
         ).subscribe(
             on_completed=logger.info(f"digitization completed"),
             on_error=lambda e: logger.error(e)
@@ -136,9 +140,10 @@ class DigitalizeVideo:
         cv2.waitKey(3) & 0XFF
         return state
 
-    def write_picture(self, state: StateType):
+    def write_picture(self, state: StateType) -> int:
         cv2.imwrite(f"frame{state['count']}.png", state["img"])
         self.processed_frames += 1
+        return self.processed_frames
 
     def create_monitoring_window(self) -> None:
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
@@ -155,7 +160,7 @@ class DigitalizeVideo:
         """
         Clean up resources and log statistics upon instance destruction.
         """
-        self.__thread_pool_scheduler.executor.shutdown(wait=True, cancel_futures=False)
+        self.__thread_pool_scheduler.executor.shutdown()
 
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
