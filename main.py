@@ -20,8 +20,8 @@ def main():
     device_number = 0  # number of camera device used as source
 
     # create class instances
-    ft232h = Ft232hConnector(optocoupler_signal_subject)
     dv = DigitalizeVideo(device_number, optocoupler_signal_subject)
+    ft232h = Ft232hConnector(optocoupler_signal_subject)
 
     # create monitoring window
     dv.create_monitoring_window()

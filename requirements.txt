@@ -1,8 +1,9 @@
-Adafruit-Blinka>=8.33.0
+Adafruit-Blinka>=8.34.0
 adafruit-circuitpython-busdevice>=5.2.6
-adafruit-circuitpython-requests>=3.0.0
+adafruit-circuitpython-requests>=3.0.1
+adafruit-circuitpython-connectionmanager>=1.0.1
 adafruit-circuitpython-typing>=1.10.2
-Adafruit-PlatformDetect>=3.61.0
+Adafruit-PlatformDetect>=3.62.0
 Adafruit-PureIO>=1.1.11
 mypy>=1.8.0
 mypy-extensions>=1.0.0
