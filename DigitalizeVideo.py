@@ -58,7 +58,6 @@ class DigitalizeVideo:
         # Subscription to monitor frames and handle errors
         self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
             ops.map(lambda x: self.monitor_picture(x)),
-            ops.observe_on(self.__thread_pool_scheduler),
         ).subscribe(
             # on_next=lambda i: print(
             #      f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
@@ -68,7 +67,6 @@ class DigitalizeVideo:
         self.__writeFrameSubject: Subject = Subject()
 
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
-            ops.observe_on(self.__thread_pool_scheduler),
             ops.map(lambda x: self.write_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(
