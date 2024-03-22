@@ -7,7 +7,6 @@ from typing import TypedDict
 
 import cv2
 import numpy as np
-from numpy._typing import NDArray
 from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
@@ -28,7 +27,7 @@ class DigitalizeVideo:
         device_number (int): The device number of the camera.
         photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
     """
-    StateType = TypedDict('StateType', {'img': NDArray[np.uint8], 'count': int})
+    StateType = TypedDict('StateType', {'img': np.ndarray[np.uint8], 'count': int})
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
@@ -40,7 +39,7 @@ class DigitalizeVideo:
         """
         self.__photoCellSignalSubject = photo_cell_signal_subject
 
-        self.__state: DigitalizeVideo.StateType = {"img": NDArray[np.uint8], "count": 0}
+        self.__state: DigitalizeVideo.StateType = {"img": np.array([], np.uint8), "count": 0}
 
         # calculate cpu count which will be used to create a ThreadPoolScheduler
         optimal_thread_count = multiprocessing.cpu_count()
@@ -125,10 +124,11 @@ class DigitalizeVideo:
             ret, frame = self.__cap.retrieve()
             if ret is False:
                 logger.error(f"take_picture retrieve error at frame {count}")
-            return {"img": frame, "count": count} if ret else {"img": NDArray[np.uint8], "count": count}
+            return {"img": frame, "count": count} if ret else {"img": np.array([], np.uint8),
+                                                               "count": count}
         else:
             logger.error(f"take_picture grab error at frame {count}")
-        return {"img": NDArray[np.uint8], "count": count}
+        return {"img": np.array([], np.uint8), "count": count}
 
     def monitor_picture(self, state: StateType) -> StateType:
         # Display the frame with added text
