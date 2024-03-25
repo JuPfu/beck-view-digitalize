@@ -1,8 +1,7 @@
 import logging
 import multiprocessing
-import os
 import time
-from threading import current_thread
+from multiprocessing import shared_memory, Process
 from typing import TypedDict
 
 import cv2
@@ -10,6 +9,49 @@ import numpy as np
 from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
+
+
+def write_images(shared_memory_buffer_name, img_desc):
+    logger.info(f">>>Write {shared_memory_buffer_name=}")
+    logger.info(f">>>Write {img_desc=}")
+
+    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
+
+    start = 0
+    end = 0
+
+    buf = np.frombuffer(shm.buf, dtype=np.uint8)
+    for img in img_desc:
+        start = end
+        logger.info(f"===Write {start=}")
+        end += img['data_bytes']
+        logger.info(f"===Write {end=}")
+        reshaped = np.reshape(buf[start:end], (-1, 1280, 3))
+
+        filename = f"frame{img['count']}.png"
+        success = cv2.imwrite(filename, reshaped)
+
+        if success:
+            logger.info(f"<<<Write {filename=}")
+            del reshaped
+
+    del buf
+    shm.close()
+    shm.unlink()
+
+def write_image(shared_memory_buffer_name, filename):
+    logger.info(f">>>Write {shared_memory_buffer_name=}")
+    logger.info(f">>>Write {filename=}")
+    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
+    reshaped = np.reshape(np.frombuffer(shm.buf, dtype=np.uint8), (-1, 1280, 3))
+
+    success = cv2.imwrite(filename, reshaped)
+
+    if success:
+        logger.info(f"<<<Write {filename=}")
+        del reshaped
+        shm.close()
+        shm.unlink()
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -28,6 +70,11 @@ class DigitalizeVideo:
         photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
     """
     StateType = TypedDict('StateType', {'img': np.ndarray[np.uint8], 'count': int})
+
+    ImgDescType = TypedDict('ImgDescType', {'data_bytes': int, 'img_count': int})
+
+    frame_desc: [ImgDescType] = []
+    db = np.reshape(np.array([], np.uint8), (-1, 1280,3))
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
@@ -66,7 +113,7 @@ class DigitalizeVideo:
         self.__writeFrameSubject: Subject = Subject()
 
         self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
-            ops.map(lambda x: self.write_picture(x)),
+            ops.map(lambda x: self.memory_write_picture(x)),
         ).subscribe(
             # on_next=lambda i: print(
             #      f"WRITE PROCESS frame: {os.getpid()} {current_thread().name} {i}"),
@@ -143,6 +190,60 @@ class DigitalizeVideo:
         self.processed_frames += 1
         return self.processed_frames
 
+    def memory_write_picture(self, state: StateType) -> int:
+        filename = f"frame{state['count']}.png"
+        logger.info(f">>>memory_write_picture {filename=}")
+
+        # data_bytes = state['img']
+        # data_bytes_len = state['img'].size
+        name = f"shm{state['count']}"
+
+        # self.db = self.db + state['img']
+        self.db = np.concatenate((self.db, state['img']), dtype='uint8')
+        self.frame_desc.append({'data_bytes': state['img'].size, 'count': self.processed_frames})
+        self.processed_frames += 1
+
+        if  len(self.frame_desc) > 7 :
+            logger.info(f">>>memory_write_picture {len(self.frame_desc)=}")
+            sum = 0
+            buf = np.reshape(np.array([], np.uint8), (-1, 1280,3))
+
+            for e in self.frame_desc:
+                # logger.info(f">>>memory_write_picture { e['data_bytes']=}")
+                sum += e['data_bytes']
+                # logger.info(f">>>memory_write_picture  === {sum=}")
+
+
+            # for e in self.db:
+            #     buf = np.concatenate((buf, e['img']), dtype='uint8')
+
+            logger.info(f"===memory_write_picture {sum=}")
+            logger.info(f"===memory_write_picture {buf.size=}")
+
+            shm = shared_memory.SharedMemory(name=name, create=True, size=sum)
+            logger.info(f"===memory_write_picture {len(self.db.tobytes())=}")
+            shm.buf[:sum] = self.db.tobytes()
+            logger.info(f"===memory_write_picture {shm.buf.nbytes=}")
+
+            logger.info(f">>>memory_write_picture vor Process {shm.name=}")
+            try:
+                proc = Process(target=write_images, args=(shm.name, self.frame_desc))
+                proc.start()
+                # self.processed_frames += len(self.ImgDescType)
+                # proc.join()
+
+            # shm = shared_memory.SharedMemory(name=name, create=True, size=data_bytes_len)
+            # shm.buf[:data_bytes_len] = data_bytes.tobytes()
+            # try:
+            #     proc = Process(target=write_image, args=(shm.name, filename))
+            #     proc.start()
+            #     self.processed_frames += 1
+            #     # proc.join()
+            finally:
+                logger.info(f">>>memory_write_picture finally close {shm.name=}")
+                self.db  = np.reshape(np.array([], np.uint8), (-1, 1280,3))
+                self.frame_desc = []
+
     def create_monitoring_window(self) -> None:
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
@@ -155,6 +256,11 @@ class DigitalizeVideo:
         self.__cap.release()
 
     def __del__(self) -> None:
+
+        # complete the processes
+        # for proc in self.processes:
+        #     proc.join()
+
         """
         Clean up resources and log statistics upon instance destruction.
         """
