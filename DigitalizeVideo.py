@@ -20,12 +20,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType]):
-    logger.info(f">>>Write {shared_memory_buffer_name=}")
-    logger.info(f">>>Write {img_desc=}")
-
+def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_width: int, img_height: int):
     shm = shared_memory.SharedMemory(shared_memory_buffer_name)
-    data = np.ndarray((len(img_desc) * 720 * 1280 * 3,), dtype=np.uint8, buffer=shm.buf)
+    data = np.ndarray((len(img_desc) * img_height * img_width * 3,), dtype=np.uint8, buffer=shm.buf)
 
     end: int = 0
 
@@ -34,12 +31,10 @@ def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType]):
         end += img['number_of_data_bytes']
 
         filename: str = f"frame{img['img_count']}.png"
-        success: bool = cv2.imwrite(filename, data[start:end].reshape((720, 1280, 3)))
+        success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
 
-        if success:
-            logger.info(f"<<<Write with success {filename=}")
-
-    logger.info(f"<<<Write close shm for {shared_memory_buffer_name=}")
+        if not success:
+            logger.error(f"Could not write {filename=}")
 
     shm.close()
     shm.unlink()
@@ -84,7 +79,7 @@ class DigitalizeVideo:
         self.img_nbytes: int = self.img_width * self.img_height * 3
 
         # create monitoring window
-        self.create_monitoring_window()
+        DigitalizeVideo.create_monitoring_window()
 
         self.processed_frames = 0
         self.start_time = time.time()
@@ -122,7 +117,7 @@ class DigitalizeVideo:
 
         # Subscription to monitor/view frames and handle errors
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(lambda x: self.monitor_picture(x))
+            ops.map(lambda x: DigitalizeVideo.monitor_picture(x))
         ).subscribe(
             on_error=lambda e: self.logger.error(e)
         )
@@ -180,14 +175,13 @@ class DigitalizeVideo:
             self.write_to_shared_memory()
 
     def write_to_shared_memory(self):
-        self.logger.info(f">>>write_to_shared_memory {self.processed_frames=}")
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
         shm.buf[:len(self.image_data)] = copy.copy(self.image_data)
 
         try:
-            proc = Process(target=write_images, args=(shm.name, copy.deepcopy(self.frame_desc)))
+            proc = Process(target=write_images,
+                           args=(shm.name, copy.deepcopy(self.frame_desc), self.img_width, self.img_height))
             proc.start()
-            self.logger.info(f">>>write_to_shared_memory nach started Process {proc.name=}")
         finally:
             # cleanup for next batch
             self.frame_desc = []
@@ -217,7 +211,7 @@ class DigitalizeVideo:
             self.release_camera()
 
         # delete monitoring window
-        self.delete_monitoring_window()
+        DigitalizeVideo.delete_monitoring_window()
 
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
