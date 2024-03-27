@@ -1,3 +1,4 @@
+import copy
 import logging
 import multiprocessing
 import time
@@ -11,56 +12,37 @@ from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
-StateType = TypedDict('StateType', {'img': npt.NDArray, 'count': int})
-
-
-def write_images(shared_memory_buffer_name, img_desc):
-    logger.info(f">>>Write {shared_memory_buffer_name=}")
-    logger.info(f">>>Write {img_desc=}")
-
-    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
-
-    end = 0
-
-    buf = np.frombuffer(shm.buf, dtype=np.uint8)
-    for img in img_desc:
-        start = end
-        logger.info(f"===Write {start=}")
-        end += img['data_bytes']
-        logger.info(f"===Write {end=}")
-        reshaped = np.reshape(buf[start:end], (-1, 1280, 3))
-
-        filename = f"frame{img['count']}.png"
-        success = cv2.imwrite(filename, reshaped)
-
-        if success:
-            logger.info(f"<<<Write with success {filename=}")
-            del reshaped
-
-    logger.info(f"<<<Write close shm for {shared_memory_buffer_name=}")
-    del buf
-    shm.close()
-    shm.unlink()
-
-
-def write_image(shared_memory_buffer_name, filename):
-    logger.info(f">>>Write {shared_memory_buffer_name=}")
-    logger.info(f">>>Write {filename=}")
-    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
-    reshaped = np.reshape(np.frombuffer(shm.buf, dtype=np.uint8), (-1, 1280, 3))
-
-    success = cv2.imwrite(filename, reshaped)
-
-    if success:
-        logger.info(f"<<<Write {filename=}")
-        del reshaped
-        shm.close()
-        shm.unlink()
-
+StateType = TypedDict('StateType', {'img': npt.NDArray, 'img_count': int})
+ImgDescType = TypedDict('ImgDescType', {'number_of_data_bytes': int, 'img_count': int})
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType]):
+    logger.info(f">>>Write {shared_memory_buffer_name=}")
+    logger.info(f">>>Write {img_desc=}")
+
+    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
+    data = np.ndarray((len(img_desc) * 720 * 1280 * 3,), dtype=np.uint8, buffer=shm.buf)
+
+    end: int = 0
+
+    for img in img_desc:
+        start = end
+        end += img['number_of_data_bytes']
+
+        filename: str = f"frame{img['img_count']}.png"
+        success: bool = cv2.imwrite(filename, data[start:end].reshape((720, 1280, 3)))
+
+        if success:
+            logger.info(f"<<<Write with success {filename=}")
+
+    logger.info(f"<<<Write close shm for {shared_memory_buffer_name=}")
+
+    shm.close()
+    shm.unlink()
 
 
 class DigitalizeVideo:
@@ -75,11 +57,6 @@ class DigitalizeVideo:
         photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
     """
 
-    ImgDescType = TypedDict('ImgDescType', {'data_bytes': int, 'img_count': int})
-
-    frame_desc: [ImgDescType] = []
-    db = np.reshape(np.array([], np.uint8), (-1, 1280, 3))
-
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
@@ -88,150 +65,136 @@ class DigitalizeVideo:
             device_number (int): The device number of the camera.
             photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
         """
-        self.__photoCellSignalSubject = photo_cell_signal_subject
 
-        print(f"Type {type(np.array((720, 1280, 3), dtype=np.uint8))=}")
-        self.__state: StateType = {"img": np.array((720, 1280, 3), dtype=np.uint8), "count": 0}
+        # batch size is the number of images worked on in a process
+        self.batch_size = 15
 
-        # calculate cpu count which will be used to create a ThreadPoolScheduler
-        optimal_thread_count = multiprocessing.cpu_count()
-        self.__thread_pool_scheduler = ThreadPoolScheduler()
+        self.frame_desc: [ImgDescType] = []
 
-        print("Cpu count is : {0}".format(optimal_thread_count))
+        self.image_data = self.image_data = np.array([], dtype=np.uint8)
 
-        logger.info("Cpu count is : %d", optimal_thread_count)
+        self.device_number = device_number
+        self.photo_cell_signal_subject = photo_cell_signal_subject
+        self.initialize_logging()
+        self.initialize_camera()
+        self.initialize_threads()
+
+        self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
+        self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
+        self.img_nbytes: int = self.img_width * self.img_height * 3
+
+        # create monitoring window
+        self.create_monitoring_window()
 
         self.processed_frames = 0
+        self.start_time = time.time()
 
-        # Subject for monitoring frames
-        self.__monitorFrameSubject: Subject = Subject()
+    def initialize_logging(self):
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
 
-        # Subscription to monitor frames and handle errors
-        self.__monitorFrameDisposable = self.__monitorFrameSubject.pipe(
-            ops.map(lambda x: self.monitor_picture(x)),
+    def initialize_camera(self):
+        self.cap = cv2.VideoCapture(self.device_number, cv2.CAP_ANY,
+                                    [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+        self.cap.set(cv2.CAP_PROP_GAIN, 0)
+        logger.info(f"width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        logger.info(f"height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        logger.info(f"gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        logger.info(f"auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        logger.info(f"exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+
+    def initialize_threads(self):
+        # calculate cpu count which will be used to create a ThreadPoolScheduler
+        optimal_thread_count = multiprocessing.cpu_count()
+        self.thread_pool_scheduler = ThreadPoolScheduler()
+        self.logger.info("CPU count is: %d", optimal_thread_count)
+
+        self.monitorFrameSubject = Subject()
+        self.writeFrameSubject = Subject()
+
+        # Subscription to monitor/view frames and handle errors
+        self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
+            ops.map(lambda x: self.monitor_picture(x))
         ).subscribe(
-            # on_next=lambda i: print(
-            #      f"VIEW PROCESS monitorFrame: {os.getpid()} {current_thread().name} {len(i['img'])}"),
-            on_error=lambda e: logger.error(e)
+            on_error=lambda e: self.logger.error(e)
         )
 
-        self.__writeFrameSubject: Subject = Subject()
-
-        self.__writeFrameDisposable = self.__writeFrameSubject.pipe(
-            ops.map(lambda x: self.memory_write_picture(x)),
+        self.writeFrameDisposable = self.writeFrameSubject.pipe(
+            ops.map(lambda x: self.memory_write_picture(x))
         ).subscribe(
-            # on_next=lambda i: print(
-            #      f"WRITE PROCESS frame: {os.getpid()} {current_thread().name} {i}"),
-            on_error=lambda e: logger.error(e)
+            on_error=lambda e: self.logger.error(e)
         )
 
         # Subscription to process photo cell signals
-        self.__photoCellSignalDisposable = self.__photoCellSignalSubject.pipe(
+        self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             # get picture from camera
             ops.map(self.take_picture),
             #  display picture in monitor window
-            ops.do_action(lambda state: self.__monitorFrameSubject.on_next(state)),
-            ops.observe_on(self.__thread_pool_scheduler),
+            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),
+            ops.observe_on(self.thread_pool_scheduler),
             # write picture to storage
-            ops.do_action(lambda state: self.__writeFrameSubject.on_next(state)),
+            ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),
         ).subscribe(
-            on_completed=logger.info(f"digitization completed"),
-            on_error=lambda e: logger.error(e)
+            on_completed=lambda: self.write_to_shared_memory(),  # self.logger.info("Digitization completed"),
+            on_error=lambda e: self.logger.error(e)
         )
 
-        # Initialize camera and start time
-        self.__cap = cv2.VideoCapture(device_number, cv2.CAP_ANY,
-                                      [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
-
-        self.initialize_camera(self.__cap)
-
-        self.start_time = time.time()
-
-    # initialize usb camera
-    def initialize_camera(self, cap) -> None:
-        # Set camera properties
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        logger.info(f"frame width = {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        logger.info(f"frame height = {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        logger.info(f"fps = {cap.get(cv2.CAP_PROP_FPS)}")
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-        # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # auto mode
-        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
-        cap.set(cv2.CAP_PROP_EXPOSURE, -3)
-        cap.set(cv2.CAP_PROP_GAIN, 0)
-        logger.info(f"gain = {cap.get(cv2.CAP_PROP_GAIN)}")
-        logger.info(f"auto exposure = {cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        logger.info(f"exposure = {cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        logger.info(f"format = {cap.get(cv2.CAP_PROP_FORMAT)}")
-        logger.info(f"buffersize = {cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
-
     def take_picture(self, count) -> StateType:
-        # Grab and retrieve a frame from the camera
-        grabbed = self.__cap.grab()
+        grabbed = self.cap.grab()
         if grabbed:
-            ret, frame = self.__cap.retrieve()
-            if ret is False:
-                logger.error(f"take_picture retrieve error at frame {count}")
-
-            return {"img": frame, "count": count} if ret else {"img": np.array((720, 1280, 3), dtype=np.uint8),
-                                                               "count": count}
+            ret, frame = self.cap.retrieve()
+            if ret:
+                return {"img": frame, "img_count": count}
+            else:
+                self.logger.error(f"Retrieve error at frame {count}")
         else:
-            logger.error(f"take_picture grab error at frame {count}")
-        return {"img": np.array((720, 1280, 3), dtype=np.uint8), "count": count}
+            self.logger.error(f"Grab error at frame {count}")
 
-    def monitor_picture(self, state: StateType) -> StateType:
+        return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
+
+    @staticmethod
+    def monitor_picture(state: StateType) -> StateType:
         # Display the frame with added text
         monitor_frame = state['img'].copy()
-        cv2.putText(img=monitor_frame, text=f"frame{state['count']}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                    fontScale=1, color=(0, 255, 0), thickness=2)
+        cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
+                    fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(3) & 0XFF
         return state
 
-    def write_picture(self, state: StateType) -> int:
-        cv2.imwrite(f"frame{state['count']}.png", state["img"])
-        self.processed_frames += 1
-        return self.processed_frames
-
     def memory_write_picture(self, state: StateType):
-        filename = f"frame{state['count']}.png"
-        logger.info(f">>>memory_write_picture {filename=}")
+        self.image_data = np.concatenate((self.image_data, state['img'].flatten()))
+        self.frame_desc.append({'number_of_data_bytes': state['img'].size, 'img_count': self.processed_frames})
 
-        # data_bytes = state['img']
-        # data_bytes_len = state['img'].size
-        # name = f"shm{state['count']}"
-
-        self.db = np.concatenate((self.db, state['img']))
-        self.frame_desc.append({'data_bytes': state['img'].size, 'count': self.processed_frames})
         self.processed_frames += 1
 
-        if len(self.frame_desc) > 13:
-            logger.info(f">>>memory_write_picture {len(self.frame_desc)=}")
-            sum_of_bytes = 0
+        if self.processed_frames % self.batch_size == 0:
+            self.write_to_shared_memory()
 
-            for e in self.frame_desc:
-                sum_of_bytes += e['data_bytes']
+    def write_to_shared_memory(self):
+        self.logger.info(f">>>write_to_shared_memory {self.processed_frames=}")
+        shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
+        shm.buf[:len(self.image_data)] = copy.copy(self.image_data)
 
-            shm = shared_memory.SharedMemory(create=True, size=sum_of_bytes)
-            shm.buf[:sum_of_bytes] = self.db.tobytes()
+        try:
+            proc = Process(target=write_images, args=(shm.name, copy.deepcopy(self.frame_desc)))
+            proc.start()
+            self.logger.info(f">>>write_to_shared_memory nach started Process {proc.name=}")
+        finally:
+            # cleanup for next batch
+            self.frame_desc = []
+            self.image_data = np.array([], dtype=np.uint8)
 
-            logger.info(f">>>memory_write_picture vor Process {shm.name=}")
-            try:
-                proc = Process(target=write_images, args=(shm.name, self.frame_desc))
-                proc.start()
-                # self.processed_frames += len(self.ImgDescType)
-                # proc.join()
-
-            finally:
-                logger.info(f">>>memory_write_picture finally close {shm.name=}")
-                self.db = np.reshape(np.array([], np.uint8), (-1, 1280, 3))
-                self.frame_desc = []
-
-    def create_monitoring_window(self) -> None:
+    @staticmethod
+    def create_monitoring_window() -> None:
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
     @staticmethod
@@ -240,18 +203,21 @@ class DigitalizeVideo:
         cv2.destroyAllWindows()
 
     def release_camera(self) -> None:
-        self.__cap.release()
+        self.cap.release()
 
     def __del__(self) -> None:
-
-        # complete the processes
-        # for proc in self.processes:
-        #     proc.join()
-
         """
         Clean up resources and log statistics upon instance destruction.
         """
-        self.__thread_pool_scheduler.executor.shutdown()
+
+        if hasattr(self, 'thread_pool_scheduler'):
+            self.thread_pool_scheduler.executor.shutdown()
+
+        if hasattr(self, 'cap'):
+            self.release_camera()
+
+        # delete monitoring window
+        self.delete_monitoring_window()
 
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
@@ -261,6 +227,6 @@ class DigitalizeVideo:
         logger.info("Total elapsed time: %.2f seconds", elapsed_time)
         logger.info("Average FPS: %.2f", average_fps)
 
-        self.__monitorFrameDisposable.dispose()
-        self.__writeFrameDisposable.dispose()
-        self.__photoCellSignalDisposable.dispose()
+        self.monitorFrameDisposable.dispose()
+        self.writeFrameDisposable.dispose()
+        self.photoCellSignalDisposable.dispose()
