@@ -62,14 +62,15 @@ class DigitalizeVideo:
         """
 
         # batch size is the number of images worked on in a process
-        self.batch_size = 15
+        self.batch_size: int = 15
 
         self.frame_desc: [ImgDescType] = []
 
-        self.image_data = self.image_data = np.array([], dtype=np.uint8)
+        self.image_data = np.array([], dtype=np.uint8)
 
-        self.device_number = device_number
+        self.device_number: int = device_number
         self.photo_cell_signal_subject = photo_cell_signal_subject
+
         self.initialize_logging()
         self.initialize_camera()
         self.initialize_threads()
@@ -81,7 +82,7 @@ class DigitalizeVideo:
         # create monitoring window
         DigitalizeVideo.create_monitoring_window()
 
-        self.processed_frames = 0
+        self.processed_frames: int = 0
         self.start_time = time.time()
 
     def initialize_logging(self):
@@ -180,7 +181,7 @@ class DigitalizeVideo:
 
         try:
             proc = Process(target=write_images,
-                           args=(shm.name, copy.deepcopy(self.frame_desc), self.img_width, self.img_height))
+                           args=(shm.name, copy.copy(self.frame_desc), self.img_width, self.img_height))
             proc.start()
         finally:
             # cleanup for next batch
