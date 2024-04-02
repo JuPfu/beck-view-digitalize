@@ -48,7 +48,7 @@ def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_wi
     # write all images to persistent storage
     for img in img_desc:
         start = end
-        end += img['number_of_data_bytes']   # Assuming 'number_of_data_bytes' is present in ImgDescType
+        end += img['number_of_data_bytes']  # Assuming 'number_of_data_bytes' is present in ImgDescType
 
         filename: str = f"frame{img['img_count']}.png"
         success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
@@ -194,7 +194,7 @@ class DigitalizeVideo:
             None
         """
 
-        monitor_frame = state['img'].copy() # make copy of image
+        monitor_frame = state['img'].copy()  # make copy of image
         # add image count tag to upper left corner of image
         cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
@@ -202,13 +202,34 @@ class DigitalizeVideo:
         cv2.waitKey(3) & 0XFF
 
     def memory_write_picture(self, state: StateType) -> None:
-        self.image_data = np.concatenate((self.image_data, state['img'].flatten()))
-        self.frame_desc.append({'img_count': self.processed_frames})
+        """
+        Write captured image data to a buffer in memory and keep track of processed frames.
 
+        This function is called when a new frame (image) is captured.
+        It flattens the image data into a one-dimensional array and appends it to a buffer containing
+        previously captured frames. It also keeps track of the number of processed frames and writes
+        the accumulated batch of frames to shared memory when the batch size is reached.
+
+        :param state: StateType -- A dictionary containing the captured image data (`img`)
+        :returns: None
+        """
+
+        # Flatten the image data from a 2D array to a 1D array
+        flattened_image = state['img'].flatten()
+
+        # Concatenate the flattened image data to the existing image data buffer
+        self.image_data = np.concatenate((self.image_data, flattened_image))
+
+        # Create a frame description dictionary containing the current processed frame count
+        frame_desc = {'img_count': self.processed_frames}
+        self.frame_desc.append(frame_desc)  # Add the frame description to the list
+
+        # Increment the processed frame count
         self.processed_frames += 1
 
+        # Check if the batch size has been reached
         if self.processed_frames % self.batch_size == 0:
-            self.write_to_shared_memory()
+            self.write_to_shared_memory()  # Write the accumulated batch to shared memory
 
     def write_to_shared_memory(self) -> None:
         """
