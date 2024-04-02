@@ -131,40 +131,43 @@ class DigitalizeVideo:
         logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
-        # calculate cpu count which will be used to create a ThreadPoolScheduler
+        """
+        Initializes threads, subjects, and subscriptions for multithreaded processing.
+        """
+
+        # Calculate the optimal number of threads based on available CPU cores
         optimal_thread_count: int = multiprocessing.cpu_count()
+        # Create a ThreadPoolScheduler to manage threads
         self.thread_pool_scheduler = ThreadPoolScheduler()
         self.logger.info("CPU count is: %d", optimal_thread_count)
 
-        self.monitorFrameSubject = Subject()
-        self.writeFrameSubject = Subject()
+        # Create subjects for frame monitoring and writing
+        self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
+        self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
 
-        # Subscription to monitor/view frames and handle errors
+        # Subscription for monitoring and displaying frames
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(lambda x: DigitalizeVideo.monitor_picture(x))
+            ops.map(lambda x: DigitalizeVideo.monitor_picture(x))  # Map frames to the monitor_picture function
         ).subscribe(
-            on_error=lambda e: self.logger.error(e)
+            on_error=lambda e: self.logger.error(e)  # Handle errors during monitoring
         )
 
+        # Subscription for writing frames to storage
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
-            ops.map(lambda x: self.memory_write_picture(x))
+            ops.map(lambda x: self.memory_write_picture(x))  # Map frames to the memory_write_picture function
         ).subscribe(
-            on_error=lambda e: self.logger.error(e)
+            on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
-        # Subscription to process photo cell signals
+        # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
-            # get picture from camera
-            ops.map(self.take_picture),
-            #  display picture in monitor window
-            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),
-            ops.observe_on(self.thread_pool_scheduler),
-            # write picture to storage
-            ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),
+            ops.map(self.take_picture),  # Get picture from camera
+            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
+            ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
+            ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
-            # work on final batch of pictures
-            on_completed=lambda: self.write_to_shared_memory(),
-            on_error=lambda e: self.logger.error(e)
+            on_completed=lambda: self.write_to_shared_memory(),  # Write any remaining frames in shared memory
+            on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
 
     def take_picture(self, count) -> StateType:
@@ -191,13 +194,11 @@ class DigitalizeVideo:
             None
         """
 
-        # make copy of image
-        monitor_frame = state['img'].copy()
+        monitor_frame = state['img'].copy() # make copy of image
         # add image count tag to upper left corner of image
         cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
-        # display image in monitor window
-        cv2.imshow('Monitor', monitor_frame)
+        cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
         cv2.waitKey(3) & 0XFF
 
     def memory_write_picture(self, state: StateType) -> None:
@@ -215,16 +216,23 @@ class DigitalizeVideo:
 
         :returns: None
         """
+
+        # Create a shared memory object with size to accommodate the current batch of images
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
+        # Copy the image data to the shared memory buffer
         shm.buf[:len(self.image_data)] = copy.copy(self.image_data)
 
         try:
+            # Create a new process to write images from shared memory
             proc = Process(target=write_images,
                            args=(shm.name, copy.copy(self.frame_desc), self.img_width, self.img_height))
+            # Start the process
             proc.start()
         finally:
-            # cleanup for next batch
+            # Cleanup for the next batch:
+            # - Clear frame descriptions
             self.frame_desc = []
+            # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
 
     @staticmethod
