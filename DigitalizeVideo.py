@@ -13,22 +13,42 @@ from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
 StateType = TypedDict('StateType', {'img': npt.NDArray, 'img_count': int})
-ImgDescType = TypedDict('ImgDescType', {'number_of_data_bytes': int, 'img_count': int})
+ImgDescType = TypedDict('ImgDescType', {'img_count': int})
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_width: int, img_height: int):
+def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_width: int, img_height: int) -> None:
+    """
+    Write batch of images to persistent storage.
+    Images are delivered via shared memory
+
+    :parameter
+        shared_memory_buffer_name: str -- Reference to shared memory
+
+        img_desc: [ImgDescType] -- Array containing the names (count) for each image of the batch
+
+        img_width: int -- Width of an image
+
+        img_height: int -- Height of an image
+    :returns
+        None
+    """
+
+    # get access to shared memory
     shm = shared_memory.SharedMemory(shared_memory_buffer_name)
+    # number of images in shared buffer is deduced from length of img_desc passed as second parameter to write images
+    # re-shape bytes from shared buffer into ndarray type with data type uint8
     data = np.ndarray((len(img_desc) * img_height * img_width * 3,), dtype=np.uint8, buffer=shm.buf)
 
     end: int = 0
 
+    # write all images to persistent storage
     for img in img_desc:
         start = end
-        end += img['number_of_data_bytes']
+        end += img['number_of_data_bytes']   # Assuming 'number_of_data_bytes' is present in ImgDescType
 
         filename: str = f"frame{img['img_count']}.png"
         success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
@@ -47,18 +67,21 @@ class DigitalizeVideo:
     This class provides methods to initialize the video capturing process,
     process frames using reactive programming, monitor frames, and more.
 
-    Args:
-        device_number (int): The device number of the camera.
-        photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
+    :parameter
+        device_number: int -- The device number of the camera.
+
+        photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
-        Args:
-            device_number (int): The device number of the camera.
-            photo_cell_signal_subject (Subject): A subject emitting photo cell signals.
+        :parameter
+            device_number: int -- The device number of the camera.
+
+            photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
+        :return: None
         """
 
         # batch size is the number of images worked on in a process
@@ -83,13 +106,13 @@ class DigitalizeVideo:
         DigitalizeVideo.create_monitoring_window()
 
         self.processed_frames: int = 0
-        self.start_time = time.time()
+        self.start_time: float = time.time()
 
-    def initialize_logging(self):
+    def initialize_logging(self) -> None:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
-    def initialize_camera(self):
+    def initialize_camera(self) -> None:
         self.cap = cv2.VideoCapture(self.device_number, cv2.CAP_ANY,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -107,9 +130,9 @@ class DigitalizeVideo:
         logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
         logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
-    def initialize_threads(self):
+    def initialize_threads(self) -> None:
         # calculate cpu count which will be used to create a ThreadPoolScheduler
-        optimal_thread_count = multiprocessing.cpu_count()
+        optimal_thread_count: int = multiprocessing.cpu_count()
         self.thread_pool_scheduler = ThreadPoolScheduler()
         self.logger.info("CPU count is: %d", optimal_thread_count)
 
@@ -139,12 +162,13 @@ class DigitalizeVideo:
             # write picture to storage
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),
         ).subscribe(
-            on_completed=lambda: self.write_to_shared_memory(),  # self.logger.info("Digitization completed"),
+            # work on final batch of pictures
+            on_completed=lambda: self.write_to_shared_memory(),
             on_error=lambda e: self.logger.error(e)
         )
 
     def take_picture(self, count) -> StateType:
-        grabbed = self.cap.grab()
+        grabbed: bool = self.cap.grab()
         if grabbed:
             ret, frame = self.cap.retrieve()
             if ret:
@@ -157,25 +181,40 @@ class DigitalizeVideo:
         return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
 
     @staticmethod
-    def monitor_picture(state: StateType) -> StateType:
-        # Display the frame with added text
+    def monitor_picture(state: StateType) -> None:
+        """
+        Display image in monitor window with added tag (image count)
+
+        :parameter
+            state: StateType -- current image data and image count
+        :returns
+            None
+        """
+
+        # make copy of image
         monitor_frame = state['img'].copy()
+        # add image count tag to upper left corner of image
         cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
+        # display image in monitor window
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(3) & 0XFF
-        return state
 
-    def memory_write_picture(self, state: StateType):
+    def memory_write_picture(self, state: StateType) -> None:
         self.image_data = np.concatenate((self.image_data, state['img'].flatten()))
-        self.frame_desc.append({'number_of_data_bytes': state['img'].size, 'img_count': self.processed_frames})
+        self.frame_desc.append({'img_count': self.processed_frames})
 
         self.processed_frames += 1
 
         if self.processed_frames % self.batch_size == 0:
             self.write_to_shared_memory()
 
-    def write_to_shared_memory(self):
+    def write_to_shared_memory(self) -> None:
+        """
+        Write batch of images to shared memory and start a separate process to emit the images to persistent storage
+
+        :returns: None
+        """
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
         shm.buf[:len(self.image_data)] = copy.copy(self.image_data)
 
@@ -190,19 +229,35 @@ class DigitalizeVideo:
 
     @staticmethod
     def create_monitoring_window() -> None:
+        """
+        Create monitoring window which displays all digitized images.
+
+        :returns: None
+        """
         cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
     @staticmethod
     def delete_monitoring_window() -> None:
-        # destroy all windows created
+        """
+        Destroy all windows created.
+
+        :returns: None
+        """
         cv2.destroyAllWindows()
 
     def release_camera(self) -> None:
+        """
+        Release camera.
+
+        :returns: None
+        """
         self.cap.release()
 
     def __del__(self) -> None:
         """
         Clean up resources and log statistics upon instance destruction.
+
+        :returns: None
         """
 
         if hasattr(self, 'thread_pool_scheduler'):

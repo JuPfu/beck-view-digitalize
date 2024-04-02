@@ -73,8 +73,8 @@ class Ft232hConnector:
                 # Emit the frame count through the opto_coupler_signal_subject
                 self.__optoCouplerSignalSubject.on_next(self.__count)
                 #
-                # Wait for self.__optoCouplerOK1 (OK1) to change to false
-                # Latency of OK1 is about one millisecond
+                # Wait for self.__opto_coupler_ok1 (ok1) to change to false
+                # Latency of ok1 is about one millisecond
                 #
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
