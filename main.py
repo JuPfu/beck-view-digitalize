@@ -1,6 +1,30 @@
 from pyftdi.ftdi import Ftdi
 from reactivex.subject import Subject
 
+"""
+Technologies used in this project
+
+ReactiveX for Signal Handling: 
+    Reactivex is being used for handling photo cell signals. This allows for asynchronous and non-blocking operation 
+    improving responsiveness.
+
+Spawning Processes:
+    Circumvent the Global Interpreter Lock (GIL) by using separate processes for writing images to persistent
+    storage.
+
+Batch Processing for Efficiency: 
+    Batching images for writing to persistent storage is an efficient strategy that reduces the number of context 
+    switches and system calls.
+
+Shared Memory for Fast Data Transfer: 
+    Employing shared memory for transferring image data to a separate process (inter-process communication).
+
+Monitoring: 
+    The inclusion of a monitoring window provides valuable insights into program execution.
+
+Logging:
+    Logging capabilities to help analyse potential problems.
+"""
 
 def main():
     ftdi = Ftdi()
