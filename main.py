@@ -26,6 +26,7 @@ Logging:
     Logging capabilities to help analyse potential problems.
 """
 
+
 def main():
     ftdi = Ftdi()
     # list available ftdi devices

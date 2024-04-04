@@ -3,61 +3,15 @@ import logging
 import multiprocessing
 import time
 from multiprocessing import shared_memory, Process
-from typing import TypedDict
 
 import cv2
 import numpy as np
-import numpy.typing as npt
 from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
-StateType = TypedDict('StateType', {'img': npt.NDArray, 'img_count': int})
-ImgDescType = TypedDict('ImgDescType', {'img_count': int})
-
-# Set up logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-
-def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_width: int, img_height: int) -> None:
-    """
-    Write batch of images to persistent storage.
-    Images are delivered via shared memory
-
-    :parameter
-        shared_memory_buffer_name: str -- Reference to shared memory
-
-        img_desc: [ImgDescType] -- Array containing the names (count) for each image of the batch
-
-        img_width: int -- Width of an image
-
-        img_height: int -- Height of an image
-    :returns
-        None
-    """
-
-    # get access to shared memory
-    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
-    # number of images in shared buffer is deduced from length of img_desc passed as second parameter to write images
-    # re-shape bytes from shared buffer into ndarray type with data type uint8
-    data = np.ndarray((len(img_desc) * img_height * img_width * 3,), dtype=np.uint8, buffer=shm.buf)
-
-    end: int = 0
-
-    # write all images to persistent storage
-    for img in img_desc:
-        start = end
-        end += img['number_of_data_bytes']  # Assuming 'number_of_data_bytes' is present in ImgDescType
-
-        filename: str = f"frame{img['img_count']}.png"
-        success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
-
-        if not success:
-            logger.error(f"Could not write {filename=}")
-
-    shm.close()
-    shm.unlink()
+from TypeDefinitions import ImgDescType, StateType
+from WriteImages import write_images
 
 
 class DigitalizeVideo:
@@ -72,6 +26,17 @@ class DigitalizeVideo:
 
         photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
+
+    logger = None
+
+    thread_pool_scheduler = None
+    writeFrameSubject: Subject = None
+    writeFrameDisposable = None
+    monitorFrameSubject = None
+    monitorFrameDisposable = None
+    photoCellSignalDisposable = None
+
+    cap = None
 
     def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
         """
@@ -122,17 +87,17 @@ class DigitalizeVideo:
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -3)
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
-        logger.info(f"width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        logger.info(f"height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        logger.info(f"gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
-        logger.info(f"auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        logger.info(f"exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
-        logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+        self.logger.info(f"width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        self.logger.info(f"height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f"gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        self.logger.info(f"auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        self.logger.info(f"exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        self.logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
         """
-        Initializes threads, subjects, and subscriptions for multithreaded processing.
+        Initializes threads, subjects, and subscriptions for multithreading processing.
         """
 
         # Calculate the optimal number of threads based on available CPU cores
@@ -221,7 +186,7 @@ class DigitalizeVideo:
         self.image_data = np.concatenate((self.image_data, flattened_image))
 
         # Create a frame description dictionary containing the current processed frame count
-        frame_desc = {'img_count': self.processed_frames}
+        frame_desc = {'number_of_data_bytes': flattened_image.size, 'img_count': self.processed_frames}
         self.frame_desc.append(frame_desc)  # Add the frame description to the list
 
         # Increment the processed frame count
@@ -301,10 +266,10 @@ class DigitalizeVideo:
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
-        logger.info("-------End Of Film---------")
-        logger.info("Total processed frames: %d", self.processed_frames)
-        logger.info("Total elapsed time: %.2f seconds", elapsed_time)
-        logger.info("Average FPS: %.2f", average_fps)
+        self.logger.info("-------End Of Film---------")
+        self.logger.info("Total processed frames: %d", self.processed_frames)
+        self.logger.info("Total elapsed time: %.2f seconds", elapsed_time)
+        self.logger.info("Average FPS: %.2f", average_fps)
 
         self.monitorFrameDisposable.dispose()
         self.writeFrameDisposable.dispose()
