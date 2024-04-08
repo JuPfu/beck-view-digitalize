@@ -131,7 +131,7 @@ class DigitalizeVideo:
             ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
-            on_completed=lambda: self.write_to_shared_memory(),  # Write any remaining frames in shared memory
+            on_completed=lambda: self.write_to_shared_memory(),  # Write any remaining frames to persistent storage
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
 

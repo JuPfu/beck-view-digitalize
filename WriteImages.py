@@ -39,7 +39,7 @@ def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_wi
     # write all images to persistent storage
     for img in img_desc:
         start = end
-        end += img['number_of_data_bytes']  # add number of data bytes to set end of current picture
+        end += img['number_of_data_bytes']  # add number of data bytes to determine end of current picture
 
         filename: str = f"frame{img['img_count']}.png"
         success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
