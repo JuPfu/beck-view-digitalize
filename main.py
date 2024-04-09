@@ -1,6 +1,20 @@
 from pyftdi.ftdi import Ftdi
 from reactivex.subject import Subject
 
+"""
+Technologies used in this project
+
+ReactiveX for Signal Handling: 
+    Reactivex is being used for handling photo cell signals. This allows for asynchronous and non-blocking operation 
+    improving responsiveness.
+
+Monitoring: 
+    The inclusion of a monitoring window provides valuable insights into program execution.
+
+Logging:
+    Logging capabilities to help analyse potential problems.
+"""
+
 
 def main():
     ftdi = Ftdi()
@@ -17,21 +31,16 @@ def main():
 
     optocoupler_signal_subject: Subject = Subject()
 
-    device_number = 0  # number of camera device used as source
+    device_number = 0  # number of camera device used as source (input)
 
     # create class instances
-    dv = DigitalizeVideo(device_number, optocoupler_signal_subject)
+    DigitalizeVideo(device_number, optocoupler_signal_subject)
+
     ft232h = Ft232hConnector(optocoupler_signal_subject)
 
-    # create monitoring window
-    dv.create_monitoring_window()
-    # start recording
-    # wait for signal(s) to take picture(s)
+    # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()
-    # delete monitoring window
-    dv.delete_monitoring_window()
-    # release usb camera
-    dv.release_camera()
+
     # disconnect FT232H
     ftdi.close()
 
