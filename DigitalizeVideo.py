@@ -5,6 +5,7 @@ import time
 import cv2
 import numpy as np
 from reactivex import operators as ops
+from reactivex.abc import DisposableBase
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
@@ -28,10 +29,13 @@ class DigitalizeVideo:
 
     thread_pool_scheduler = None
     writeFrameSubject: Subject = None
-    writeFrameDisposable = None
+    writeFrameDisposable: DisposableBase = None
     monitorFrameSubject = None
-    monitorFrameDisposable = None
-    photoCellSignalDisposable = None
+    monitorFrameDisposable: DisposableBase = None
+    photoCellSignalSubject: Subject = None
+    photoCellSignalDisposable: DisposableBase = None
+
+    start_time: float = 0.0
 
     cap = None
 
@@ -47,7 +51,7 @@ class DigitalizeVideo:
         """
 
         self.device_number: int = device_number
-        self.photo_cell_signal_subject = photo_cell_signal_subject
+        self.photoCellSignalSubject = photo_cell_signal_subject
 
         self.initialize_logging()
         self.initialize_camera()
@@ -78,16 +82,17 @@ class DigitalizeVideo:
 
         # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
-        self.logger.info(f"frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        self.logger.info(f"frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f"fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
-        self.logger.info(f"width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        self.logger.info(f"height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f"gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
-        self.logger.info(f"auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        self.logger.info(f"exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        self.logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
-        self.logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+        self.logger.info(f"Camera properties:")
+        self.logger.info(f"Camera properties:")
+        self.logger.info(f" - frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        self.logger.info(f" - frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f" - fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
+        self.logger.info(f" - height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f" - gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        self.logger.info(f" - auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        self.logger.info(f" - exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        self.logger.info(f" - format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f" - buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
         """
@@ -119,7 +124,7 @@ class DigitalizeVideo:
         )
 
         # Subscription for processing photo cell signals
-        self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
+        self.photoCellSignalDisposable = self.photoCellSignalSubject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
             ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
             ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
@@ -130,17 +135,12 @@ class DigitalizeVideo:
         )
 
     def take_picture(self, count) -> StateType:
-        grabbed: bool = self.cap.grab()
-        if grabbed:
-            ret, frame = self.cap.retrieve()
-            if ret:
-                return {"img": frame, "img_count": count}
-            else:
-                self.logger.error(f"Retrieve error at frame {count}")
+        ret, frame = self.cap.read()  # Combined grab and retrieve
+        if ret:
+            return {"img": frame, "img_count": count}
         else:
-            self.logger.error(f"Grab error at frame {count}")
-
-        return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
+            self.logger.error(f"Error capturing frame {count}")
+            return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -155,14 +155,14 @@ class DigitalizeVideo:
 
         monitor_frame = state['img'].copy()  # make copy of image
         # add image count tag to upper left corner of image
-        cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
-                    fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
-        cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
-        cv2.waitKey(3) & 0XFF
+        cv2.putText(monitor_frame, f"frame{state['img_count']}", (10, 25),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 255, 0), 2)
+        cv2.imshow('Monitor', monitor_frame)
+        cv2.waitKey(1) & 0XFF  # Reduced wait time
 
     def write_picture(self, state: StateType) -> int:
-        cv2.imwrite(f"frame{state['img_count']}.png", state["img"])
-        self.processed_frames += 1
+        success = cv2.imwrite(f"frame{state['img_count']}.png", state["img"])
+        self.processed_frames += 1 if success else 0  # Count only successful writes
         return self.processed_frames
 
     @staticmethod
@@ -185,11 +185,15 @@ class DigitalizeVideo:
 
     def release_camera(self) -> None:
         """
-        Release camera.
+        Release the camera capture device.
 
         :returns: None
         """
-        self.cap.release()
+        if hasattr(self, 'cap') and self.cap.isOpened():
+            self.cap.release()
+            self.logger.info("Camera released.")
+        else:
+            self.logger.warning("Camera is not opened.")
 
     def __del__(self) -> None:
         """
