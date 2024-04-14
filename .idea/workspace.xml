@@ -7,10 +7,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="some small refactoring">
-      <change afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="added parsing of command line arguments">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -204,7 +204,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 1" />
+      <option name="PARAMETERS" value="-d 0" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -683,7 +683,15 @@
       <option name="project" value="LOCAL" />
       <updated>1713086865950</updated>
     </task>
-    <option name="localTasksCounter" value="45" />
+    <task id="LOCAL-00045" summary="added parsing of command line arguments">
+      <option name="closed" value="true" />
+      <created>1713088680513</created>
+      <option name="number" value="00045" />
+      <option name="presentableId" value="LOCAL-00045" />
+      <option name="project" value="LOCAL" />
+      <updated>1713088680513</updated>
+    </task>
+    <option name="localTasksCounter" value="46" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -741,6 +749,7 @@
     <MESSAGE value="packages update" />
     <MESSAGE value="some refactoring" />
     <MESSAGE value="some small refactoring" />
-    <option name="LAST_COMMIT_MESSAGE" value="some small refactoring" />
+    <MESSAGE value="added parsing of command line arguments" />
+    <option name="LAST_COMMIT_MESSAGE" value="added parsing of command line arguments" />
   </component>
 </project>

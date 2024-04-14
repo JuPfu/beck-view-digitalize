@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -39,18 +40,21 @@ class DigitalizeVideo:
 
     cap = None
 
-    def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, device_number: int, output_path: Path, photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         :parameter
             device_number: int -- The device number of the camera.
 
+            output_path: Path -- The directory for dumping digitised frames into.
+
             photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
         """
 
         self.device_number: int = device_number
+        self.output_path: Path = output_path
         self.photoCellSignalSubject = photo_cell_signal_subject
 
         self.initialize_logging()
@@ -155,12 +159,13 @@ class DigitalizeVideo:
         monitor_frame = state['img'].copy()  # make copy of image
         # add image count tag to upper left corner of image
         cv2.putText(monitor_frame, f"frame{state['img_count']}", (10, 25),
-                    cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 255, 0), 2)
         cv2.imshow('Monitor', monitor_frame)
-        cv2.waitKey(1) & 0XFF  # Reduced wait time
+        cv2.waitKey(1) & 0XFF  # wait time
 
     def write_picture(self, state: StateType) -> int:
-        success = cv2.imwrite(f"frame{state['img_count']}.png", state["img"])
+        filename = self.output_path / f"frame{state['img_count']}.png"
+        success = cv2.imwrite(str(filename), state["img"])
         self.processed_frames += 1 if success else 0  # Count only successful writes
         return self.processed_frames
 

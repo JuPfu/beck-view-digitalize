@@ -21,8 +21,10 @@ Logging:
 
 
 def main():
+    # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 
+    # initialize the Future Technology Devices International chip
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
@@ -37,10 +39,8 @@ def main():
 
     optocoupler_signal_subject: Subject = Subject()
 
-    device_number = args.device  # number of camera device used as source (input)
-
     # create class instances
-    DigitalizeVideo(device_number, optocoupler_signal_subject)
+    DigitalizeVideo(args.device, args.output_path, optocoupler_signal_subject)
 
     ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
 
