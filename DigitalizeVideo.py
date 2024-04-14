@@ -83,7 +83,6 @@ class DigitalizeVideo:
         # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
         self.logger.info(f"Camera properties:")
-        self.logger.info(f"Camera properties:")
         self.logger.info(f" - frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         self.logger.info(f" - frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         self.logger.info(f" - fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
