@@ -21,9 +21,8 @@ class Ft232hConnector:
 
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
-    MAXCOUNT = 1500  # 7250  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-    def __init__(self, opto_coupler_signal_subject: Subject) -> None:
+    def __init__(self, opto_coupler_signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -32,6 +31,8 @@ class Ft232hConnector:
         """
 
         self.__optoCouplerSignalSubject = opto_coupler_signal_subject
+        self.__max_count = max_count  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+
         self.__count = 0
 
         # Find the USB device with specified Vendor and Product IDs
@@ -64,7 +65,7 @@ class Ft232hConnector:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
-        while not self.__eof.value and self.__count < self.MAXCOUNT:
+        while not self.__eof.value and self.__count < self.__max_count:
             if self.__opto_coupler_ok1.value:
                 self.__count += 1
 

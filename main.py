@@ -1,5 +1,9 @@
+from argparse import Namespace
+
 from pyftdi.ftdi import Ftdi
 from reactivex.subject import Subject
+
+from CommandLineParser import CommandLineParser
 
 """
 Technologies used in this project
@@ -17,6 +21,8 @@ Logging:
 
 
 def main():
+    args: Namespace = CommandLineParser().parse_args()
+
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
@@ -31,12 +37,12 @@ def main():
 
     optocoupler_signal_subject: Subject = Subject()
 
-    device_number = 0  # number of camera device used as source (input)
+    device_number = args.device  # number of camera device used as source (input)
 
     # create class instances
     DigitalizeVideo(device_number, optocoupler_signal_subject)
 
-    ft232h = Ft232hConnector(optocoupler_signal_subject)
+    ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
 
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()
