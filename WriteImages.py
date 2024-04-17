@@ -1,6 +1,7 @@
 # Set up logging configuration
 import logging
 from multiprocessing import shared_memory
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -11,7 +12,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_width: int, img_height: int) -> None:
+def write_images(shared_memory_buffer_name: str,
+                 img_desc: [ImgDescType],
+                 img_width: int,
+                 img_height: int,
+                 output_path: Path) -> None:
     """
     Write batch of images to persistent storage.
     Images are delivered via shared memory
@@ -41,8 +46,8 @@ def write_images(shared_memory_buffer_name: str, img_desc: [ImgDescType], img_wi
         start = end
         end += img['number_of_data_bytes']  # add number of data bytes to determine end of current picture
 
-        filename: str = f"frame{img['img_count']}.png"
-        success: bool = cv2.imwrite(filename, data[start:end].reshape((img_height, img_width, 3)))
+        filename = output_path / f"frame{img['img_count']}.png"
+        success: bool = cv2.imwrite(str(filename), data[start:end].reshape((img_height, img_width, 3)))
 
         if not success:
             logger.error(f"Could not write {filename=}")

@@ -3,6 +3,7 @@ import logging
 import multiprocessing
 import time
 from multiprocessing import shared_memory, Process
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -27,36 +28,28 @@ class DigitalizeVideo:
         photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
-    logger = None
-
-    thread_pool_scheduler = None
-    writeFrameSubject: Subject = None
-    writeFrameDisposable = None
-    monitorFrameSubject = None
-    monitorFrameDisposable = None
-    photoCellSignalDisposable = None
-
-    cap = None
-
-    def __init__(self, device_number: int, photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, device_number: int, output_path: Path, photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         :parameter
             device_number: int -- The device number of the camera.
 
+            output_path: Path -- The directory for dumping digitised frames into.
+
             photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
         """
 
         # batch size is the number of images worked on in a process
-        self.batch_size: int = 15
+        self.batch_size: int = 12
 
         self.frame_desc: [ImgDescType] = []
 
         self.image_data = np.array([], dtype=np.uint8)
 
         self.device_number: int = device_number
+        self.output_path: Path = output_path
         self.photo_cell_signal_subject = photo_cell_signal_subject
 
         self.initialize_logging()
@@ -80,20 +73,22 @@ class DigitalizeVideo:
     def initialize_camera(self) -> None:
         self.cap = cv2.VideoCapture(self.device_number, cv2.CAP_ANY,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual mode
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -3)
-        self.cap.set(cv2.CAP_PROP_GAIN, 0)
-        self.logger.info(f"width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        self.logger.info(f"height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f"gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
-        self.logger.info(f"auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        self.logger.info(f"exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        self.logger.info(f"format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
-        self.logger.info(f"buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+
+        # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+
+        self.logger.info(f"Camera properties:")
+        self.logger.info(f" - frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        self.logger.info(f" - frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f" - fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
+        self.logger.info(f" - height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f" - gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        self.logger.info(f" - auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        self.logger.info(f" - exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        self.logger.info(f" - format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f" - buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
         """
@@ -103,7 +98,7 @@ class DigitalizeVideo:
         # Calculate the optimal number of threads based on available CPU cores
         optimal_thread_count: int = multiprocessing.cpu_count()
         # Create a ThreadPoolScheduler to manage threads
-        self.thread_pool_scheduler = ThreadPoolScheduler()
+        self.thread_pool_scheduler = ThreadPoolScheduler(2 * optimal_thread_count)
         self.logger.info("CPU count is: %d", optimal_thread_count)
 
         # Create subjects for frame monitoring and writing
@@ -127,9 +122,9 @@ class DigitalizeVideo:
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
+            # ops.do_action(on_next=lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
             ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
-            ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
+            ops.do_action(on_next=lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
             on_completed=lambda: self.write_to_shared_memory(),  # Write any remaining frames to persistent storage
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
@@ -211,7 +206,13 @@ class DigitalizeVideo:
         try:
             # Create a new process to write images from shared memory
             proc = Process(target=write_images,
-                           args=(shm.name, copy.copy(self.frame_desc), self.img_width, self.img_height))
+                           args=(
+                               shm.name,
+                               copy.copy(self.frame_desc),
+                               self.img_width,
+                               self.img_height,
+                               self.output_path)
+                           )
             # Start the process
             proc.start()
         finally:
