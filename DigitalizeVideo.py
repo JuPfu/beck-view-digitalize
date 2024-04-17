@@ -28,7 +28,8 @@ class DigitalizeVideo:
         photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
-    def __init__(self, device_number: int, output_path: Path, photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, device_number: int, output_path: Path, monitoring: bool,
+                 photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
@@ -36,6 +37,8 @@ class DigitalizeVideo:
             device_number: int -- The device number of the camera.
 
             output_path: Path -- The directory for dumping digitised frames into.
+
+            monitoring: bool -- display monitoring window
 
             photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
@@ -50,6 +53,7 @@ class DigitalizeVideo:
 
         self.device_number: int = device_number
         self.output_path: Path = output_path
+        self.monitoring: bool = monitoring
         self.photo_cell_signal_subject = photo_cell_signal_subject
 
         self.initialize_logging()
@@ -61,7 +65,7 @@ class DigitalizeVideo:
         self.img_nbytes: int = self.img_width * self.img_height * 3
 
         # create monitoring window
-        DigitalizeVideo.create_monitoring_window()
+        self.create_monitoring_window()
 
         self.processed_frames: int = 0
         self.start_time: float = time.time()
@@ -105,9 +109,11 @@ class DigitalizeVideo:
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
         self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
 
+        monitor_frame = DigitalizeVideo.monitor_picture if self.monitoring else DigitalizeVideo.dummy_monitor_picture
+
         # Subscription for monitoring and displaying frames
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(lambda x: DigitalizeVideo.monitor_picture(x))  # Map frames to the monitor_picture function
+            ops.map(lambda x: monitor_frame(x))  # Map frames to the monitor_picture function
         ).subscribe(
             on_error=lambda e: self.logger.error(e)  # Handle errors during monitoring
         )
@@ -160,6 +166,17 @@ class DigitalizeVideo:
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
         cv2.waitKey(3) & 0XFF
+
+    @staticmethod
+    def dummy_monitor_picture(state: StateType) -> None:
+        """
+        Do nothing - do not display image in monitor window with added tag (image count)
+
+        :parameter
+            state: StateType -- current image data and image count
+        :returns
+            None
+        """
 
     def memory_write_picture(self, state: StateType) -> None:
         """
@@ -222,23 +239,21 @@ class DigitalizeVideo:
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
 
-    @staticmethod
-    def create_monitoring_window() -> None:
+    def create_monitoring_window(self) -> None:
         """
         Create monitoring window which displays all digitized images.
 
         :returns: None
         """
-        cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
+        if self.monitoring is True: cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
-    @staticmethod
-    def delete_monitoring_window() -> None:
+    def delete_monitoring_window(self) -> None:
         """
         Destroy all windows created.
 
         :returns: None
         """
-        cv2.destroyAllWindows()
+        if self.monitoring is True: cv2.destroyAllWindows()
 
     def release_camera(self) -> None:
         """
@@ -262,7 +277,7 @@ class DigitalizeVideo:
             self.release_camera()
 
         # delete monitoring window
-        DigitalizeVideo.delete_monitoring_window()
+        self.delete_monitoring_window()
 
         elapsed_time = time.time() - self.start_time
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
