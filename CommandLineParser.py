@@ -44,9 +44,8 @@ class CommandLineParser:
         self.parser.add_argument(
             '-m', '--monitor',
             dest="monitor",
-            type=bool,
-            nargs='?',
-            default=True,
+            action="store_true",
+            default=False,
             help='Display monitoring window.'
         )
         # Add arguments for bundle size

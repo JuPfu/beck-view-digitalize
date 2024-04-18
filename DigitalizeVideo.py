@@ -1,8 +1,8 @@
-import copy
 import logging
 import multiprocessing
 import time
 from multiprocessing import shared_memory, Process
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
 import cv2
@@ -11,7 +11,7 @@ from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
-from TypeDefinitions import ImgDescType, StateType
+from TypeDefinitions import ImgDescType, StateType, ProcessDict
 from WriteImages import write_images
 
 
@@ -54,6 +54,7 @@ class DigitalizeVideo:
         self.device_number: int = device_number
         self.output_path: Path = output_path
         self.monitoring: bool = monitoring
+        print(f"Digitize {self.monitoring}")
         self.photo_cell_signal_subject = photo_cell_signal_subject
 
         self.initialize_logging()
@@ -63,6 +64,8 @@ class DigitalizeVideo:
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
         self.img_nbytes: int = self.img_width * self.img_height * 3
+
+        self.process_dict: ProcessDict = {}
 
         # create monitoring window
         self.create_monitoring_window()
@@ -104,6 +107,8 @@ class DigitalizeVideo:
         # Create a ThreadPoolScheduler to manage threads
         self.thread_pool_scheduler = ThreadPoolScheduler(2 * optimal_thread_count)
         self.logger.info("CPU count is: %d", optimal_thread_count)
+
+        print(f"{multiprocessing.get_all_start_methods()=}")
 
         # Create subjects for frame monitoring and writing
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
@@ -217,19 +222,20 @@ class DigitalizeVideo:
 
         # Create a shared memory object with size to accommodate the current batch of images
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
-        # Copy the image data to the shared memory buffer
-        shm.buf[:len(self.image_data)] = copy.copy(self.image_data)
+        shm.buf[:] = self.image_data[:] # Copy the image data to the shared memory buffer
 
         try:
             # Create a new process to write images from shared memory
             proc = Process(target=write_images,
                            args=(
                                shm.name,
-                               copy.copy(self.frame_desc),
+                               self.frame_desc,
                                self.img_width,
                                self.img_height,
                                self.output_path)
                            )
+            # Windows needs a reference to the shared memory
+            self.process_dict[proc.name] = {proc: Process, shm: SharedMemory}
             # Start the process
             proc.start()
         finally:
@@ -238,6 +244,16 @@ class DigitalizeVideo:
             self.frame_desc = []
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
+            # - remove stopped processes from process_dict
+            self.process_dict = self.remove_stopped_processes(self.process_dict)
+
+    def remove_stopped_processes(self, process_dict) -> ProcessDict:
+        return dict(filter(self.filter_stopped_processes, process_dict.items()))
+
+    def filter_stopped_processes(self, pair) -> bool:
+        key, value = pair
+        process, shared_memory = value
+        return process.is_alive()
 
     def create_monitoring_window(self) -> None:
         """
