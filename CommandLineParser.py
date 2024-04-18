@@ -40,6 +40,23 @@ class CommandLineParser:
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
                  'emitted stop digitizing when specified number of images is reached.'
         )
+        # Add arguments for monitoring frames
+        self.parser.add_argument(
+            '-m', '--monitor',
+            dest="monitor",
+            action="store_true",
+            default=False,
+            help='Display monitoring window.'
+        )
+        # Add arguments for bundle size
+        self.parser.add_argument(
+            '-b', '--bundle-size',
+            dest="bundle_size",
+            type=int,
+            nargs='?',
+            default=12,
+            help='Bundle size (number of frames) passed to each process.'
+        )
 
     def parse_args(self) -> argparse.Namespace:
         # Parse arguments and return the namespace

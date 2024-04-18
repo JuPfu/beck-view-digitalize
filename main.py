@@ -12,6 +12,17 @@ ReactiveX for Signal Handling:
     Reactivex is being used for handling photo cell signals. This allows for asynchronous and non-blocking operation 
     improving responsiveness.
 
+Spawning Processes:
+    Circumvent the Global Interpreter Lock (GIL) by using separate processes for writing images to persistent
+    storage.
+
+Batch Processing for Efficiency: 
+    Batching images for writing to persistent storage is an efficient strategy that reduces the number of context 
+    switches and system calls.
+
+Shared Memory for Fast Data Transfer: 
+    Employing shared memory for transferring image data to a separate process (inter-process communication).
+
 Monitoring: 
     The inclusion of a monitoring window provides valuable insights into program execution.
 
@@ -24,7 +35,7 @@ def main():
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 
-    # initialize the Future Technology Devices International chip
+    print(f"main {args=}")
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
@@ -40,7 +51,7 @@ def main():
     optocoupler_signal_subject: Subject = Subject()
 
     # create class instances
-    DigitalizeVideo(args.device, args.output_path, optocoupler_signal_subject)
+    DigitalizeVideo(args.device, args.output_path, args.monitor, optocoupler_signal_subject)
 
     ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
 

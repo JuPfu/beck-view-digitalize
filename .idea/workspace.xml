@@ -7,11 +7,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="added parsing of command line arguments">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="Windows fix for process usage">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,7 +34,7 @@
     </option>
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="async" />
+        <entry key="$PROJECT_DIR$" value="main" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -82,11 +80,12 @@
   </component>
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
+    &quot;Docker.Dockerfile.executor&quot;: &quot;Run&quot;,
     &quot;Python.main.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;process&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/jp/PycharmProjects/beck-view-digitalize&quot;,
     &quot;run.code.analysis.last.selected.profile&quot;: &quot;aDefault&quot;,
@@ -204,7 +203,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 0" />
+      <option name="PARAMETERS" value="-d 1" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -243,6 +242,16 @@
       <option name="IS_MODULE_SDK" value="false" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Dockerfile" type="docker-deploy" factoryName="dockerfile" temporary="true" server-name="Docker">
+      <deployment type="dockerfile">
+        <settings>
+          <option name="imageTag" value="beckview" />
+          <option name="containerName" value="BeckView" />
+          <option name="sourceFilePath" value="Dockerfile" />
+        </settings>
+      </deployment>
       <method v="2" />
     </configuration>
     <configuration default="true" type="docs" factoryName="Docutils task">
@@ -311,7 +320,6 @@
         <item itemvalue="Python.usbtools" />
         <item itemvalue="Python.i2cscan" />
         <item itemvalue="Python.ftdi_urls" />
-        <item itemvalue="Python.ftconf" />
       </list>
     </recent_temporary>
   </component>
@@ -330,46 +338,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00001" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688308908910</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1688308908911</updated>
-    </task>
-    <task id="LOCAL-00002" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688309897442</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1688309897442</updated>
-    </task>
-    <task id="LOCAL-00003" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688481056743</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1688481056743</updated>
-    </task>
-    <task id="LOCAL-00004" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688497962271</created>
-      <option name="number" value="00004" />
-      <option name="presentableId" value="LOCAL-00004" />
-      <option name="project" value="LOCAL" />
-      <updated>1688497962271</updated>
-    </task>
-    <task id="LOCAL-00005" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688741062002</created>
-      <option name="number" value="00005" />
-      <option name="presentableId" value="LOCAL-00005" />
-      <option name="project" value="LOCAL" />
-      <updated>1688741062002</updated>
     </task>
     <task id="LOCAL-00006" summary="setup project">
       <option name="closed" value="true" />
@@ -651,47 +619,119 @@
       <option name="project" value="LOCAL" />
       <updated>1710944393466</updated>
     </task>
-    <task id="LOCAL-00041" summary="some refactoring">
+    <task id="LOCAL-00041" summary="upgrade to python 3.12">
       <option name="closed" value="true" />
-      <created>1712704006691</created>
+      <created>1711133991174</created>
       <option name="number" value="00041" />
       <option name="presentableId" value="LOCAL-00041" />
       <option name="project" value="LOCAL" />
-      <updated>1712704006691</updated>
+      <updated>1711133991174</updated>
     </task>
-    <task id="LOCAL-00042" summary="some refactoring">
+    <task id="LOCAL-00042" summary="performance test using Process">
       <option name="closed" value="true" />
-      <created>1712704287002</created>
+      <created>1711359391581</created>
       <option name="number" value="00042" />
       <option name="presentableId" value="LOCAL-00042" />
       <option name="project" value="LOCAL" />
-      <updated>1712704287002</updated>
+      <updated>1711359391581</updated>
     </task>
-    <task id="LOCAL-00043" summary="some refactoring">
+    <task id="LOCAL-00043" summary="performance test using Process&#10;typing  enhanced">
       <option name="closed" value="true" />
-      <created>1712959822399</created>
+      <created>1711389150198</created>
       <option name="number" value="00043" />
       <option name="presentableId" value="LOCAL-00043" />
       <option name="project" value="LOCAL" />
-      <updated>1712959822399</updated>
+      <updated>1711389150198</updated>
     </task>
-    <task id="LOCAL-00044" summary="some small refactoring">
+    <task id="LOCAL-00044" summary="Refactoring for Processes">
       <option name="closed" value="true" />
-      <created>1713086865949</created>
+      <created>1711559558174</created>
       <option name="number" value="00044" />
       <option name="presentableId" value="LOCAL-00044" />
       <option name="project" value="LOCAL" />
-      <updated>1713086865950</updated>
+      <updated>1711559558174</updated>
     </task>
-    <task id="LOCAL-00045" summary="added parsing of command line arguments">
+    <task id="LOCAL-00045" summary="Refactoring for Processes">
       <option name="closed" value="true" />
-      <created>1713088680513</created>
+      <created>1711563052410</created>
       <option name="number" value="00045" />
       <option name="presentableId" value="LOCAL-00045" />
       <option name="project" value="LOCAL" />
-      <updated>1713088680513</updated>
+      <updated>1711563052410</updated>
     </task>
-    <option name="localTasksCounter" value="46" />
+    <task id="LOCAL-00046" summary="added some types and removed a typing error">
+      <option name="closed" value="true" />
+      <created>1711571736274</created>
+      <option name="number" value="00046" />
+      <option name="presentableId" value="LOCAL-00046" />
+      <option name="project" value="LOCAL" />
+      <updated>1711571736274</updated>
+    </task>
+    <task id="LOCAL-00047" summary="package update">
+      <option name="closed" value="true" />
+      <created>1711801537080</created>
+      <option name="number" value="00047" />
+      <option name="presentableId" value="LOCAL-00047" />
+      <option name="project" value="LOCAL" />
+      <updated>1711801537081</updated>
+    </task>
+    <task id="LOCAL-00048" summary="enhanced documentation">
+      <option name="closed" value="true" />
+      <created>1712077648695</created>
+      <option name="number" value="00048" />
+      <option name="presentableId" value="LOCAL-00048" />
+      <option name="project" value="LOCAL" />
+      <updated>1712077648696</updated>
+    </task>
+    <task id="LOCAL-00049" summary="enhanced documentation">
+      <option name="closed" value="true" />
+      <created>1712078775498</created>
+      <option name="number" value="00049" />
+      <option name="presentableId" value="LOCAL-00049" />
+      <option name="project" value="LOCAL" />
+      <updated>1712078775498</updated>
+    </task>
+    <task id="LOCAL-00050" summary="enhanced documentation">
+      <option name="closed" value="true" />
+      <created>1712101375442</created>
+      <option name="number" value="00050" />
+      <option name="presentableId" value="LOCAL-00050" />
+      <option name="project" value="LOCAL" />
+      <updated>1712101375443</updated>
+    </task>
+    <task id="LOCAL-00051" summary="enhanced documentation">
+      <option name="closed" value="true" />
+      <created>1712220648210</created>
+      <option name="number" value="00051" />
+      <option name="presentableId" value="LOCAL-00051" />
+      <option name="project" value="LOCAL" />
+      <updated>1712220648211</updated>
+    </task>
+    <task id="LOCAL-00052" summary="added command line parsing">
+      <option name="closed" value="true" />
+      <created>1713383250463</created>
+      <option name="number" value="00052" />
+      <option name="presentableId" value="LOCAL-00052" />
+      <option name="project" value="LOCAL" />
+      <updated>1713383250464</updated>
+    </task>
+    <task id="LOCAL-00053" summary="Windows fix for process usages">
+      <option name="closed" value="true" />
+      <created>1713450939882</created>
+      <option name="number" value="00053" />
+      <option name="presentableId" value="LOCAL-00053" />
+      <option name="project" value="LOCAL" />
+      <updated>1713450939882</updated>
+    </task>
+    <task id="LOCAL-00054" summary="Windows fix for process usage">
+      <option name="closed" value="true" />
+      <created>1713458234636</created>
+      <option name="number" value="00054" />
+      <option name="presentableId" value="LOCAL-00054" />
+      <option name="project" value="LOCAL" />
+      <updated>1713458234637</updated>
+    </task>
+    <option name="localTasksCounter" value="55" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -703,6 +743,11 @@
         <entry key="Branch">
           <value>
             <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="process" />
+                </option>
+              </RecentGroup>
               <RecentGroup>
                 <option name="FILTER_VALUES">
                   <option value="main" />
@@ -723,7 +768,7 @@
                   <entry key="branch">
                     <value>
                       <list>
-                        <option value="main" />
+                        <option value="process" />
                       </list>
                     </value>
                   </entry>
@@ -747,9 +792,16 @@
     <MESSAGE value="some small type improvements" />
     <MESSAGE value="some small improvements" />
     <MESSAGE value="packages update" />
-    <MESSAGE value="some refactoring" />
-    <MESSAGE value="some small refactoring" />
-    <MESSAGE value="added parsing of command line arguments" />
-    <option name="LAST_COMMIT_MESSAGE" value="added parsing of command line arguments" />
+    <MESSAGE value="upgrade to python 3.12" />
+    <MESSAGE value="performance test using Process" />
+    <MESSAGE value="performance test using Process&#10;typing  enhanced" />
+    <MESSAGE value="Refactoring for Processes" />
+    <MESSAGE value="added some types and removed a typing error" />
+    <MESSAGE value="package update" />
+    <MESSAGE value="enhanced documentation" />
+    <MESSAGE value="added command line parsing" />
+    <MESSAGE value="Windows fix for process usages" />
+    <MESSAGE value="Windows fix for process usage" />
+    <option name="LAST_COMMIT_MESSAGE" value="Windows fix for process usage" />
   </component>
 </project>

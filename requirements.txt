@@ -1,13 +1,13 @@
 Adafruit-Blinka>=8.39.1
 adafruit-circuitpython-busdevice>=5.2.6
-adafruit-circuitpython-requests>=3.2.4
+adafruit-circuitpython-requests>=3.2.5
 adafruit-circuitpython-connectionmanager>=1.0.1
 adafruit-circuitpython-typing>=1.10.3
 Adafruit-PlatformDetect>=3.62.0
 Adafruit-PureIO>=1.1.11
 mypy>=1.9.0
 mypy-extensions>=1.0.0
-numpy==1.26.4
+numpy>=1.26.4
 opencv-python>=4.9.0.80
 pyftdi==0.55.4
 pyserial==3.5

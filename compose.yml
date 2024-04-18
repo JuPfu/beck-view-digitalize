@@ -1,0 +1,10 @@
+services:
+  ftdi:
+    image: beckview:latest
+    privileged: true
+#    devices:
+#      - /dev/cu.usbserial-FT66CVI0
+#      - /dev/tty.usbserial-FT66CVI0
+#     - /dev/bus/usb:/dev/bus/usb
+#     - /dev/tty.usbserial-FT66CVI0:/dev/ftdi
+#      - /dev:/dev
