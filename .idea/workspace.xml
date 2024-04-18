@@ -7,7 +7,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="Windows fix for process usages">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="Windows fix for process usage">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -337,14 +338,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00005" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688741062002</created>
-      <option name="number" value="00005" />
-      <option name="presentableId" value="LOCAL-00005" />
-      <option name="project" value="LOCAL" />
-      <updated>1688741062002</updated>
     </task>
     <task id="LOCAL-00006" summary="setup project">
       <option name="closed" value="true" />
@@ -730,7 +723,15 @@
       <option name="project" value="LOCAL" />
       <updated>1713450939882</updated>
     </task>
-    <option name="localTasksCounter" value="54" />
+    <task id="LOCAL-00054" summary="Windows fix for process usage">
+      <option name="closed" value="true" />
+      <created>1713458234636</created>
+      <option name="number" value="00054" />
+      <option name="presentableId" value="LOCAL-00054" />
+      <option name="project" value="LOCAL" />
+      <updated>1713458234637</updated>
+    </task>
+    <option name="localTasksCounter" value="55" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -800,6 +801,7 @@
     <MESSAGE value="enhanced documentation" />
     <MESSAGE value="added command line parsing" />
     <MESSAGE value="Windows fix for process usages" />
-    <option name="LAST_COMMIT_MESSAGE" value="Windows fix for process usages" />
+    <MESSAGE value="Windows fix for process usage" />
+    <option name="LAST_COMMIT_MESSAGE" value="Windows fix for process usage" />
   </component>
 </project>

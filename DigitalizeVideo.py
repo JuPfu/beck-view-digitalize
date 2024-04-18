@@ -108,8 +108,6 @@ class DigitalizeVideo:
         self.thread_pool_scheduler = ThreadPoolScheduler(2 * optimal_thread_count)
         self.logger.info("CPU count is: %d", optimal_thread_count)
 
-        print(f"{multiprocessing.get_all_start_methods()=}")
-
         # Create subjects for frame monitoring and writing
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
         self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
@@ -125,7 +123,7 @@ class DigitalizeVideo:
 
         # Subscription for writing frames to storage
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
-            ops.map(lambda x: self.memory_write_picture(x))  # Map frames to the memory_write_picture function
+            ops.map(lambda x: self.memory_write_picture(x)),  # Map frames to the memory_write_picture function
         ).subscribe(
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
@@ -245,7 +243,7 @@ class DigitalizeVideo:
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
             # - remove stopped processes from process_array
-            self.processes = filter(DigitalizeVideo.filter_stopped_processes, self.processes)
+            self.processes = list(filter(DigitalizeVideo.filter_stopped_processes, self.processes))
 
     @staticmethod
     def filter_stopped_processes(item: ProcessType) -> bool:
