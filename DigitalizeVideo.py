@@ -11,7 +11,7 @@ from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
-from TypeDefinitions import ImgDescType, StateType, ProcessDict
+from TypeDefinitions import ImgDescType, StateType, ProcessType
 from WriteImages import write_images
 
 
@@ -54,7 +54,7 @@ class DigitalizeVideo:
         self.device_number: int = device_number
         self.output_path: Path = output_path
         self.monitoring: bool = monitoring
-        print(f"Digitize {self.monitoring}")
+
         self.photo_cell_signal_subject = photo_cell_signal_subject
 
         self.initialize_logging()
@@ -65,7 +65,7 @@ class DigitalizeVideo:
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
         self.img_nbytes: int = self.img_width * self.img_height * 3
 
-        self.process_dict: ProcessDict = {}
+        self.processes: [ProcessType] = []
 
         # create monitoring window
         self.create_monitoring_window()
@@ -222,20 +222,20 @@ class DigitalizeVideo:
 
         # Create a shared memory object with size to accommodate the current batch of images
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
-        shm.buf[:] = self.image_data[:] # Copy the image data to the shared memory buffer
+        shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
         try:
             # Create a new process to write images from shared memory
-            proc = Process(target=write_images,
-                           args=(
-                               shm.name,
-                               self.frame_desc,
-                               self.img_width,
-                               self.img_height,
-                               self.output_path)
-                           )
-            # Windows needs a reference to the shared memory
-            self.process_dict[proc.name] = {proc: Process, shm: SharedMemory}
+            proc: Process = Process(target=write_images,
+                                    args=(
+                                        shm.name,
+                                        self.frame_desc,
+                                        self.img_width,
+                                        self.img_height,
+                                        self.output_path)
+                                    )
+            # Windows only needs a reference to the shared memory
+            self.processes.append({proc: Process, shm: SharedMemory})
             # Start the process
             proc.start()
         finally:
@@ -244,15 +244,12 @@ class DigitalizeVideo:
             self.frame_desc = []
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
-            # - remove stopped processes from process_dict
-            self.process_dict = self.remove_stopped_processes(self.process_dict)
+            # - remove stopped processes from process_array
+            self.processes = filter(DigitalizeVideo.filter_stopped_processes, self.processes)
 
-    def remove_stopped_processes(self, process_dict) -> ProcessDict:
-        return dict(filter(self.filter_stopped_processes, process_dict.items()))
-
-    def filter_stopped_processes(self, pair) -> bool:
-        key, value = pair
-        process, shared_memory = value
+    @staticmethod
+    def filter_stopped_processes(item: ProcessType) -> bool:
+        process, _ = item
         return process.is_alive()
 
     def create_monitoring_window(self) -> None:
