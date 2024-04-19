@@ -35,7 +35,6 @@ def main():
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 
-    print(f"main {args=}")
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected

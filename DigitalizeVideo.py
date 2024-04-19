@@ -131,7 +131,7 @@ class DigitalizeVideo:
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            # ops.do_action(on_next=lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
+            ops.do_action(on_next=lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
             ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(on_next=lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
@@ -140,15 +140,11 @@ class DigitalizeVideo:
         )
 
     def take_picture(self, count) -> StateType:
-        grabbed: bool = self.cap.grab()
-        if grabbed:
-            ret, frame = self.cap.retrieve()
-            if ret:
-                return {"img": frame, "img_count": count}
-            else:
-                self.logger.error(f"Retrieve error at frame {count}")
+        success, frame = self.cap.read()
+        if success:
+            return {"img": frame, "img_count": count}
         else:
-            self.logger.error(f"Grab error at frame {count}")
+            self.logger.error(f"Read error at frame {count}")
 
         return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
 
@@ -201,8 +197,8 @@ class DigitalizeVideo:
         self.image_data = np.concatenate((self.image_data, flattened_image))
 
         # Create a frame description dictionary containing the current processed frame count
-        frame_desc = {'number_of_data_bytes': flattened_image.size, 'img_count': self.processed_frames}
-        self.frame_desc.append(frame_desc)  # Add the frame description to the list
+        frame_item = [{'number_of_data_bytes': flattened_image.size, 'img_count': self.processed_frames}]
+        self.frame_desc.append(frame_item)  # Add the frame description to the list
 
         # Increment the processed frame count
         self.processed_frames += 1
@@ -218,7 +214,7 @@ class DigitalizeVideo:
         :returns: None
         """
 
-        # Create a shared memory object with size to accommodate the current batch of images
+        # Create a shared memory object with appropriate size to accommodate the current batch of images
         shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
@@ -242,7 +238,7 @@ class DigitalizeVideo:
             self.frame_desc = []
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
-            # - remove stopped processes from process_array
+            # - remove stopped processes from processes array
             self.processes = list(filter(DigitalizeVideo.filter_stopped_processes, self.processes))
 
     @staticmethod
