@@ -7,10 +7,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="added command line parsing">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="take_picture method simplified&#10;Type definitions corrected">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitalizeVideo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/TypeDefinitions.py" beforeDir="false" afterPath="$PROJECT_DIR$/TypeDefinitions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/WriteImages.py" beforeDir="false" afterPath="$PROJECT_DIR$/WriteImages.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/compose.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
@@ -49,14 +52,12 @@
     &quot;assignee&quot;: &quot;JuPfu&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">
-    <option name="selectedUrlAndAccountId">
-      <UrlAndAccount>
-        <option name="accountId" value="0d2677c1-f8ce-4b8e-a8a0-aefcfbe69774" />
-        <option name="url" value="https://github.com/JuPfu/beck-view-digitalize.git" />
-      </UrlAndAccount>
-    </option>
-  </component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/JuPfu/beck-view-digitalize.git",
+    "accountId": "0d2677c1-f8ce-4b8e-a8a0-aefcfbe69774"
+  }
+}]]></component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/context.py" root0="SKIP_INSPECTION" />
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/pool.py" root0="SKIP_INSPECTION" />
@@ -206,7 +207,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 0" />
+      <option name="PARAMETERS" value="-d 0 -mc 950" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -330,7 +331,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-09665e90c3a7-d3b881c8e49f-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-233.15026.15" />
+        <option value="bundled-python-sdk-0509580d9d50-746f403e7f0c-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-241.14494.241" />
       </set>
     </attachedChunks>
   </component>
@@ -342,14 +343,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00006" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688742867662</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1688742867662</updated>
     </task>
     <task id="LOCAL-00007" summary="setup project">
       <option name="closed" value="true" />
@@ -735,7 +728,15 @@
       <option name="project" value="LOCAL" />
       <updated>1713458234637</updated>
     </task>
-    <option name="localTasksCounter" value="55" />
+    <task id="LOCAL-00055" summary="take_picture method simplified&#10;Type definitions corrected">
+      <option name="closed" value="true" />
+      <created>1713519552982</created>
+      <option name="number" value="00055" />
+      <option name="presentableId" value="LOCAL-00055" />
+      <option name="project" value="LOCAL" />
+      <updated>1713519552983</updated>
+    </task>
+    <option name="localTasksCounter" value="56" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -806,6 +807,7 @@
     <MESSAGE value="added command line parsing" />
     <MESSAGE value="Windows fix for process usages" />
     <MESSAGE value="Windows fix for process usage" />
-    <option name="LAST_COMMIT_MESSAGE" value="Windows fix for process usage" />
+    <MESSAGE value="take_picture method simplified&#10;Type definitions corrected" />
+    <option name="LAST_COMMIT_MESSAGE" value="take_picture method simplified&#10;Type definitions corrected" />
   </component>
 </project>

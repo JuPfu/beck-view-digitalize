@@ -16,9 +16,9 @@ Spawning Processes:
     Circumvent the Global Interpreter Lock (GIL) by using separate processes for writing images to persistent
     storage.
 
-Batch Processing for Efficiency: 
-    Batching images for writing to persistent storage is an efficient strategy that reduces the number of context 
-    switches and system calls.
+Chunk Processing for Efficiency: 
+    Usage of a chunk of images for writing to persistent storage is an efficient strategy that reduces the number of 
+    context switches and system calls.
 
 Shared Memory for Fast Data Transfer: 
     Employing shared memory for transferring image data to a separate process (inter-process communication).
@@ -44,13 +44,13 @@ def main():
     # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
     ftdi.open_from_url("ftdi:///1")
 
-    from DigitalizeVideo import DigitalizeVideo
+    from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
 
     optocoupler_signal_subject: Subject = Subject()
 
     # create class instances
-    DigitalizeVideo(args.device, args.output_path, args.monitor, optocoupler_signal_subject)
+    DigitizeVideo(args.device, args.output_path, args.monitor, optocoupler_signal_subject)
 
     ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
 

@@ -2,7 +2,8 @@
 # FROM python:3.12.2-bookworm
 
 #FROM alpine:latest
-FROM python:3.12.2-bookworm
+#FROM python:3.12.2-slim-bookworm
+FROM python:3.12.2
 
 RUN apt-get update && apt-get install -y libusb-1.0 udev
 #RUN apk add --no-cache python-3.12.2 py3-pip # && ln -sf python3 /usr/bin/python

@@ -2,7 +2,6 @@ import logging
 import multiprocessing
 import time
 from multiprocessing import shared_memory, Process
-from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
 import cv2
@@ -15,9 +14,9 @@ from TypeDefinitions import ImgDescType, StateType, ProcessType
 from WriteImages import write_images
 
 
-class DigitalizeVideo:
+class DigitizeVideo:
     """
-    DigitalizeVideo class for processing and digitalizing video frames.
+    DigitizeVideo class for processing and digitalizing video frames.
 
     This class provides methods to initialize the video capturing process,
     process frames using reactive programming, monitor frames, and more.
@@ -87,15 +86,15 @@ class DigitalizeVideo:
         # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
         self.logger.info(f"Camera properties:")
-        self.logger.info(f" - frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        self.logger.info(f" - frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f" - fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
-        self.logger.info(f" - height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f" - gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
-        self.logger.info(f" - auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        self.logger.info(f" - exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        self.logger.info(f" - format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
-        self.logger.info(f" - buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+        self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        self.logger.info(f"   frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f"   fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
+        self.logger.info(f"   height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f"   gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        self.logger.info(f"   auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
         """
@@ -112,7 +111,7 @@ class DigitalizeVideo:
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
         self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
 
-        monitor_frame = DigitalizeVideo.monitor_picture if self.monitoring else DigitalizeVideo.dummy_monitor_picture
+        monitor_frame = DigitizeVideo.monitor_picture if self.monitoring else DigitizeVideo.dummy_monitor_picture
 
         # Subscription for monitoring and displaying frames
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
@@ -140,18 +139,26 @@ class DigitalizeVideo:
         )
 
     def take_picture(self, count) -> StateType:
+        """
+        Grab and retrieve image from camera
+
+        :parameter
+            count: int -- number to be assigned to picture being read
+        :returns
+            StateType -- image data read and image number assigned
+        """
         success, frame = self.cap.read()
         if success:
-            return {"img": frame, "img_count": count}
+            return frame, count
         else:
             self.logger.error(f"Read error at frame {count}")
 
-        return {"img": np.zeros([self.img_height, self.img_width, 3], np.uint8), "img_count": count}
+        return np.zeros([self.img_height, self.img_width, 3], np.uint8), count
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
         """
-        Display image in monitor window with added tag (image count)
+        Display image in monitor window with added tag (image count) in upper left corner
 
         :parameter
             state: StateType -- current image data and image count
@@ -159,17 +166,17 @@ class DigitalizeVideo:
             None
         """
 
-        monitor_frame = state['img'].copy()  # make copy of image
+        monitor_frame = state[0].copy()  # make copy of image
         # add image count tag to upper left corner of image
-        cv2.putText(img=monitor_frame, text=f"frame{state['img_count']}", org=(15, 35),
+        cv2.putText(img=monitor_frame, text=f"frame{state[1]}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
-        cv2.waitKey(3) & 0XFF
+        cv2.waitKey(1) & 0XFF
 
     @staticmethod
     def dummy_monitor_picture(state: StateType) -> None:
         """
-        Do nothing - do not display image in monitor window with added tag (image count)
+        Do nothing - do not display image in monitor window
 
         :parameter
             state: StateType -- current image data and image count
@@ -191,13 +198,13 @@ class DigitalizeVideo:
         """
 
         # Flatten the image data from a 2D array to a 1D array
-        flattened_image = state['img'].flatten()
+        flattened_image = state[0].flatten()
 
         # Concatenate the flattened image data to the existing image data buffer
         self.image_data = np.concatenate((self.image_data, flattened_image))
 
         # Create a frame description dictionary containing the current processed frame count
-        frame_item = [{'number_of_data_bytes': flattened_image.size, 'img_count': self.processed_frames}]
+        frame_item: ImgDescType = flattened_image.size, self.processed_frames
         self.frame_desc.append(frame_item)  # Add the frame description to the list
 
         # Increment the processed frame count
@@ -220,7 +227,7 @@ class DigitalizeVideo:
 
         try:
             # Create a new process to write images from shared memory
-            proc: Process = Process(target=write_images,
+            process: Process = Process(target=write_images,
                                     args=(
                                         shm.name,
                                         self.frame_desc,
@@ -228,10 +235,11 @@ class DigitalizeVideo:
                                         self.img_height,
                                         self.output_path)
                                     )
-            # Windows only needs a reference to the shared memory
-            self.processes.append({proc: Process, shm: SharedMemory})
+            # Only Windows needs a reference to shared memory to not prematurely free it
+            p: ProcessType = process, shm
+            self.processes.append(p)
             # Start the process
-            proc.start()
+            process.start()
         finally:
             # Cleanup for the next batch:
             # - Clear frame descriptions
@@ -239,7 +247,7 @@ class DigitalizeVideo:
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
             # - remove stopped processes from processes array
-            self.processes = list(filter(DigitalizeVideo.filter_stopped_processes, self.processes))
+            self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
 
     @staticmethod
     def filter_stopped_processes(item: ProcessType) -> bool:

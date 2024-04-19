@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-def write_images(shared_memory_buffer_name: str,
+def write_images(buffer_name: str,
                  img_desc: [ImgDescType],
                  img_width: int,
                  img_height: int,
@@ -24,7 +24,7 @@ def write_images(shared_memory_buffer_name: str,
     :parameter
         shared_memory_buffer_name: str -- Reference to shared memory
 
-        img_desc: [ImgDescType] -- Array containing the names (count) for each image of the batch
+        img_desc: [ImgDescType] -- Array containing the data and number for each image of the batch
 
         img_width: int -- Width of image
 
@@ -34,8 +34,8 @@ def write_images(shared_memory_buffer_name: str,
     """
 
     # get access to shared memory
-    shm = shared_memory.SharedMemory(shared_memory_buffer_name)
-    # number of images in shared buffer is deduced from length of img_desc passed as second parameter to write images
+    shm = shared_memory.SharedMemory(buffer_name)
+    # number of images in shared buffer is deduced from length of img_desc
     # re-shape bytes from shared buffer into ndarray type with data type uint8
     data = np.ndarray((len(img_desc) * img_height * img_width * 3,), dtype=np.uint8, buffer=shm.buf)
 
@@ -44,9 +44,9 @@ def write_images(shared_memory_buffer_name: str,
     # write all images to persistent storage
     for img in img_desc:
         start = end
-        end += img['number_of_data_bytes']  # add number of data bytes to set end of current picture
+        end += img[0]  # add number of data bytes to designate end of current picture
 
-        filename = output_path / f"frame{img['img_count']}.png"
+        filename = output_path / f"frame{img[1]}.png"
         success: bool = cv2.imwrite(str(filename), data[start:end].reshape((img_height, img_width, 3)))
 
         if not success:
