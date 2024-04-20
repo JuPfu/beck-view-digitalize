@@ -50,7 +50,7 @@ def main():
     optocoupler_signal_subject: Subject = Subject()
 
     # create class instances
-    DigitizeVideo(args.device, args.output_path, args.monitor, optocoupler_signal_subject)
+    DigitizeVideo(args, optocoupler_signal_subject)
 
     ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
 

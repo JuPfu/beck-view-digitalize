@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import time
+from argparse import Namespace
 from multiprocessing import shared_memory, Process
 from pathlib import Path
 
@@ -27,32 +28,26 @@ class DigitizeVideo:
         photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
-    def __init__(self, device_number: int, output_path: Path, monitoring: bool,
+    def __init__(self, args: Namespace,
                  photo_cell_signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         :parameter
-            device_number: int -- The device number of the camera.
-
-            output_path: Path -- The directory for dumping digitised frames into.
-
-            monitoring: bool -- display monitoring window
+            args: Namespace -- Command line arguments.
 
             photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
         """
 
-        # batch size is the number of images worked on in a process
-        self.batch_size: int = 12
-
-        self.frame_desc: [ImgDescType] = []
+        self.img_desc: [ImgDescType] = []
 
         self.image_data = np.array([], dtype=np.uint8)
 
-        self.device_number: int = device_number
-        self.output_path: Path = output_path
-        self.monitoring: bool = monitoring
+        self.device_number: int = args.device # device number of camera
+        self.output_path: Path = args.output_path # The directory for dumping digitised frames into
+        self.monitoring: bool = args.monitor  # Display monitoring window
+        self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
         self.photo_cell_signal_subject = photo_cell_signal_subject
 
@@ -205,13 +200,13 @@ class DigitizeVideo:
 
         # Create a frame description dictionary containing the current processed frame count
         frame_item: ImgDescType = flattened_image.size, self.processed_frames
-        self.frame_desc.append(frame_item)  # Add the frame description to the list
+        self.img_desc.append(frame_item)  # Add the frame description to the list
 
         # Increment the processed frame count
         self.processed_frames += 1
 
         # Check if the batch size has been reached
-        if self.processed_frames % self.batch_size == 0:
+        if self.processed_frames % self.chunk_size == 0:
             self.write_to_shared_memory()  # Write the accumulated batch to shared memory
 
     def write_to_shared_memory(self) -> None:
@@ -222,7 +217,7 @@ class DigitizeVideo:
         """
 
         # Create a shared memory object with appropriate size to accommodate the current batch of images
-        shm = shared_memory.SharedMemory(create=True, size=(len(self.frame_desc) * self.img_nbytes))
+        shm = shared_memory.SharedMemory(create=True, size=(len(self.img_desc) * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
         try:
@@ -230,7 +225,7 @@ class DigitizeVideo:
             process: Process = Process(target=write_images,
                                     args=(
                                         shm.name,
-                                        self.frame_desc,
+                                        self.img_desc,
                                         self.img_width,
                                         self.img_height,
                                         self.output_path)
@@ -243,7 +238,7 @@ class DigitizeVideo:
         finally:
             # Cleanup for the next batch:
             # - Clear frame descriptions
-            self.frame_desc = []
+            self.img_desc = []
             # - Reset image data buffer
             self.image_data = np.array([], dtype=np.uint8)
             # - remove stopped processes from processes array

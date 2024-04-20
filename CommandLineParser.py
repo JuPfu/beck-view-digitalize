@@ -48,14 +48,14 @@ class CommandLineParser:
             default=False,
             help='Display monitoring window.'
         )
-        # Add arguments for bundle size
+        # Add arguments for chunk size
         self.parser.add_argument(
-            '-b', '--bundle-size',
-            dest="bundle_size",
+            '-c', '--chunk-size',
+            dest="chunk_size",
             type=int,
             nargs='?',
             default=12,
-            help='Bundle size (number of frames) passed to each process.'
+            help='Chunk size (number of frames) passed to each process.'
         )
 
     def parse_args(self) -> argparse.Namespace:

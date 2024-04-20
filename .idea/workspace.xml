@@ -9,13 +9,9 @@
   <component name="ChangeListManager">
     <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="take_picture method simplified&#10;Type definitions corrected">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/DigitalizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/TypeDefinitions.py" beforeDir="false" afterPath="$PROJECT_DIR$/TypeDefinitions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/WriteImages.py" beforeDir="false" afterPath="$PROJECT_DIR$/WriteImages.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/compose.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -52,12 +48,12 @@
     &quot;assignee&quot;: &quot;JuPfu&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/JuPfu/beck-view-digitalize.git",
-    "accountId": "0d2677c1-f8ce-4b8e-a8a0-aefcfbe69774"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/JuPfu/beck-view-digitalize.git&quot;,
+    &quot;accountId&quot;: &quot;0d2677c1-f8ce-4b8e-a8a0-aefcfbe69774&quot;
   }
-}]]></component>
+}</component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/context.py" root0="SKIP_INSPECTION" />
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/pool.py" root0="SKIP_INSPECTION" />
@@ -343,14 +339,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00007" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688743289850</created>
-      <option name="number" value="00007" />
-      <option name="presentableId" value="LOCAL-00007" />
-      <option name="project" value="LOCAL" />
-      <updated>1688743289850</updated>
     </task>
     <task id="LOCAL-00008" summary="setup project">
       <option name="closed" value="true" />
@@ -736,7 +724,15 @@
       <option name="project" value="LOCAL" />
       <updated>1713519552983</updated>
     </task>
-    <option name="localTasksCounter" value="56" />
+    <task id="LOCAL-00056" summary="take_picture method simplified&#10;Type definitions corrected">
+      <option name="closed" value="true" />
+      <created>1713565247983</created>
+      <option name="number" value="00056" />
+      <option name="presentableId" value="LOCAL-00056" />
+      <option name="project" value="LOCAL" />
+      <updated>1713565247984</updated>
+    </task>
+    <option name="localTasksCounter" value="57" />
     <servers />
   </component>
   <component name="UnknownFeatures">
