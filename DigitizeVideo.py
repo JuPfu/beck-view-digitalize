@@ -231,8 +231,7 @@ class DigitizeVideo:
                                         self.output_path)
                                     )
             # Only Windows needs a reference to shared memory to not prematurely free it
-            p: ProcessType = process, shm
-            self.processes.append(p)
+            self.processes.append((process, shm))
             # Start the process
             process.start()
         finally:

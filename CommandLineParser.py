@@ -42,11 +42,11 @@ class CommandLineParser:
         )
         # Add arguments for monitoring frames
         self.parser.add_argument(
-            '-d', '--display_monitor',
+            '-s', '--show_monitor',
             dest="monitor",
             action="store_true",
             default=False,
-            help='Display monitoring window.'
+            help='Show monitoring window.'
         )
         # Add arguments for chunk size
         self.parser.add_argument(

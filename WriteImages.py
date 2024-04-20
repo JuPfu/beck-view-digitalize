@@ -24,7 +24,7 @@ def write_images(buffer_name: str,
     :parameter
         shared_memory_buffer_name: str -- Reference to shared memory
 
-        img_desc: [ImgDescType] -- Array containing the data and number for each image of the batch
+        img_desc: [ImgDescType] -- Array containing the data and number for each image of the chunk
 
         img_width: int -- Width of image
 
