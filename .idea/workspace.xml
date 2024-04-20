@@ -7,10 +7,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="take_picture method simplified&#10;Type definitions corrected">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="passing of command line arguments changed">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -339,14 +338,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00008" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688745250142</created>
-      <option name="number" value="00008" />
-      <option name="presentableId" value="LOCAL-00008" />
-      <option name="project" value="LOCAL" />
-      <updated>1688745250142</updated>
     </task>
     <task id="LOCAL-00009" summary="setup project">
       <option name="closed" value="true" />
@@ -732,7 +723,15 @@
       <option name="project" value="LOCAL" />
       <updated>1713565247984</updated>
     </task>
-    <option name="localTasksCounter" value="57" />
+    <task id="LOCAL-00057" summary="passing of command line arguments changed">
+      <option name="closed" value="true" />
+      <created>1713602099456</created>
+      <option name="number" value="00057" />
+      <option name="presentableId" value="LOCAL-00057" />
+      <option name="project" value="LOCAL" />
+      <updated>1713602099456</updated>
+    </task>
+    <option name="localTasksCounter" value="58" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -804,6 +803,7 @@
     <MESSAGE value="Windows fix for process usages" />
     <MESSAGE value="Windows fix for process usage" />
     <MESSAGE value="take_picture method simplified&#10;Type definitions corrected" />
-    <option name="LAST_COMMIT_MESSAGE" value="take_picture method simplified&#10;Type definitions corrected" />
+    <MESSAGE value="passing of command line arguments changed" />
+    <option name="LAST_COMMIT_MESSAGE" value="passing of command line arguments changed" />
   </component>
 </project>

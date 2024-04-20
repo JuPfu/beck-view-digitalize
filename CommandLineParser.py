@@ -27,22 +27,22 @@ class CommandLineParser:
             type=pathlib.Path,
             nargs='?',
             default=pathlib.Path(".").resolve(),
-            help='Output directory for digitized png frames'
+            help='Output directory for digitized png frames.'
         )
         # Add arguments for emergency brake
         self.parser.add_argument(
-            '-mc', '--max-count',
+            '-m', '--max-count',
             dest="maxcount",
             type=int,
             nargs='?',
-            choices=[500, 950, 1850, 3650, 7250, 14450],
+            choices=range(1, 50000),
             default=7250,
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
                  'emitted stop digitizing when specified number of images is reached.'
         )
         # Add arguments for monitoring frames
         self.parser.add_argument(
-            '-m', '--monitor',
+            '-d', '--display_monitor',
             dest="monitor",
             action="store_true",
             default=False,

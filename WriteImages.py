@@ -19,7 +19,7 @@ def write_images(buffer_name: str,
                  output_path: Path) -> None:
     """
     Write batch of images to persistent storage.
-    Images are delivered via shared memory
+    Images are delivered via shared memory.
 
     :parameter
         shared_memory_buffer_name: str -- Reference to shared memory

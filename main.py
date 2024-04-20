@@ -35,6 +35,7 @@ def main():
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 
+    # initialize FTDI device driver
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
