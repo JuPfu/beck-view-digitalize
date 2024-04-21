@@ -42,11 +42,11 @@ def write_images(buffer_name: str,
     end: int = 0
 
     # write all images to persistent storage
-    for img in img_desc:
+    for (frame_nbytes, frame_count) in img_desc:
         start = end
-        end += img[0]  # add number of data bytes to designate end of current picture
+        end += frame_nbytes  # add number of data bytes to designate end of current picture
 
-        filename = output_path / f"frame{img[1]}.png"
+        filename = output_path / f"frame{frame_count}.png"
         success: bool = cv2.imwrite(str(filename), data[start:end].reshape((img_height, img_width, 3)))
 
         if not success:

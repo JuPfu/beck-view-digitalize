@@ -40,10 +40,6 @@ class DigitizeVideo:
         :return: None
         """
 
-        self.img_desc: [ImgDescType] = []
-
-        self.image_data = np.array([], dtype=np.uint8)
-
         self.device_number: int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
         self.monitoring: bool = args.monitor  # Display monitoring window
@@ -59,6 +55,10 @@ class DigitizeVideo:
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
         self.img_nbytes: int = self.img_width * self.img_height * 3
 
+        self.img_desc: [ImgDescType] = []
+
+        self.image_data = np.zeros(self.img_nbytes * self.chunk_size, dtype=np.uint8)
+
         self.processes: [ProcessType] = []
 
         # create monitoring window
@@ -66,7 +66,7 @@ class DigitizeVideo:
 
         self.processed_frames: int = 0
         self.start_time: int = time.time_ns()
-        self.new_tick: int = time.time_ns()
+        self.new_tick: int = self.start_time
 
     def initialize_logging(self) -> None:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -100,25 +100,25 @@ class DigitizeVideo:
         # Calculate the optimal number of threads based on available CPU cores
         optimal_thread_count: int = multiprocessing.cpu_count()
         # Create a ThreadPoolScheduler to manage threads
-        self.thread_pool_scheduler = ThreadPoolScheduler(2 * optimal_thread_count)
+        self.thread_pool_scheduler = ThreadPoolScheduler(optimal_thread_count)
         self.logger.info("CPU count is: %d", optimal_thread_count)
 
         # Create subjects for frame monitoring and writing
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
         self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
 
-        monitor_frame = DigitizeVideo.monitor_picture if self.monitoring else DigitizeVideo.dummy_monitor_picture
+        monitor_frame_function = DigitizeVideo.monitor_picture if self.monitoring else lambda state: None
 
         # Subscription for monitoring and displaying frames
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(lambda x: monitor_frame(x))  # Map frames to the monitor_picture function
+            ops.map(monitor_frame_function)  # Map frames to the monitor_picture function
         ).subscribe(
             on_error=lambda e: self.logger.error(e)  # Handle errors during monitoring
         )
 
         # Subscription for writing frames to storage
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
-            ops.map(lambda x: self.memory_write_picture(x)),  # Map frames to the memory_write_picture function
+            ops.map(self.memory_write_picture),  # Map frames to the memory_write_picture function
         ).subscribe(
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
@@ -126,11 +126,11 @@ class DigitizeVideo:
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            ops.do_action(on_next=lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
+            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
             ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
-            ops.do_action(on_next=lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
+            ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
-            on_completed=lambda: self.write_to_shared_memory(),  # Write any remaining frames to persistent storage
+            on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
 
@@ -166,7 +166,7 @@ class DigitizeVideo:
         self.new_tick = time.time_ns()
         elapsed_time = (self.new_tick - self.start_time) * 1e-9
         time_for_read = (after_read - signal_time) * 1e-9
-        round_trip = (self.new_tick - self.last_tick) * 1e-9
+        round_trip_time = (self.new_tick - self.last_tick) * 1e-9
 
         # Calculate FPS and update timing
         fps = count / elapsed_time if elapsed_time > 0 else 0
@@ -174,12 +174,14 @@ class DigitizeVideo:
 
         # Check if time for read exceeds upper limit
         if time_for_read >= upper_limit:
-            percent = (time_for_read / upper_limit) * 100
+            percent = (time_for_read / upper_limit) * 100.0 - 100.0
             self.logger.warning(
                 f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit "
-                f"{upper_limit:.4f}s, {percent:.2f}% over the limit. "
-                f"Current FPS: {fps:.2f}, Round trip time: {round_trip:.4f}s."
+                f"{upper_limit:.4f}s, {percent:.2f}%. "
+                f"Current FPS: {fps:.2f}, Round trip time: {round_trip_time:.4f}s."
             )
+            if time_for_read >= round_trip_time:
+                self.logger.error(f"Round trip time exceeded by frame {count}")
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -199,17 +201,6 @@ class DigitizeVideo:
         cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
         cv2.waitKey(1) & 0XFF
 
-    @staticmethod
-    def dummy_monitor_picture(state: StateType) -> None:
-        """
-        Do nothing - do not display image in monitor window
-
-        :parameter
-            state: StateType -- current image data and image count
-        :returns
-            None
-        """
-
     def memory_write_picture(self, state: StateType) -> None:
         """
         Write captured image data to a buffer in memory and keep track of processed frames.
@@ -219,18 +210,20 @@ class DigitizeVideo:
         previously captured frames. It also keeps track of the number of processed frames and writes
         the accumulated batch of frames to shared memory when the batch size is reached.
 
-        :param state: StateType -- A dictionary containing the captured image data (`img`)
+        :param state: StateType -- A tuple containing the captured image data and the frame count
         :returns: None
         """
 
-        # Flatten the image data from a 2D array to a 1D array
-        flattened_image = state[0].flatten()
+        frame_data, frame_count = state
 
-        # Concatenate the flattened image data to the existing image data buffer
-        self.image_data = np.concatenate((self.image_data, flattened_image))
+        # Calculate the index for this frame in the pre-allocated image_data array
+        start_index = (frame_count % self.chunk_size) * self.img_nbytes
 
-        # Create a frame description dictionary containing the current processed frame count
-        frame_item: ImgDescType = flattened_image.size, self.processed_frames
+        # Flatten the image data and insert it into the image_data array at the calculated index
+        self.image_data[start_index:start_index + self.img_nbytes] = frame_data.flatten()
+
+        # Create a frame description tuple
+        frame_item: ImgDescType = self.img_nbytes, self.processed_frames
         self.img_desc.append(frame_item)  # Add the frame description to the list
 
         # Increment the processed frame count
@@ -248,7 +241,7 @@ class DigitizeVideo:
         """
 
         # Create a shared memory object with appropriate size to accommodate the current batch of images
-        shm = shared_memory.SharedMemory(create=True, size=(len(self.img_desc) * self.img_nbytes))
+        shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
         try:
@@ -269,8 +262,6 @@ class DigitizeVideo:
             # Cleanup for the next batch:
             # - Clear frame descriptions
             self.img_desc = []
-            # - Reset image data buffer
-            self.image_data = np.array([], dtype=np.uint8)
             # - remove stopped processes from processes array
             self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
 
