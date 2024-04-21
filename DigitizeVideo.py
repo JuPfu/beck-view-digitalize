@@ -44,8 +44,8 @@ class DigitizeVideo:
 
         self.image_data = np.array([], dtype=np.uint8)
 
-        self.device_number: int = args.device # device number of camera
-        self.output_path: Path = args.output_path # The directory for dumping digitised frames into
+        self.device_number: int = args.device  # device number of camera
+        self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
         self.monitoring: bool = args.monitor  # Display monitoring window
         self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
@@ -65,7 +65,8 @@ class DigitizeVideo:
         self.create_monitoring_window()
 
         self.processed_frames: int = 0
-        self.start_time: float = time.time()
+        self.start_time: int = time.time_ns()
+        self.new_tick: int = time.time_ns()
 
     def initialize_logging(self) -> None:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -133,7 +134,7 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
 
-    def take_picture(self, count) -> StateType:
+    def take_picture(self, descriptor: tuple[int, int]) -> StateType:
         """
         Grab and retrieve image from camera
 
@@ -142,13 +143,43 @@ class DigitizeVideo:
         :returns
             StateType -- image data read and image number assigned
         """
+
+        count, signal_time = descriptor
+
         success, frame = self.cap.read()
         if success:
+            self.hint(count, signal_time)
             return frame, count
         else:
             self.logger.error(f"Read error at frame {count}")
 
         return np.zeros([self.img_height, self.img_width, 3], np.uint8), count
+
+    def hint(self, count, signal_time):
+        # Ensure count is greater than 1 before calculating
+        if count <= 1:
+            return
+
+        # Calculate time intervals
+        after_read = time.time_ns()
+        self.last_tick = self.new_tick
+        self.new_tick = time.time_ns()
+        elapsed_time = (self.new_tick - self.start_time) * 1e-9
+        time_for_read = (after_read - signal_time) * 1e-9
+        round_trip = (self.new_tick - self.last_tick) * 1e-9
+
+        # Calculate FPS and update timing
+        fps = count / elapsed_time if elapsed_time > 0 else 0
+        upper_limit = (1 / fps) * 0.75
+
+        # Check if time for read exceeds upper limit
+        if time_for_read >= upper_limit:
+            percent = (time_for_read / upper_limit) * 100
+            self.logger.warning(
+                f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit "
+                f"{upper_limit:.4f}s, {percent:.2f}% over the limit. "
+                f"Current FPS: {fps:.2f}, Round trip time: {round_trip:.4f}s."
+            )
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -223,13 +254,13 @@ class DigitizeVideo:
         try:
             # Create a new process to write images from shared memory
             process: Process = Process(target=write_images,
-                                    args=(
-                                        shm.name,
-                                        self.img_desc,
-                                        self.img_width,
-                                        self.img_height,
-                                        self.output_path)
-                                    )
+                                       args=(
+                                           shm.name,
+                                           self.img_desc,
+                                           self.img_width,
+                                           self.img_height,
+                                           self.output_path)
+                                       )
             # Only Windows needs a reference to shared memory to not prematurely free it
             self.processes.append((process, shm))
             # Start the process
@@ -288,7 +319,7 @@ class DigitizeVideo:
         # delete monitoring window
         self.delete_monitoring_window()
 
-        elapsed_time = time.time() - self.start_time
+        elapsed_time = (time.time_ns() - self.start_time) * 1e-9
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("-------End Of Film---------")

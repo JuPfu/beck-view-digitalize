@@ -68,13 +68,13 @@ class Ft232hConnector:
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
         while not self.__eof.value and self.__count < self.__max_count:
-            if True or self.__opto_coupler_ok1.value:
+            if self.__opto_coupler_ok1.value:
                 self.__count += 1
 
                 # turn on led to show processing of frame has started
                 self.__led.value = True
-                # Emit the frame count through the opto_coupler_signal_subject
-                self.__optoCouplerSignalSubject.on_next(self.__count)
+                # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
+                self.__optoCouplerSignalSubject.on_next((self.__count, time.time_ns()))
                 #
                 # Wait for self.__opto_coupler_ok1 (ok1) to change to false
                 # Latency of ok1 is about one millisecond
