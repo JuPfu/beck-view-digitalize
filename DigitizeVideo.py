@@ -249,15 +249,26 @@ class DigitizeVideo:
         shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
+        # Use the pool to apply the write_images function with a callback for handling results
+        def process_callback(result):
+            # Handle result or cleanup after the process is done
+            if result:
+                self.logger.info(f"Process completed successfully: {result}")
+            else:
+                self.logger.error("Process failed")
+
         # Use the pool to apply the write_images function with the appropriate arguments
         # self.pool.imap_unordered(write_images, args=(
-        self.pool.apply_async(write_images, args=(
-            shm.name,
-            self.img_desc,
-            self.img_width,
-            self.img_height,
-            self.output_path)
+        self.pool.apply_async(write_images,
+                              args=(
+                                  shm.name,
+                                  self.img_desc,
+                                  self.img_width,
+                                  self.img_height,
+                                  self.output_path),
+                              callback=process_callback
                               )
+
         # Cleanup for the next batch:
         # - Clear frame descriptions
         self.img_desc = []
@@ -304,10 +315,9 @@ class DigitizeVideo:
             self.thread_pool_scheduler.executor.shutdown()
 
         # Close the pool of worker processes when done
-        # if hasattr(self, 'pool'):
-        #     # self.pool.terminate()
-        #     self.pool.close()
-        #     self.pool.join()
+        if hasattr(self, 'pool'):
+            self.pool.close()
+            self.pool.join()
 
         if hasattr(self, 'cap'):
             self.release_camera()
