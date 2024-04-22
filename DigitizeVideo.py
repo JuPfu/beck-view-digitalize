@@ -2,7 +2,7 @@ import logging
 import multiprocessing
 import time
 from argparse import Namespace
-from multiprocessing import shared_memory, Process
+from multiprocessing import shared_memory
 from pathlib import Path
 
 import cv2
@@ -50,6 +50,7 @@ class DigitizeVideo:
         self.initialize_logging()
         self.initialize_camera()
         self.initialize_threads()
+        self.initialize_processes()
 
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
@@ -133,6 +134,10 @@ class DigitizeVideo:
             on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
+
+    def initialize_processes(self) -> None:
+        # Create a pool of worker processes with the optimal number of processes
+        self.pool = multiprocessing.Pool(multiprocessing.cpu_count())
 
     def take_picture(self, descriptor: tuple[int, int]) -> StateType:
         """
@@ -235,7 +240,7 @@ class DigitizeVideo:
 
     def write_to_shared_memory(self) -> None:
         """
-        Write batch of images to shared memory and start a separate process to emit the images to persistent storage
+        Write chunk of images to shared memory and start a separate process to emit the images to persistent storage
 
         :returns: None
         """
@@ -244,26 +249,20 @@ class DigitizeVideo:
         shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
-        try:
-            # Create a new process to write images from shared memory
-            process: Process = Process(target=write_images,
-                                       args=(
-                                           shm.name,
-                                           self.img_desc,
-                                           self.img_width,
-                                           self.img_height,
-                                           self.output_path)
-                                       )
-            # Only Windows needs a reference to shared memory to not prematurely free it
-            self.processes.append((process, shm))
-            # Start the process
-            process.start()
-        finally:
-            # Cleanup for the next batch:
-            # - Clear frame descriptions
-            self.img_desc = []
-            # - remove stopped processes from processes array
-            self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
+        # Use the pool to apply the write_images function with the appropriate arguments
+        # self.pool.imap_unordered(write_images, args=(
+        self.pool.apply_async(write_images, args=(
+            shm.name,
+            self.img_desc,
+            self.img_width,
+            self.img_height,
+            self.output_path)
+                              )
+        # Cleanup for the next batch:
+        # - Clear frame descriptions
+        self.img_desc = []
+        # - Reset image data buffer
+        # self.image_data = np.zeros(self.img_nbytes * self.chunk_size, dtype=np.uint8)
 
     @staticmethod
     def filter_stopped_processes(item: ProcessType) -> bool:
@@ -303,6 +302,12 @@ class DigitizeVideo:
 
         if hasattr(self, 'thread_pool_scheduler'):
             self.thread_pool_scheduler.executor.shutdown()
+
+        # Close the pool of worker processes when done
+        # if hasattr(self, 'pool'):
+        #     # self.pool.terminate()
+        #     self.pool.close()
+        #     self.pool.join()
 
         if hasattr(self, 'cap'):
             self.release_camera()

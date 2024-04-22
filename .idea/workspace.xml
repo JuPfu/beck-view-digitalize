@@ -7,7 +7,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="some minor enhancements">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="some code optimization">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
@@ -338,22 +338,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00011" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688752987712</created>
-      <option name="number" value="00011" />
-      <option name="presentableId" value="LOCAL-00011" />
-      <option name="project" value="LOCAL" />
-      <updated>1688752987712</updated>
-    </task>
-    <task id="LOCAL-00012" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1688753773741</created>
-      <option name="number" value="00012" />
-      <option name="presentableId" value="LOCAL-00012" />
-      <option name="project" value="LOCAL" />
-      <updated>1688753773741</updated>
     </task>
     <task id="LOCAL-00013" summary="setup project">
       <option name="closed" value="true" />
@@ -731,7 +715,23 @@
       <option name="project" value="LOCAL" />
       <updated>1713635967295</updated>
     </task>
-    <option name="localTasksCounter" value="60" />
+    <task id="LOCAL-00060" summary="added hint method for checking in sync taking of pictures">
+      <option name="closed" value="true" />
+      <created>1713724179391</created>
+      <option name="number" value="00060" />
+      <option name="presentableId" value="LOCAL-00060" />
+      <option name="project" value="LOCAL" />
+      <updated>1713724179392</updated>
+    </task>
+    <task id="LOCAL-00061" summary="some code optimization">
+      <option name="closed" value="true" />
+      <created>1713740955131</created>
+      <option name="number" value="00061" />
+      <option name="presentableId" value="LOCAL-00061" />
+      <option name="project" value="LOCAL" />
+      <updated>1713740955131</updated>
+    </task>
+    <option name="localTasksCounter" value="62" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -781,7 +781,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="pyftdi - no blinka" />
     <MESSAGE value="setup project" />
     <MESSAGE value="define main function" />
     <MESSAGE value="update dependencies" />
@@ -805,6 +804,8 @@
     <MESSAGE value="take_picture method simplified&#10;Type definitions corrected" />
     <MESSAGE value="passing of command line arguments changed" />
     <MESSAGE value="some minor enhancements" />
-    <option name="LAST_COMMIT_MESSAGE" value="some minor enhancements" />
+    <MESSAGE value="added hint method for checking in sync taking of pictures" />
+    <MESSAGE value="some code optimization" />
+    <option name="LAST_COMMIT_MESSAGE" value="some code optimization" />
   </component>
 </project>
