@@ -127,19 +127,20 @@ class DigitizeVideo:
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
-            ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
+            #ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
+            # ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
-            on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
+            on_completed=self.logger.warning("EOF SIGNALLED"),
+            #  on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
             on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
         )
 
     def initialize_processes(self) -> None:
         # Create a pool of worker processes with the optimal number of processes
-        self.pool = multiprocessing.Pool(multiprocessing.cpu_count())
+        self.pool = multiprocessing.Pool()
 
-    def take_picture(self, descriptor: tuple[int, int]) -> StateType:
+    def take_picture(self, descriptor: ImgDescType) -> StateType:
         """
         Grab and retrieve image from camera
 
@@ -198,10 +199,11 @@ class DigitizeVideo:
         :returns
             None
         """
+        frame_data, frame_count = state
 
-        monitor_frame = state[0].copy()  # make copy of image
+        monitor_frame = frame_data.copy()  # make copy of image
         # add image count tag to upper left corner of image
-        cv2.putText(img=monitor_frame, text=f"frame{state[1]}", org=(15, 35),
+        cv2.putText(img=monitor_frame, text=f"frame{frame_count}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
         cv2.waitKey(1) & 0XFF
@@ -213,7 +215,7 @@ class DigitizeVideo:
         This function is called when a new frame (image) is captured.
         It flattens the image data into a one-dimensional array and appends it to a buffer containing
         previously captured frames. It also keeps track of the number of processed frames and writes
-        the accumulated batch of frames to shared memory when the batch size is reached.
+        the accumulated chunk of frames to shared memory when the chunk size is reached.
 
         :param state: StateType -- A tuple containing the captured image data and the frame count
         :returns: None
@@ -234,9 +236,9 @@ class DigitizeVideo:
         # Increment the processed frame count
         self.processed_frames += 1
 
-        # Check if the batch size has been reached
+        # Check if the chunk size has been reached
         if self.processed_frames % self.chunk_size == 0:
-            self.write_to_shared_memory()  # Write the accumulated batch to shared memory
+            self.write_to_shared_memory()  # Write the accumulated chunk to shared memory
 
     def write_to_shared_memory(self) -> None:
         """
@@ -245,7 +247,7 @@ class DigitizeVideo:
         :returns: None
         """
 
-        # Create a shared memory object with appropriate size to accommodate the current batch of images
+        # Create a shared memory object with appropriate size to accommodate the current chunk of images
         shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
@@ -259,17 +261,17 @@ class DigitizeVideo:
 
         # Use the pool to apply the write_images function with the appropriate arguments
         # self.pool.imap_unordered(write_images, args=(
-        self.pool.apply_async(write_images,
+        result = self.pool.apply_async(write_images,
                               args=(
                                   shm.name,
                                   self.img_desc,
                                   self.img_width,
                                   self.img_height,
                                   self.output_path),
-                              callback=process_callback
+                              # callback=process_callback
                               )
 
-        # Cleanup for the next batch:
+        # Cleanup for the next chunk:
         # - Clear frame descriptions
         self.img_desc = []
         # - Reset image data buffer
