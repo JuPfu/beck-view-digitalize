@@ -46,10 +46,9 @@ class DigitizeVideo:
         self.monitoring: bool = args.monitor  # Display monitoring window flag
         self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
-        self.photo_cell_signal_subject = photo_cell_signal_subject
-
         self.initialize_logging()
         self.initialize_camera()
+        self.photo_cell_signal_subject = photo_cell_signal_subject
         self.initialize_threads()
 
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
@@ -124,15 +123,18 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
+        print("initialize_threads vor photo_cell_signal_subject")
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
-            ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
+            ops.do_action(self.monitorFrameSubject.on_next),  # Emit frame for monitoring
+            #ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(
-            on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
-            on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
+            on_next=lambda x: print(f"photo_cell_signal_subject on_next {x[1]}"),
+            #on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
+            on_error=lambda e: self.logger.error(e),  # Handle errors during signal processing
+            on_completed = print("Received EOF SIGNAL"),
         )
 
     def take_picture(self, descriptor: ImgDescType) -> StateType:

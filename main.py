@@ -1,3 +1,4 @@
+import time
 from argparse import Namespace
 
 from pyftdi.ftdi import Ftdi

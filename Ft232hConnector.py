@@ -38,11 +38,11 @@ class Ft232hConnector:
         self.__count = 0
 
         # Find the USB device with specified Vendor and Product IDs
-        self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
-        if self.__dev is None:
-            raise ValueError("USB device not found.")
-        else:
-            print(self.__dev)
+        # self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        # if self.__dev is None:
+        #     raise ValueError("USB device not found.")
+        # else:
+        #     print(self.__dev)
 
         # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
@@ -67,8 +67,9 @@ class Ft232hConnector:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
+        print("===>signal_input start LOOP")
         while not self.__eof.value and self.__count < self.__max_count:
-            if self.__opto_coupler_ok1.value:
+            if True or self.__opto_coupler_ok1.value:
                 self.__count += 1
 
                 # turn on led to show processing of frame has started
@@ -82,8 +83,11 @@ class Ft232hConnector:
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 
+                time.sleep(0.04)
+                print(f"===>signal_input send {self.__count=}")
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
+        print("END OF FILM SIGNALLED")
         # Signal the completion of frame processing and EoF detection
         self.__optoCouplerSignalSubject.on_completed()
