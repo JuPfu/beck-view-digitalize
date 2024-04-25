@@ -71,7 +71,7 @@ class Ft232hConnector:
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
         while not self.__eof.value and self.__count < self.__max_count:
-            if True or self.__opto_coupler_ok1.value:
+            if self.__opto_coupler_ok1.value:
                 self.__count += 1
 
                 # turn on led to show processing of frame has started
