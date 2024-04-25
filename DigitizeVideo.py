@@ -7,7 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from reactivex import operators as ops
+from reactivex import operators as ops, Observer
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
@@ -25,18 +25,17 @@ class DigitizeVideo:
     :parameter
         device_number: int -- The device number of the camera.
 
-        photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
+        signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
-    def __init__(self, args: Namespace,
-                 photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, args: Namespace, signal_subject: Subject) -> None:
         """
         Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         :parameter
             args: Namespace -- Command line arguments.
 
-            photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
+            signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
         """
 
@@ -45,7 +44,7 @@ class DigitizeVideo:
         self.monitoring: bool = args.monitor  # Display monitoring window
         self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
-        self.photo_cell_signal_subject = photo_cell_signal_subject
+        self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
         self.initialize_logging()
         self.initialize_camera()
@@ -124,21 +123,37 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
+        self.signal_observer = self.SignalObserver(self.write_to_shared_memory)
+
         # Subscription for processing photo cell signals
-        self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
+        self.photoCellSignalDisposable = self.signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
-            #ops.do_action(lambda state: self.monitorFrameSubject.on_next(state)),  # Emit frame for monitoring
-            # ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
+            ops.do_action(self.monitorFrameSubject.on_next),  # Emit frame for monitoring
+            ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
-        ).subscribe(
-            on_completed=self.logger.warning("EOF SIGNALLED"),
-            #  on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
-            on_error=lambda e: self.logger.error(e)  # Handle errors during signal processing
-        )
+        ).subscribe(self.signal_observer)
 
     def initialize_processes(self) -> None:
         # Create a pool of worker processes with the optimal number of processes
         self.pool = multiprocessing.Pool()
+
+    class SignalObserver(Observer):
+
+        def __init__(self, write_to_shared_memory) -> None:
+            super().__init__()
+            self.write_to_shared_memory = write_to_shared_memory
+
+            logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            self.logger = logging.getLogger(__name__)
+
+        def on_next(self, value):
+            pass
+
+        def on_error(self, error):
+            self.logger.error(f"{error}")
+
+        def on_completed(self):
+            self.write_to_shared_memory()
 
     def take_picture(self, descriptor: ImgDescType) -> StateType:
         """
@@ -167,11 +182,10 @@ class DigitizeVideo:
             return
 
         # Calculate time intervals
-        after_read = time.time_ns()
         self.last_tick = self.new_tick
         self.new_tick = time.time_ns()
         elapsed_time = (self.new_tick - self.start_time) * 1e-9
-        time_for_read = (after_read - signal_time) * 1e-9
+        time_for_read = (self.new_tick - signal_time) * 1e-9
         round_trip_time = (self.new_tick - self.last_tick) * 1e-9
 
         # Calculate FPS and update timing
@@ -259,28 +273,30 @@ class DigitizeVideo:
             else:
                 self.logger.error("Process failed")
 
-        # Use the pool to apply the write_images function with the appropriate arguments
-        # self.pool.imap_unordered(write_images, args=(
-        result = self.pool.apply_async(write_images,
-                              args=(
-                                  shm.name,
-                                  self.img_desc,
-                                  self.img_width,
-                                  self.img_height,
-                                  self.output_path),
-                              # callback=process_callback
-                              )
-
-        # Cleanup for the next chunk:
-        # - Clear frame descriptions
-        self.img_desc = []
-        # - Reset image data buffer
-        # self.image_data = np.zeros(self.img_nbytes * self.chunk_size, dtype=np.uint8)
+        try:
+            # Use the pool to apply the write_images function with the appropriate arguments
+            # self.pool.imap_unordered(write_images, args=(
+            result = self.pool.apply_async(write_images,
+                                           args=(
+                                               shm.name,
+                                               self.img_desc,
+                                               self.img_width,
+                                               self.img_height,
+                                               self.output_path),
+                                           callback=process_callback
+                                           )
+            self.processes.append((result, shm))
+        finally:
+            # Cleanup for the next ccunkh:
+            # - Clear frame descriptions
+            self.img_desc = []
+            # - remove finished processes from processes array
+            self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
 
     @staticmethod
     def filter_stopped_processes(item: ProcessType) -> bool:
         process, _ = item
-        return process.is_alive()
+        return not process.ready()
 
     def create_monitoring_window(self) -> None:
         """
