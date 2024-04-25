@@ -7,7 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from reactivex import operators as ops
+from reactivex import operators as ops, Observer
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
@@ -28,9 +28,7 @@ class DigitizeVideo:
         photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
     """
 
-    def __init__(self,
-                 args: Namespace,
-                 photo_cell_signal_subject: Subject) -> None:
+    def __init__(self, args: Namespace, signal_subject: Subject) -> None:
         """
         Initialize the DigitizeVideo instance with the given parameters and set up necessary components.
 
@@ -46,9 +44,10 @@ class DigitizeVideo:
         self.monitoring: bool = args.monitor  # Display monitoring window flag
         self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
+        self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
+
         self.initialize_logging()
         self.initialize_camera()
-        self.photo_cell_signal_subject = photo_cell_signal_subject
         self.initialize_threads()
 
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
@@ -123,19 +122,32 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
-        print("initialize_threads vor photo_cell_signal_subject")
-        # Subscription for processing photo cell signals
-        self.photoCellSignalDisposable = self.photo_cell_signal_subject.pipe(
+        self.signal_observer = self.SignalObserver(self.write_to_shared_memory)
+
+        self.photoCellSignalDisposable = self.signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
             ops.do_action(self.monitorFrameSubject.on_next),  # Emit frame for monitoring
-            #ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
+            ops.observe_on(self.thread_pool_scheduler),  # Switch to thread pool for subsequent operations
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
-        ).subscribe(
-            on_next=lambda x: print(f"photo_cell_signal_subject on_next {x[1]}"),
-            #on_completed=self.write_to_shared_memory,  # Write any remaining frames to persistent storage
-            on_error=lambda e: self.logger.error(e),  # Handle errors during signal processing
-            on_completed = print("Received EOF SIGNAL"),
-        )
+        ).subscribe(self.signal_observer)
+
+    class SignalObserver(Observer):
+
+        def __init__(self, write_to_shared_memory) -> None:
+            super().__init__()
+            self.write_to_shared_memory = write_to_shared_memory
+
+            logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            self.logger = logging.getLogger(__name__)
+
+        def on_next(self, value):
+            pass
+
+        def on_error(self, error):
+            self.logger.error(f"{error}")
+
+        def on_completed(self):
+            self.write_to_shared_memory()
 
     def take_picture(self, descriptor: ImgDescType) -> StateType:
         """
@@ -175,11 +187,10 @@ class DigitizeVideo:
             return
 
         # Calculate time intervals
-        after_read = time.time_ns()
         self.last_tick = self.new_tick
         self.new_tick = time.time_ns()
         elapsed_time = (self.new_tick - self.start_time) * 1e-9
-        time_for_read = (after_read - signal_time) * 1e-9
+        time_for_read = (self.new_tick - signal_time) * 1e-9
         round_trip_time = (self.new_tick - self.last_tick) * 1e-9
 
         # Calculate FPS and update timing

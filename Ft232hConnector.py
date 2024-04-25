@@ -2,8 +2,8 @@ import time
 
 import board
 import digitalio
-import usb.util
-from reactivex.subject import Subject
+import usb
+from reactivex import Subject
 
 
 # see circuit diagram in README.md
@@ -16,33 +16,36 @@ class Ft232hConnector:
     manage frame processing, and handle the End Of Film (EoF) signal.
 
     Args:
-        opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
+        signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
+
+        max_count: (int): Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
     """
 
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-    def __init__(self, opto_coupler_signal_subject: Subject, max_count: int) -> None:
+    def __init__(self, signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
-            opto_coupler_signal_subject (Subject): A subject that emits signals triggered by opto-coupler OK1.
+            signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
-            max_count: (int): Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+            max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
 
-        self.__optoCouplerSignalSubject = opto_coupler_signal_subject
+        self.signal_subject = signal_subject
+
         self.__max_count = max_count  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.__count = 0
 
         # Find the USB device with specified Vendor and Product IDs
-        # self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
-        # if self.__dev is None:
-        #     raise ValueError("USB device not found.")
-        # else:
-        #     print(self.__dev)
+        self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        if self.__dev is None:
+            raise ValueError("USB device not found.")
+        else:
+            print(self.__dev)
 
         # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
@@ -67,7 +70,6 @@ class Ft232hConnector:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
         """
-        print("===>signal_input start LOOP")
         while not self.__eof.value and self.__count < self.__max_count:
             if True or self.__opto_coupler_ok1.value:
                 self.__count += 1
@@ -75,7 +77,7 @@ class Ft232hConnector:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.__optoCouplerSignalSubject.on_next((self.__count, time.time_ns()))
+                self.signal_subject.on_next((self.__count, time.time_ns()))
                 #
                 # Wait for self.__opto_coupler_ok1 (ok1) to change to false
                 # Latency of ok1 is about one millisecond
@@ -83,11 +85,10 @@ class Ft232hConnector:
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 
-                time.sleep(0.04)
-                print(f"===>signal_input send {self.__count=}")
+                time.sleep(0.001)
+
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
-        print("END OF FILM SIGNALLED")
         # Signal the completion of frame processing and EoF detection
-        self.__optoCouplerSignalSubject.on_completed()
+        self.signal_subject.on_completed()

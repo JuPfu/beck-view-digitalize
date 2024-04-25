@@ -1,8 +1,7 @@
-import time
 from argparse import Namespace
 
 from pyftdi.ftdi import Ftdi
-from reactivex.subject import Subject
+from reactivex import Subject
 
 from CommandLineParser import CommandLineParser
 
@@ -49,7 +48,7 @@ def main():
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
 
-    optocoupler_signal_subject: Subject = Subject()
+    optocoupler_signal_subject = Subject()
 
     # create class instances
     DigitizeVideo(args, optocoupler_signal_subject)
