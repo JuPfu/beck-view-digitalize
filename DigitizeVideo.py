@@ -385,7 +385,7 @@ class DigitizeVideo:
             # - Clear frame descriptions
             self.img_desc = []
             # - remove finished processes from processes array
-            self.processes = list(filter(self.filter_stopped_processes, self.processes))
+            self.processes = list(filter(self.filter_finished_processes, self.processes))
 
     def final_write_to_shared_memory(self):
         """
@@ -395,13 +395,13 @@ class DigitizeVideo:
         """
 
         # Remove finished processes from the process list
-        self.processes = list(filter(self.filter_stopped_processes, self.processes))
+        self.processes = list(filter(self.filter_finished_processes, self.processes))
 
         # If there are images left to write, write them to shared memory
         if len(self.img_desc) > 0:
             self.write_to_shared_memory()
 
-    def filter_stopped_processes(self, item: ProcessType) -> bool:
+    def filter_finished_processes(self, item: ProcessType) -> bool:
         """
         Filter and return only processes that are still running.
 
