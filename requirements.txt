@@ -1,6 +1,6 @@
 Adafruit-Blinka>=8.39.1
 Adafruit-PlatformDetect>=3.62.0
-mypy>=1.9.0
+mypy>=1.10.0
 mypy-extensions>=1.0.0
 numpy==1.26.4
 opencv-python>=4.9.0.80
