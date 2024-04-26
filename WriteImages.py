@@ -16,7 +16,7 @@ def write_images(buffer_name: str,
                  img_desc: [ImgDescType],
                  img_width: int,
                  img_height: int,
-                 output_path: Path) -> None:
+                 output_path: Path) -> ImgDescType:
     """
     Write batch of images to persistent storage.
     Images are delivered via shared memory.
@@ -54,3 +54,5 @@ def write_images(buffer_name: str,
 
     shm.close()
     shm.unlink()
+
+    return img_desc

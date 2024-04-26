@@ -16,7 +16,7 @@ class CommandLineParser:
             dest="device",
             type=int,
             nargs='?',
-            choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            choices=range(0,10),
             default=0,
             help='Device number of attached camera.'
         )

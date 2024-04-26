@@ -2,7 +2,7 @@ import logging
 import multiprocessing
 import time
 from argparse import Namespace
-from multiprocessing import shared_memory, Process
+from multiprocessing import shared_memory
 from pathlib import Path
 
 import cv2
@@ -22,64 +22,95 @@ class DigitizeVideo:
     This class provides methods to initialize the video capturing process,
     process frames using reactive programming, monitor frames, and more.
 
-    :parameter
-        device_number: int -- The device number of the camera.
-
-        photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
+    Attributes:
+        device_number (int): The device number of the camera.
+        signal_subject (Subject): A reactivex subject emitting photo cell signals.
+        output_path (Path): The directory for dumping digitized frames.
+        monitoring (bool): Whether to display monitoring window.
+        chunk_size (int): Number of frames passed to a process.
+        img_width (int): Width of the video frames.
+        img_height (int): Height of the video frames.
+        img_nbytes (int): Number of bytes in a single frame.
+        img_desc (List[ImgDescType]): List of frame descriptions.
+        image_data (np.array): Buffer for storing image data.
+        processes (List[ProcessType]): List of processes for writing frames.
+        processed_frames (int): Number of frames processed.
+        start_time (int): Start time of processing in nanoseconds.
+        new_tick (int): Latest time of processing in nanoseconds.
+        thread_pool_scheduler (ThreadPoolScheduler): Scheduler for managing threads.
+        monitorFrameSubject (Subject): Subject for emitting frames to be monitored.
+        writeFrameSubject (Subject): Subject for emitting frames to be written to storage.
+        signal_observer (Observer): Observer for processing photo cell signals.
     """
 
     def __init__(self, args: Namespace, signal_subject: Subject) -> None:
         """
-        Initialize the DigitizeVideo instance with the given parameters and set up necessary components.
+        Initialize the DigitalizeVideo instance with the given parameters and set up necessary components.
 
         :parameter
             args: Namespace -- Command line arguments.
 
-            photo_cell_signal_subject: Subject -- A reactivex subject emitting photo cell signals.
+            signal_subject: Subject -- A reactivex subject emitting photo cell signals.
         :return: None
         """
 
+        # Initialize class attributes
         self.device_number: int = args.device  # device number of camera
-        self.output_path: Path = args.output_path  # The output directory for writing digitised frames into
-        self.monitoring: bool = args.monitor  # Display monitoring window flag
+        self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
+        self.monitoring: bool = args.monitor  # Display monitoring window
         self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
+        # Initialize logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_camera()
         self.initialize_threads()
+        self.initialize_process_pool()
 
+        # Get video frame properties
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
         self.img_nbytes: int = self.img_width * self.img_height * 3
 
+        # Initialize image data buffer and frame descriptions list
         self.img_desc: [ImgDescType] = []
-
         self.image_data = np.zeros(self.img_nbytes * self.chunk_size, dtype=np.uint8)
 
+        # Initialize the list of processes
         self.processes: [ProcessType] = []
 
-        # create monitoring window
+        # create monitoring window if necessary
         self.create_monitoring_window()
 
+        # Initialize frame processing counters and timing
         self.processed_frames: int = 0
         self.start_time: int = time.time_ns()
         self.new_tick: int = self.start_time
 
     def initialize_logging(self) -> None:
+        """
+        Initialize logging configuration for the application.
+
+        :return: None
+        """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
     def initialize_camera(self) -> None:
+        """
+        Initialize the camera for video capturing based on the specified device number.
+
+        :return: None
+        """
         self.cap = cv2.VideoCapture(self.device_number, cv2.CAP_ANY,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
+        # Set camera resolution to HDMI
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-
+        # Log camera properties
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         self.logger.info(f"   frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
@@ -94,6 +125,8 @@ class DigitizeVideo:
     def initialize_threads(self) -> None:
         """
         Initializes threads, subjects, and subscriptions for multithreading processing.
+
+        :return: None
         """
 
         # Calculate the optimal number of threads based on available CPU cores
@@ -106,6 +139,7 @@ class DigitizeVideo:
         self.monitorFrameSubject = Subject()  # Subject for emitting frames to be monitored
         self.writeFrameSubject = Subject()  # Subject for emitting frames to be written to storage
 
+        # Determine the function for monitoring frames based on the monitoring flag
         monitor_frame_function = DigitizeVideo.monitor_picture if self.monitoring else lambda state: None
 
         # Subscription for monitoring and displaying frames
@@ -122,8 +156,10 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
-        self.signal_observer = self.SignalObserver(self.write_to_shared_memory)
+        # Create an observer for processing photo cell signals
+        self.signal_observer = self.SignalObserver(self.write_to_shared_memory, self.final_write_to_shared_memory)
 
+        # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.signal_subject.pipe(
             ops.map(self.take_picture),  # Get picture from camera
             ops.do_action(self.monitorFrameSubject.on_next),  # Emit frame for monitoring
@@ -131,56 +167,111 @@ class DigitizeVideo:
             ops.do_action(lambda state: self.writeFrameSubject.on_next(state)),  # Emit frame for writing
         ).subscribe(self.signal_observer)
 
-    class SignalObserver(Observer):
+    def initialize_process_pool(self) -> None:
+        """
+        Create a pool of worker processes with the optimal number of processes.
 
-        def __init__(self, write_to_shared_memory) -> None:
+        :return: None
+        """
+        # Calculate the optimal number of processes
+        process_count = multiprocessing.cpu_count()
+        # Create a pool of worker processes
+        self.pool = multiprocessing.Pool(process_count)
+
+    class SignalObserver(Observer):
+        """
+        Custom observer for handling photo cell signals.
+
+        Attributes:
+            write_to_shared_memory (function): Function to write images to shared memory.
+            final_write_to_shared_memory (function): Function to write final images to shared memory.
+
+        Methods:
+            on_next(value): Handle the next emitted value.
+            on_error(error): Handle errors during signal processing.
+            on_completed(): Handle completion of signal processing.
+        """
+
+        def __init__(self, write_to_shared_memory, final_write_to_shared_memory) -> None:
+            """
+            Initialize the SignalObserver instance.
+
+            Args:
+                write_to_shared_memory (function): Function to write images to shared memory.
+                final_write_to_shared_memory (function): Function to write final images to shared memory.
+
+            :return: None
+            """
             super().__init__()
             self.write_to_shared_memory = write_to_shared_memory
+            self.final_write_to_shared_memory = final_write_to_shared_memory
 
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.logger = logging.getLogger(__name__)
 
         def on_next(self, value):
+            """
+            Handle the next emitted value from the signal subject.
+
+            :parameter:
+                value: The next emitted value.
+
+            :return: None
+            """
             pass
 
         def on_error(self, error):
+            """
+            Handle errors during signal processing.
+
+            :parameter:
+                error: The error encountered.
+
+            :return: None
+            """
             self.logger.error(f"{error}")
 
         def on_completed(self):
-            self.write_to_shared_memory()
+            """
+            Handle completion of signal processing.
+
+            :return: None
+            """
+            self.final_write_to_shared_memory()
 
     def take_picture(self, descriptor: ImgDescType) -> StateType:
         """
-        Read (Grab and retrieve) image from camera
+        Grab and retrieve image from camera
 
         :parameter
-            count: int -- number to be assigned to picture being read
+             descriptor: ImgDescType -- A tuple containing the frame count and signal time
         :returns
-            StateType -- image data read and image number assigned
+            StateType -- A tuple containing the image data read and the frame count.
         """
 
         count, signal_time = descriptor
 
+        # Read an image frame from the camera
         success, frame = self.cap.read()
         if success:
+            # Process the frame data and timing
             self.hint(count, signal_time)
             return frame, count
         else:
+            # Log an error if reading fails
             self.logger.error(f"Read error at frame {count}")
 
         return np.zeros([self.img_height, self.img_width, 3], np.uint8), count
 
-    def hint(self, count, signal_time) -> None:
+    def hint(self, count, signal_time):
         """
-        An image (frame) is captured when the film is at rest in front of the lens.
-        This method tries to check if frame capture is in sync with the projector.
+        Calculate and log processing statistics such as FPS and potential late reads.
 
-        :parameter
-            count: int -- number of current image
+        Args:
+            count (int): The current frame count.
+            signal_time (int): The signal time in nanoseconds.
 
-            signal_time: float -- time stamp in nanoseconds generated by opto-coupler 1
-        :returns
-            None
+        :returns: None
         """
         # Ensure count is greater than 1 before calculating
         if count <= 1:
@@ -218,13 +309,14 @@ class DigitizeVideo:
         :returns
             None
         """
+        frame_data, frame_count = state
 
-        monitor_frame = state[0].copy()  # make copy of image
+        monitor_frame = frame_data.copy()  # make copy of image
         # add image count tag to upper left corner of image
-        cv2.putText(img=monitor_frame, text=f"frame{state[1]}", org=(15, 35),
+        cv2.putText(img=monitor_frame, text=f"frame{frame_count}", org=(15, 35),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(0, 255, 0), thickness=2)
         cv2.imshow('Monitor', monitor_frame)  # display image in monitor window
-        cv2.waitKey(1) & 0XFF
+        cv2.waitKey(1) & 0XFF  # Process key events (pause briefly between frames)
 
     def memory_write_picture(self, state: StateType) -> None:
         """
@@ -233,9 +325,10 @@ class DigitizeVideo:
         This function is called when a new frame (image) is captured.
         It flattens the image data into a one-dimensional array and appends it to a buffer containing
         previously captured frames. It also keeps track of the number of processed frames and writes
-        the accumulated chunks of frames to shared memory when the chunk size is reached.
+        the accumulated chunk of frames to shared memory when the chunk size is reached.
 
-        :param state: StateType -- A tuple containing the captured image data and the frame count
+        :param
+            state: StateType -- A tuple containing the captured image data and the frame count
         :returns: None
         """
 
@@ -245,7 +338,7 @@ class DigitizeVideo:
         start_index = (frame_count % self.chunk_size) * self.img_nbytes
 
         # Flatten the image data and insert it into the image_data array at the calculated index
-        self.image_data[start_index:start_index + self.img_nbytes] = frame_data.flatten()
+        self.image_data[start_index:start_index + self.img_nbytes] = frame_data.ravel()
 
         # Create a frame description tuple
         frame_item: ImgDescType = self.img_nbytes, self.processed_frames
@@ -269,31 +362,57 @@ class DigitizeVideo:
         shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
+        # Define a callback function for handling errors in the generated process
+        def process_error_callback(error):
+            # Log error
+            self.logger.error(f"{error}")
+
         try:
-            # Create a new process to write images from shared memory
-            process: Process = Process(target=write_images,
-                                       args=(
-                                           shm.name,
-                                           self.img_desc,
-                                           self.img_width,
-                                           self.img_height,
-                                           self.output_path)
-                                       )
+            # Use the pool to apply the write_images function with the appropriate arguments
+            result = self.pool.apply_async(write_images,
+                                           args=(
+                                               shm.name,
+                                               self.img_desc,
+                                               self.img_width,
+                                               self.img_height,
+                                               self.output_path),
+                                           error_callback=process_error_callback
+                                           )
             # Only Windows needs a reference to shared memory to not prematurely free it
-            self.processes.append((process, shm))
-            # Start the process
-            process.start()
+            self.processes.append((result, shm))
         finally:
-            # Cleanup for the next chunk:
+            # Cleanup for the next ccunkh:
             # - Clear frame descriptions
             self.img_desc = []
-            # - remove stopped processes from processes array
-            self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
+            # - remove finished processes from processes array
+            self.processes = list(filter(self.filter_stopped_processes, self.processes))
 
-    @staticmethod
-    def filter_stopped_processes(item: ProcessType) -> bool:
+    def final_write_to_shared_memory(self):
+        """
+        Write final images to shared memory and ensure all processes have finished.
+
+        :returns: None
+        """
+
+        # Remove finished processes from the process list
+        self.processes = list(filter(self.filter_stopped_processes, self.processes))
+
+        # If there are images left to write, write them to shared memory
+        if len(self.img_desc) > 0:
+            self.write_to_shared_memory()
+
+    def filter_stopped_processes(self, item: ProcessType) -> bool:
+        """
+        Filter and return only processes that are still running.
+
+        :parameter:
+            item (ProcessType): A tuple containing the process and its shared memory object.
+
+        :returns:
+            bool: True if the process is still running, False otherwise.
+        """
         process, _ = item
-        return process.is_alive()
+        return not process.ready()
 
     def create_monitoring_window(self) -> None:
         """
@@ -325,6 +444,11 @@ class DigitizeVideo:
 
         :returns: None
         """
+
+        # Close the pool of worker processes when done
+        if hasattr(self, 'pool'):
+            self.pool.close()
+            self.pool.join()
 
         if hasattr(self, 'thread_pool_scheduler'):
             self.thread_pool_scheduler.executor.shutdown()
