@@ -123,7 +123,7 @@ class DigitizeVideo:
             on_error=lambda e: self.logger.error(e)  # Handle errors during writing
         )
 
-        self.signal_observer = self.SignalObserver(self.write_to_shared_memory)
+        self.signal_observer = self.SignalObserver(self.write_to_shared_memory, self.final_write_to_shared_memory)
 
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.signal_subject.pipe(
@@ -135,13 +135,14 @@ class DigitizeVideo:
 
     def initialize_processes(self) -> None:
         # Create a pool of worker processes with the optimal number of processes
-        self.pool = multiprocessing.Pool()
+        self.pool = multiprocessing.Pool(multiprocessing.cpu_count())
 
     class SignalObserver(Observer):
 
-        def __init__(self, write_to_shared_memory) -> None:
+        def __init__(self, write_to_shared_memory, final_write_to_shared_memory) -> None:
             super().__init__()
             self.write_to_shared_memory = write_to_shared_memory
+            self.final_write_to_shared_memory = final_write_to_shared_memory
 
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.logger = logging.getLogger(__name__)
@@ -153,7 +154,7 @@ class DigitizeVideo:
             self.logger.error(f"{error}")
 
         def on_completed(self):
-            self.write_to_shared_memory()
+            self.final_write_to_shared_memory()
 
     def take_picture(self, descriptor: ImgDescType) -> StateType:
         """
@@ -266,12 +267,16 @@ class DigitizeVideo:
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
         # Use the pool to apply the write_images function with a callback for handling results
-        def process_callback(result):
+        def process_callback(process_result):
             # Handle result or cleanup after the process is done
-            if result:
-                self.logger.info(f"Process completed successfully: {result}")
+            if process_result:
+                self.logger.info(f"Process completed successfully: {process_result=}")
             else:
-                self.logger.error("Process failed")
+                self.logger.error(f"Process failed {process_result=}")
+
+        def process_error_callback(error):
+            # Log error
+            self.logger.error(f"{error}")
 
         try:
             # Use the pool to apply the write_images function with the appropriate arguments
@@ -283,7 +288,8 @@ class DigitizeVideo:
                                                self.img_width,
                                                self.img_height,
                                                self.output_path),
-                                           callback=process_callback
+                                           # callback=process_callback,
+                                           error_callback=process_error_callback
                                            )
             self.processes.append((result, shm))
         finally:
@@ -291,10 +297,14 @@ class DigitizeVideo:
             # - Clear frame descriptions
             self.img_desc = []
             # - remove finished processes from processes array
-            self.processes = list(filter(DigitizeVideo.filter_stopped_processes, self.processes))
+            self.processes = list(filter(self.filter_stopped_processes, self.processes))
 
-    @staticmethod
-    def filter_stopped_processes(item: ProcessType) -> bool:
+    def final_write_to_shared_memory(self):
+        self.processes = list(filter(self.filter_stopped_processes, self.processes))
+        if len(self.img_desc) > 0:
+            self.write_to_shared_memory()
+
+    def filter_stopped_processes(self, item: ProcessType) -> bool:
         process, _ = item
         return not process.ready()
 
@@ -329,13 +339,13 @@ class DigitizeVideo:
         :returns: None
         """
 
-        if hasattr(self, 'thread_pool_scheduler'):
-            self.thread_pool_scheduler.executor.shutdown()
-
         # Close the pool of worker processes when done
         if hasattr(self, 'pool'):
             self.pool.close()
             self.pool.join()
+
+        if hasattr(self, 'thread_pool_scheduler'):
+            self.thread_pool_scheduler.executor.shutdown()
 
         if hasattr(self, 'cap'):
             self.release_camera()

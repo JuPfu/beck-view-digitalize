@@ -82,8 +82,6 @@ class Ft232hConnector:
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 
-                time.sleep(0.01)
-
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
