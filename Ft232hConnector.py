@@ -1,3 +1,4 @@
+import logging
 import time
 
 import board
@@ -18,7 +19,7 @@ class Ft232hConnector:
     Args:
         signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
-        max_count: (int): Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+        max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
     """
 
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
@@ -28,26 +29,17 @@ class Ft232hConnector:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
-        :parameter
+        Args:
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
-        :returns
-            None
         """
 
         self.signal_subject = signal_subject
-
         self.__max_count = max_count  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-        self.__count = 0
-
-        # Find the USB device with specified Vendor and Product IDs
-        self.__dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
-        if self.__dev is None:
-            raise ValueError("USB device not found.")
-        else:
-            print(self.__dev)
+        self.count = 0  # Initialize frame count
+        self._initialize_device()  # Initialize USB device
 
         # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
@@ -68,6 +60,19 @@ class Ft232hConnector:
         self.__eof = digitalio.DigitalInOut(board.C3)
         self.__eof.direction = digitalio.Direction.INPUT
 
+    def _initialize_device(self) -> None:
+        """
+        Initialize the USB device based on Vendor and Product IDs.
+
+        Raises:
+            ValueError: If the USB device is not found.
+        """
+        # Find the USB device with specified Vendor and Product IDs
+        self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        if self.dev is None:
+            raise ValueError("USB device not found.")
+        logging.info("USB device found: %s", self.dev)
+
     def signal_input(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
@@ -76,14 +81,14 @@ class Ft232hConnector:
             None
         """
 
-        while not self.__eof.value and self.__count < self.__max_count:
+        while not self.__eof.value and self.count < self.__max_count:
             if True or self.__opto_coupler_ok1.value:
-                self.__count += 1
+                self.count += 1
 
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.signal_subject.on_next((self.__count, time.perf_counter()))
+                self.signal_subject.on_next((self.count, time.perf_counter()))
 
                 # Wait for self.__opto_coupler_ok1 (ok1) to change to false
                 # Latency of ok1 is about one millisecond
