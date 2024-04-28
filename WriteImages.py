@@ -30,7 +30,7 @@ def write_images(buffer_name: str,
 
         img_height: int -- Height of image
     :returns
-        None
+        ImgDescType
     """
 
     # get access to shared memory

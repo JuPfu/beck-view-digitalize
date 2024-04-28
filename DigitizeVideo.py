@@ -30,7 +30,7 @@ class DigitizeVideo:
         chunk_size (int): Number of frames passed to a process.
         img_width (int): Width of the video frames.
         img_height (int): Height of the video frames.
-        img_nbytes (int): Number of bytes in a single frame.
+        img_bytes (int): Number of bytes in a single frame.
         img_desc (List[ImgDescType]): List of frame descriptions.
         image_data (np.array): Buffer for storing image data.
         processes (List[ProcessType]): List of processes for writing frames.
@@ -51,7 +51,7 @@ class DigitizeVideo:
             args: Namespace -- Command line arguments.
 
             signal_subject: Subject -- A reactivex subject emitting photo cell signals.
-        :return: None
+        :return None
         """
 
         # Initialize class attributes
@@ -71,11 +71,11 @@ class DigitizeVideo:
         # Get video frame properties
         self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
-        self.img_nbytes: int = self.img_width * self.img_height * 3
+        self.img_bytes: int = self.img_width * self.img_height * 3
 
         # Initialize image data buffer and frame descriptions list
         self.img_desc: [ImgDescType] = []
-        self.image_data = np.zeros(self.img_nbytes * self.chunk_size, dtype=np.uint8)
+        self.image_data = np.zeros(self.img_bytes * self.chunk_size, dtype=np.uint8)
 
         # Initialize the list of processes
         self.processes: [ProcessType] = []
@@ -92,7 +92,7 @@ class DigitizeVideo:
         """
         Initialize logging configuration for the application.
 
-        :return: None
+        :return None
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the specified device number.
 
-        :return: None
+        :return None
         """
         self.cap = cv2.VideoCapture(self.device_number, cv2.CAP_ANY,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
@@ -126,7 +126,7 @@ class DigitizeVideo:
         """
         Initializes threads, subjects, and subscriptions for multithreading processing.
 
-        :return: None
+        :return None
         """
 
         # Calculate the optimal number of threads based on available CPU cores
@@ -171,7 +171,7 @@ class DigitizeVideo:
         """
         Create a pool of worker processes with the optimal number of processes.
 
-        :return: None
+        :return None
         """
         # Calculate the optimal number of processes
         process_count = multiprocessing.cpu_count()
@@ -198,7 +198,7 @@ class DigitizeVideo:
             :parameter
                 final_write_to_shared_memory: function -- Function to write final images to shared memory.
 
-            :return: None
+            :return None
             """
             super().__init__()
             self.final_write_to_shared_memory = final_write_to_shared_memory
@@ -210,7 +210,7 @@ class DigitizeVideo:
             """
             Handle the next emitted value from the signal subject.
 
-            :parameter:
+            :parameter
                 value: The next emitted value.
 
             :return: None
@@ -221,7 +221,7 @@ class DigitizeVideo:
             """
             Handle errors during signal processing.
 
-            :parameter:
+            :parameter
                 error: The error encountered.
 
             :return: None
@@ -232,7 +232,7 @@ class DigitizeVideo:
             """
             Handle completion of signal processing.
 
-            :return: None
+            :return None
             """
             self.final_write_to_shared_memory()
 
@@ -264,7 +264,7 @@ class DigitizeVideo:
         """
         Calculate and log processing statistics such as FPS and potential late reads.
 
-        Args:
+        :parameter
             count (int): The current frame count.
             signal_time (int): The signal time in nanoseconds.
 
@@ -282,8 +282,8 @@ class DigitizeVideo:
         round_trip_time = (self.new_tick - self.last_tick)
 
         # Calculate FPS and update timing
-        fps = count / elapsed_time if elapsed_time > 0 else 0
-        upper_limit = (1 / fps) * 0.75
+        fps = count / elapsed_time if elapsed_time > 0.0 else 0.0
+        upper_limit = (1.0 / fps) * 0.75
 
         # Check if time for read exceeds upper limit
         if time_for_read >= upper_limit:
@@ -326,19 +326,19 @@ class DigitizeVideo:
 
         :param
             state: StateType -- A tuple containing the captured image data and the frame count
-        :returns: None
+        :returns None
         """
 
         frame_data, frame_count = state
 
         # Calculate the index for this frame in the pre-allocated image_data array
-        start_index = (frame_count % self.chunk_size) * self.img_nbytes
+        start_index = (frame_count % self.chunk_size) * self.img_bytes
 
         # Flatten the image data and insert it into the image_data array at the calculated index
-        self.image_data[start_index:start_index + self.img_nbytes] = frame_data.ravel()
+        self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()
 
         # Create a frame description tuple
-        frame_item: ImgDescType = self.img_nbytes, self.processed_frames
+        frame_item: ImgDescType = self.img_bytes, self.processed_frames
         self.img_desc.append(frame_item)  # Add the frame description to the list
 
         # Increment the processed frame count
@@ -352,11 +352,11 @@ class DigitizeVideo:
         """
         Write chunk of images to shared memory and start a separate process to emit the images to persistent storage
 
-        :returns: None
+        :returns None
         """
 
         # Create a shared memory object with appropriate size to accommodate the current chunk of images
-        shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_nbytes))
+        shm = shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes))
         shm.buf[:] = self.image_data[:]  # Copy the image data to the shared memory buffer
 
         # Define a callback function for handling errors in the generated process
@@ -380,7 +380,7 @@ class DigitizeVideo:
         except Exception as e:
             self.logger.error(f"{e}")
         finally:
-            # Cleanup for the next ccunkh:
+            # Cleanup for the next chunk:
             # - Clear frame descriptions
             self.img_desc = []
             # - remove finished processes from processes array
@@ -390,7 +390,7 @@ class DigitizeVideo:
         """
         Write final images to shared memory and ensure all processes have finished.
 
-        :returns: None
+        :returns None
         """
 
         # If there are images left to write, write them to shared memory
@@ -406,12 +406,12 @@ class DigitizeVideo:
     def filter_finished_processes(self, item: ProcessType) -> bool:
         """
         Filter and return only processes that are still running.
-        Free sharred memory of finished processes.
+        Free shared memory of finished processes.
 
-        :parameter:
+        :parameter
             item (ProcessType): A tuple containing the process and its shared memory object.
 
-        :returns:
+        :returns
             bool: True if the process is still running, False otherwise.
         """
         process, shm = item
@@ -424,7 +424,7 @@ class DigitizeVideo:
         """
         Create monitoring window which displays all digitized images.
 
-        :returns: None
+        :returns None
         """
         if self.monitoring is True: cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
 
@@ -432,7 +432,7 @@ class DigitizeVideo:
         """
         Destroy all windows created.
 
-        :returns: None
+        :returns None
         """
         if self.monitoring is True: cv2.destroyAllWindows()
 
@@ -440,7 +440,7 @@ class DigitizeVideo:
         """
         Release camera.
 
-        :returns: None
+        :returns None
         """
         self.cap.release()
 
@@ -448,7 +448,7 @@ class DigitizeVideo:
         """
         Clean up resources and log statistics upon instance destruction.
 
-        :returns: None
+        :returns None
         """
 
         if hasattr(self, 'thread_pool_scheduler'):

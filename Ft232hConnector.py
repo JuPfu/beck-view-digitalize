@@ -28,10 +28,12 @@ class Ft232hConnector:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
-        Args:
+        :parameter
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+        :returns
+            None
         """
 
         self.signal_subject = signal_subject
@@ -69,9 +71,15 @@ class Ft232hConnector:
     def signal_input(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
+
+        :returns
+            None
         """
+        t2 = time.perf_counter()
+        t1 = t2
         while not self.__eof.value and self.__count < self.__max_count:
-            if self.__opto_coupler_ok1.value:
+            time.sleep(0.04)
+            if True or self.__opto_coupler_ok1.value:
                 self.__count += 1
 
                 # turn on led to show processing of frame has started
@@ -84,6 +92,9 @@ class Ft232hConnector:
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 
+                t2 = time.perf_counter()
+                print(f"SIGNAL {(t2 - t1)=}")
+                t1 = t2
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
