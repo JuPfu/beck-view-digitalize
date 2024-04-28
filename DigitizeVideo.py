@@ -302,9 +302,6 @@ class DigitizeVideo:
             bool: True if the process is still running, False otherwise.
         """
         process, _ = item
-        # ready = process.ready()
-        # if ready:
-        #     shm.unlink()
         return not process.ready()
 
     def create_monitoring_window(self) -> None:
