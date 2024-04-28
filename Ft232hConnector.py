@@ -77,11 +77,10 @@ class Ft232hConnector:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.signal_subject.on_next((self.__count, time.time_ns()))
-                #
+                self.signal_subject.on_next((self.__count, time.perf_counter()))
+
                 # Wait for self.__opto_coupler_ok1 (ok1) to change to false
                 # Latency of ok1 is about one millisecond
-                #
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 

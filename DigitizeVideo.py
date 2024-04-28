@@ -85,7 +85,7 @@ class DigitizeVideo:
 
         # Initialize frame processing counters and timing
         self.processed_frames: int = 0
-        self.start_time: int = time.time_ns()
+        self.start_time: int = time.perf_counter()
         self.new_tick: int = self.start_time
 
     def initialize_logging(self) -> None:
@@ -157,7 +157,7 @@ class DigitizeVideo:
         )
 
         # Create an observer for processing photo cell signals
-        self.signal_observer = self.SignalObserver(self.write_to_shared_memory, self.final_write_to_shared_memory)
+        self.signal_observer = self.SignalObserver(self.final_write_to_shared_memory)
 
         # Subscription for processing photo cell signals
         self.photoCellSignalDisposable = self.signal_subject.pipe(
@@ -183,7 +183,6 @@ class DigitizeVideo:
         Custom observer for handling photo cell signals.
 
         Attributes:
-            write_to_shared_memory (function): Function to write images to shared memory.
             final_write_to_shared_memory (function): Function to write final images to shared memory.
 
         Methods:
@@ -192,24 +191,22 @@ class DigitizeVideo:
             on_completed(): Handle completion of signal processing.
         """
 
-        def __init__(self, write_to_shared_memory, final_write_to_shared_memory) -> None:
+        def __init__(self, final_write_to_shared_memory) -> None:
             """
             Initialize the SignalObserver instance.
 
-            Args:
-                write_to_shared_memory (function): Function to write images to shared memory.
-                final_write_to_shared_memory (function): Function to write final images to shared memory.
+            :parameter
+                final_write_to_shared_memory: function -- Function to write final images to shared memory.
 
             :return: None
             """
             super().__init__()
-            self.write_to_shared_memory = write_to_shared_memory
             self.final_write_to_shared_memory = final_write_to_shared_memory
 
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.logger = logging.getLogger(__name__)
 
-        def on_next(self, value):
+        def on_next(self, value) -> None:
             """
             Handle the next emitted value from the signal subject.
 
@@ -220,7 +217,7 @@ class DigitizeVideo:
             """
             pass
 
-        def on_error(self, error):
+        def on_error(self, error) -> None:
             """
             Handle errors during signal processing.
 
@@ -231,7 +228,7 @@ class DigitizeVideo:
             """
             self.logger.error(f"{error}")
 
-        def on_completed(self):
+        def on_completed(self) -> None:
             """
             Handle completion of signal processing.
 
@@ -279,10 +276,10 @@ class DigitizeVideo:
 
         # Calculate time intervals
         self.last_tick = self.new_tick
-        self.new_tick = time.time_ns()
-        elapsed_time = (self.new_tick - self.start_time) * 1e-9
-        time_for_read = (self.new_tick - signal_time) * 1e-9
-        round_trip_time = (self.new_tick - self.last_tick) * 1e-9
+        self.new_tick = time.perf_counter()
+        elapsed_time = (self.new_tick - self.start_time)
+        time_for_read = (self.new_tick - signal_time)
+        round_trip_time = (self.new_tick - self.last_tick)
 
         # Calculate FPS and update timing
         fps = count / elapsed_time if elapsed_time > 0 else 0
@@ -380,6 +377,8 @@ class DigitizeVideo:
                                            )
             # Only Windows needs a reference to shared memory to not prematurely free it
             self.processes.append((result, shm))
+        except Exception as e:
+            self.logger.error(f"{e}")
         finally:
             # Cleanup for the next ccunkh:
             # - Clear frame descriptions
@@ -394,16 +393,20 @@ class DigitizeVideo:
         :returns: None
         """
 
-        # Remove finished processes from the process list
-        self.processes = list(filter(self.filter_finished_processes, self.processes))
-
         # If there are images left to write, write them to shared memory
         if len(self.img_desc) > 0:
             self.write_to_shared_memory()
 
+        # Close the pool of worker processes
+        # Pool closing and joining must be done here due to Windows. Shifting the two statements to __del__ does
+        # not work.
+        self.pool.close()
+        self.pool.join()
+
     def filter_finished_processes(self, item: ProcessType) -> bool:
         """
         Filter and return only processes that are still running.
+        Free sharred memory of finished processes.
 
         :parameter:
             item (ProcessType): A tuple containing the process and its shared memory object.
@@ -411,8 +414,11 @@ class DigitizeVideo:
         :returns:
             bool: True if the process is still running, False otherwise.
         """
-        process, _ = item
-        return not process.ready()
+        process, shm = item
+        ready = process.ready()
+        if ready:
+            shm.unlink()
+        return not ready
 
     def create_monitoring_window(self) -> None:
         """
@@ -445,11 +451,6 @@ class DigitizeVideo:
         :returns: None
         """
 
-        # Close the pool of worker processes when done
-        if hasattr(self, 'pool'):
-            self.pool.close()
-            self.pool.join()
-
         if hasattr(self, 'thread_pool_scheduler'):
             self.thread_pool_scheduler.executor.shutdown()
 
@@ -459,7 +460,7 @@ class DigitizeVideo:
         # delete monitoring window
         self.delete_monitoring_window()
 
-        elapsed_time = (time.time_ns() - self.start_time) * 1e-9
+        elapsed_time = (time.perf_counter() - self.start_time)
         average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("-------End Of Film---------")

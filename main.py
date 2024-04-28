@@ -1,4 +1,5 @@
 from argparse import Namespace
+from multiprocessing import freeze_support
 
 from pyftdi.ftdi import Ftdi
 from reactivex import Subject
@@ -32,6 +33,8 @@ Logging:
 
 
 def main():
+    freeze_support()
+
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 

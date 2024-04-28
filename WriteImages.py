@@ -42,17 +42,16 @@ def write_images(buffer_name: str,
     end: int = 0
 
     # write all images to persistent storage
-    for (frame_nbytes, frame_count) in img_desc:
-        start = end
-        end += frame_nbytes  # add number of data bytes to designate end of current picture
+    try:
+        for (frame_bytes, frame_count) in img_desc:
+            start = end
+            end += frame_bytes  # add number of data bytes to designate end of current picture
 
-        filename = output_path / f"frame{frame_count}.png"
-        success: bool = cv2.imwrite(str(filename), data[start:end].reshape((img_height, img_width, 3)))
-
-        if not success:
-            logger.error(f"Could not write {filename=}")
-
-    shm.close()
-    shm.unlink()
+            filename = output_path / f"frame{frame_count}.png"
+            success: bool = cv2.imwrite(str(filename), data[start:end].reshape((img_height, img_width, 3)))
+            if not success:
+                logger.error(f"Could not write {filename=}")
+    except Exception as e:
+        logger.error(f"{e}")
 
     return img_desc
