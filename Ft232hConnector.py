@@ -75,8 +75,7 @@ class Ft232hConnector:
         :returns
             None
         """
-        t2 = time.perf_counter()
-        t1 = t2
+
         while not self.__eof.value and self.__count < self.__max_count:
             time.sleep(0.04)
             if True or self.__opto_coupler_ok1.value:
@@ -92,9 +91,6 @@ class Ft232hConnector:
                 while self.__opto_coupler_ok1.value:
                     time.sleep(0.0005)
 
-                t2 = time.perf_counter()
-                print(f"SIGNAL {(t2 - t1)=}")
-                t1 = t2
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
