@@ -77,7 +77,6 @@ class Ft232hConnector:
         """
 
         while not self.__eof.value and self.__count < self.__max_count:
-            time.sleep(0.04)
             if True or self.__opto_coupler_ok1.value:
                 self.__count += 1
 
