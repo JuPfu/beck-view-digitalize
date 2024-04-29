@@ -7,10 +7,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="removed dangling sleep">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/beck-view-digitalize.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/beck-view-digitalize.iml" afterDir="false" />
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="gitignore now ignores build and dist directory">
+      <change afterPath="$PROJECT_DIR$/nutika.sh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -203,7 +204,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 0 -m 380 -c 8" />
+      <option name="PARAMETERS" value="-d 1 -m 380 -c 8" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -329,14 +330,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00015" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1689018594437</created>
-      <option name="number" value="00015" />
-      <option name="presentableId" value="LOCAL-00015" />
-      <option name="project" value="LOCAL" />
-      <updated>1689018594437</updated>
     </task>
     <task id="LOCAL-00016" summary="setup project">
       <option name="closed" value="true" />
@@ -722,7 +715,15 @@
       <option name="project" value="LOCAL" />
       <updated>1714327339687</updated>
     </task>
-    <option name="localTasksCounter" value="64" />
+    <task id="LOCAL-00064" summary="gitignore now ignores build and dist directory">
+      <option name="closed" value="true" />
+      <created>1714405512319</created>
+      <option name="number" value="00064" />
+      <option name="presentableId" value="LOCAL-00064" />
+      <option name="project" value="LOCAL" />
+      <updated>1714405512320</updated>
+    </task>
+    <option name="localTasksCounter" value="65" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -772,7 +773,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="update dependencies" />
     <MESSAGE value="some small optimizations" />
     <MESSAGE value="logging added" />
     <MESSAGE value="added some documentation" />
@@ -797,6 +797,7 @@
     <MESSAGE value="some code optimization" />
     <MESSAGE value="some typing errors fixed" />
     <MESSAGE value="removed print statements" />
-    <option name="LAST_COMMIT_MESSAGE" value="removed print statements" />
+    <MESSAGE value="gitignore now ignores build and dist directory" />
+    <option name="LAST_COMMIT_MESSAGE" value="gitignore now ignores build and dist directory" />
   </component>
 </project>

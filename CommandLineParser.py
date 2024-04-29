@@ -18,7 +18,7 @@ class CommandLineParser:
             nargs='?',
             choices=range(0,10),
             default=0,
-            help='Device number of attached camera.'
+            help='Device number of attached camera - default is device 0.'
         )
         # Add arguments for output path
         self.parser.add_argument(
@@ -27,7 +27,7 @@ class CommandLineParser:
             type=pathlib.Path,
             nargs='?',
             default=pathlib.Path(".").resolve(),
-            help='Output directory for digitized png frames.'
+            help='Output directory for digitized png frames - default is current directory.'
         )
         # Add arguments for emergency brake
         self.parser.add_argument(
@@ -35,10 +35,10 @@ class CommandLineParser:
             dest="maxcount",
             type=int,
             nargs='?',
-            choices=range(1, 50000),
+            choices=[300, 500, 3650, 7250],
             default=7250,
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
-                 'emitted stop digitizing when specified number of images is reached.'
+                 'emitted stop digitizing when specified number of images is reached - default is 7250 frames.'
         )
         # Add arguments for monitoring frames
         self.parser.add_argument(
@@ -46,7 +46,7 @@ class CommandLineParser:
             dest="monitor",
             action="store_true",
             default=False,
-            help='Show monitoring window.'
+            help='Show monitoring window'
         )
         # Add arguments for chunk size
         self.parser.add_argument(
@@ -54,8 +54,8 @@ class CommandLineParser:
             dest="chunk_size",
             type=int,
             nargs='?',
-            default=12,
-            help='Chunk size (number of frames) passed to each process.'
+            default=8,
+            help='Chunk size (number of frames) passed to each process - default is 8  frames'
         )
 
     def parse_args(self) -> argparse.Namespace:

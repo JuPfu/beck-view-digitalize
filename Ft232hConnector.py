@@ -35,11 +35,12 @@ class Ft232hConnector:
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
 
+        self._initialize_device()  # Initialize USB device
+
         self.signal_subject = signal_subject
         self.__max_count = max_count  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count = 0  # Initialize frame count
-        self._initialize_device()  # Initialize USB device
 
         # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
