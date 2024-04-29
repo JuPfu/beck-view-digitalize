@@ -12,6 +12,7 @@ from TypeDefinitions import ImgDescType
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def write_images(buffer_name: str,
                  img_desc: list[ImgDescType],
                  img_width: int,
@@ -62,8 +63,6 @@ def write_images(buffer_name: str,
 
             if not success:
                 logger.error(f"Failed to write image: {filename}")
-            else:
-                logger.info(f"Image written successfully: {filename}")
 
     except Exception as e:
         logger.error(f"Error in child process: {e}")
