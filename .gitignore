@@ -6,6 +6,7 @@ __pycache__
 .Python build/
 develop-eggs/
 dist/
+build/
 downloads/
 eggs/
 .eggs/
@@ -66,6 +67,7 @@ venv/
 ENV/
 
 # If you are using PyCharm #
+.idea/**
 .idea/**/workspace.xml
 .idea/**/tasks.xml
 .idea/dictionaries
