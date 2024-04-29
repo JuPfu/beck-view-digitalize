@@ -83,7 +83,7 @@ class Ft232hConnector:
         """
 
         while not self.__eof.value and self.count < self.__max_count:
-            if True or self.__opto_coupler_ok1.value:
+            if self.__opto_coupler_ok1.value:
                 self.count += 1
 
                 # turn on led to show processing of frame has started
