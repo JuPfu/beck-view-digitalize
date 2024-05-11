@@ -161,7 +161,7 @@ class DigitizeVideo:
             # Return blank image in case of read error
             return np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8), count
 
-    def hint(self, count, signal_time):
+    def hint(self, count, signal_time) -> None:
         """
         Calculate and log processing statistics such as FPS and potential late reads.
 
@@ -275,7 +275,7 @@ class DigitizeVideo:
             self.img_desc = []
             self.processes = list(filter(self.filter_finished_processes, self.processes))
 
-    def final_write_to_shared_memory(self):
+    def final_write_to_shared_memory(self) -> None:
         """
         Write final images to shared memory and ensure all processes have finished.
 

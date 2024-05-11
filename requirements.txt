@@ -1,5 +1,5 @@
 Adafruit-Blinka>=8.39.1
-Adafruit-PlatformDetect>=3.62.0
+Adafruit-PlatformDetect>=3.63.0
 mypy>=1.10.0
 mypy-extensions>=1.0.0
 numpy==1.26.4
