@@ -1,0 +1,1 @@
+python -m nuitka --windows-icon-from-ico=beck-view-digitize.png -o "beck-view-digitize" main.py

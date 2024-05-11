@@ -1,1 +1,1 @@
-python3 -m nuitka --onefile --macos-create-app-bundle --product-name="beck-view-digitize" --macos-app-icon=your-icon.png -o "beck-view-digitize" main.py
+python3 -m nuitka --onefile --macos-create-app-bundle --product-name="beck-view-digitize" --macos-app-icon="beck-view-digitize.png" -o "beck-view-digitize" main.py

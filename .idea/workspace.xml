@@ -88,7 +88,7 @@
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/jp/PycharmProjects/beck-view-digitalize&quot;,
     &quot;run.code.analysis.last.selected.profile&quot;: &quot;aDefault&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
 }</component>
   <component name="RecentsManager">
@@ -202,7 +202,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 1 -m 500 -c 8" />
+      <option name="PARAMETERS" value="-d 1 -m 380 -c 8" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -316,7 +316,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-babbdf50b680-746f403e7f0c-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-241.15989.155" />
+        <option value="bundled-python-sdk-0509580d9d50-746f403e7f0c-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-241.14494.241" />
       </set>
     </attachedChunks>
   </component>
@@ -328,6 +328,30 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
+    </task>
+    <task id="LOCAL-00016" summary="setup project">
+      <option name="closed" value="true" />
+      <created>1689089283020</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1689089283020</updated>
+    </task>
+    <task id="LOCAL-00017" summary="setup project">
+      <option name="closed" value="true" />
+      <created>1689789049625</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1689789049625</updated>
+    </task>
+    <task id="LOCAL-00018" summary="setup project">
+      <option name="closed" value="true" />
+      <created>1690489367495</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1690489367495</updated>
     </task>
     <task id="LOCAL-00019" summary="setup project">
       <option name="closed" value="true" />
@@ -697,31 +721,7 @@
       <option name="project" value="LOCAL" />
       <updated>1714405512320</updated>
     </task>
-    <task id="LOCAL-00065" summary="ccreation of standalone program (MacOS) added">
-      <option name="closed" value="true" />
-      <created>1714428831516</created>
-      <option name="number" value="00065" />
-      <option name="presentableId" value="LOCAL-00065" />
-      <option name="project" value="LOCAL" />
-      <updated>1714428831516</updated>
-    </task>
-    <task id="LOCAL-00066" summary="ccreation of standalone program (MacOS) added">
-      <option name="closed" value="true" />
-      <created>1714428923253</created>
-      <option name="number" value="00066" />
-      <option name="presentableId" value="LOCAL-00066" />
-      <option name="project" value="LOCAL" />
-      <updated>1714428923253</updated>
-    </task>
-    <task id="LOCAL-00067" summary="creation of standalone program (MacOS) added">
-      <option name="closed" value="true" />
-      <created>1714431663951</created>
-      <option name="number" value="00067" />
-      <option name="presentableId" value="LOCAL-00067" />
-      <option name="project" value="LOCAL" />
-      <updated>1714431663952</updated>
-    </task>
-    <option name="localTasksCounter" value="68" />
+    <option name="localTasksCounter" value="65" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -771,6 +771,8 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
+    <MESSAGE value="some small optimizations" />
+    <MESSAGE value="logging added" />
     <MESSAGE value="added some documentation" />
     <MESSAGE value="added some types" />
     <MESSAGE value="some small type improvements" />
@@ -794,8 +796,6 @@
     <MESSAGE value="some typing errors fixed" />
     <MESSAGE value="removed print statements" />
     <MESSAGE value="gitignore now ignores build and dist directory" />
-    <MESSAGE value="ccreation of standalone program (MacOS) added" />
-    <MESSAGE value="creation of standalone program (MacOS) added" />
-    <option name="LAST_COMMIT_MESSAGE" value="creation of standalone program (MacOS) added" />
+    <option name="LAST_COMMIT_MESSAGE" value="gitignore now ignores build and dist directory" />
   </component>
 </project>
