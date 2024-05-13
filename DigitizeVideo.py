@@ -54,7 +54,7 @@ class DigitizeVideo:
         self.img_desc: [ImgDescType] = []
 
         # Initialize list of processes
-        self.processes = []
+        self.processes: [ProcessType] = []
 
         # Create monitoring window if needed
         self.create_monitoring_window()
@@ -273,7 +273,7 @@ class DigitizeVideo:
         finally:
             # Clear frame descriptions and filter finished processes
             self.img_desc = []
-            self.processes = list(filter(self.filter_finished_processes, self.processes))
+            self.processes: [ProcessType] = list(filter(self.filter_finished_processes, self.processes))
 
     def final_write_to_shared_memory(self) -> None:
         """

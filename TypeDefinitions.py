@@ -4,7 +4,7 @@ from multiprocessing.shared_memory import SharedMemory
 import numpy as np
 import numpy.typing as npt
 
-# Define the type of an RGB image array with shape (height, width, 3)
+# Define the type of RGB image array with shape (height, width, 3)
 RGBImageArray = npt.NDArray[np.uint8]
 
 # Define StateType as a tuple containing an RGB image array and an integer (frame count)

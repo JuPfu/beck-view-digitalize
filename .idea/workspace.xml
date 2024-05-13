@@ -7,10 +7,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="creation of standalone program (MacOS) added">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="update dependency Adafruit-PlatformDetect">
+      <change afterPath="$PROJECT_DIR$/beck-view-digitize-splash-screen.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/beck-view-digitize.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/TypeDefinitions.py" beforeDir="false" afterPath="$PROJECT_DIR$/TypeDefinitions.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -316,7 +318,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-0509580d9d50-746f403e7f0c-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-241.14494.241" />
+        <option value="bundled-python-sdk-babbdf50b680-746f403e7f0c-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-241.15989.155" />
       </set>
     </attachedChunks>
   </component>
@@ -771,8 +773,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="some small optimizations" />
-    <MESSAGE value="logging added" />
     <MESSAGE value="added some documentation" />
     <MESSAGE value="added some types" />
     <MESSAGE value="some small type improvements" />
@@ -796,6 +796,8 @@
     <MESSAGE value="some typing errors fixed" />
     <MESSAGE value="removed print statements" />
     <MESSAGE value="gitignore now ignores build and dist directory" />
-    <option name="LAST_COMMIT_MESSAGE" value="gitignore now ignores build and dist directory" />
+    <MESSAGE value="ccreation of standalone program (MacOS) added" />
+    <MESSAGE value="creation of standalone program (MacOS) added" />
+    <option name="LAST_COMMIT_MESSAGE" value="creation of standalone program (MacOS) added" />
   </component>
 </project>
