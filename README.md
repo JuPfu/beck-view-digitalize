@@ -1,52 +1,41 @@
-# beck-view-digitalize
+# Beck-View Digitalize
 
-Digitalize Super 8 films with Python &amp; OpenCV &amp; reactivex &amp; Adafruit FT232H Breakout Board
+Digitalize Super 8 films with Python, OpenCV, ReactiveX, and the Adafruit FT232H Breakout Board.
 
-# Project Summary
+## Project Summary
 
-This application can digitalize Super 8 films. A Super 8 projector has been modified for this purpose. A
-USB-camera is mounted in front of the lens of the projector. When a frame is positioned behind the lens and
-at rest, an opto-coupler delivers a signal to a connected Adafruit FT232H Microcontroller. This signal is used
-to trigger the USB-camera to take a picture of the currently visible frame. OpenCV is used for processing the image.
+This application is designed to digitalize Super 8 films. A modified Super 8 projector is equipped with a USB camera mounted in front of its lens. When a frame is positioned and at rest, an opto-coupler sends a signal to an Adafruit FT232H Microcontroller, which triggers the USB camera to capture the frame. The captured image is then processed using OpenCV.
 
 ![FT232H](./assets/img/BauerProjektorT610.png)
+*Image: By Joergsam - Own work, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)*
 
-Von Joergsam - Eigenes Werk, CC BY-SA
-3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617) - unmodified sample of a Super 8
-projector
-
-The circuit diagram looks like so
+The circuit diagram:
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
-The FT232H Board is connected via USB-C to the computer. It delivers the opto-coupler signals
-to the computer, where openCV is used to control the USB-camera and for image processing.
 
-- The opto-coupler OK1 (connected to GPIO C2 as input) synchronizes the image capture
-- The opto-coupler Ok2 (connected to GPIO C3 as input) delivers an end of film signal
-- The LED (connected to GPIO C1 as output) is switched on while an image is processed
+The FT232H board connects via USB-C to a computer. It transmits opto-coupler signals to the computer, where OpenCV controls the USB camera and processes images.
 
-There are many other use cases for this application. You can use this project to take
-pictures from any USB-camera connected to your computer by the press of a button or
-in specified time intervals (timelapse), or you could take a picture when signalled by a sensor, e.g. an opto-coupler.
+- **OK1 (GPIO C2):** Synchronizes image capture
+- **OK2 (GPIO C3):** Signals end of film
+- **LED (GPIO C1):** Lights up while processing an image
 
-In a second step this project allows you to reassemble the list of pictures into a movie, again.
+This application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, at specified intervals (timelapse), or when triggered by a sensor.
 
-# Project  Installation
+Additionally, the project includes functionality to reassemble the captured images into a movie.
 
-## Prerequisites
+## Project Installation
 
-The FT232H Breakout Board is connected via USB to your computer.
+### Prerequisites
 
-## Tools
+Ensure the FT232H Breakout Board is connected via USB to your computer.
 
-Python3 and pip3 have to be installed first.
+### Tools
 
-Use the current version of pip.
-
-```
+Python 3 and pip must be installed. Upgrade pip to the latest version:
+```bash
 pip3 install --upgrade pip
 ```
 
-## Installation
+### Installation Steps
 
 1. **Clone the Repository:**
    ```bash
@@ -60,85 +49,48 @@ pip3 install --upgrade pip
    pip install -r requirements.txt
    ```
 
-## Installation Process
+### Manual Installation Steps
 
-Usually there are only two manual installation steps to complete the installation.</br>
+1. Set the environment variable `BLINKA=1` for your operating system (refer to the [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)).
+2. Install the FT232H driver:
+   - For Windows, use [Zadig](#zadig).
+   - For macOS, install the [libusb library via brew](#libusb).
 
-First 
- - set the environment variable `BLINKA = 1`for your operating system (see [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup))</br>
+### Detailed Installation Instructions
 
-Second
- - for Window install the FT232H driver via [Zadig](#zadig)
- - for MaccOS install the [libusb library via brew](#libusb)
+#### BLINKA
 
-A detailed installation description can be found in the following chapters.
+Blinka is a pip-installable Python library that runs on desktop Python. It supports USB adapter boards like the FT232H Adafruit breakout board, allowing hardware operations like GPIO, I2C, and SPI through USB connections.
 
-## BLINKA
+Ensure the environment variable BLINKA is set correctly. Follow the platform-specific [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup).
 
-Blinka is a pip installable Python library that runs in normal "desktop" Python. Blinka is a
-great library!
+#### PyFtdi for FT232H
 
-On Windows, macOS, or Linux computers, you can use USB adapter boards like the
-FT232H Adafruit breakout board, to provide hardware pins you can control. This board
-connects via regular USB to your computer, and let you do GPIO, I2C, SPI, and other hardware operations.
+The FT232H breakout board supports various protocols like GPIO, SPI, and I2C via USB-C. Refer to the [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) for more information.
 
-[Overview of supported hardware](https://circuitpython.org/blinka)
-
-The Blinka Python library should have already been installed in the previous step (see [Install Dependencies](#install_dependencies)).
-
-<alert style="background:yellow">Before you proceed, make sure the environment variable BLINKA is set as described in
-the installation guide. It will save you time!</alert>
-
-A detailed platform specific installation instruction can be found here
-
-[Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)
-
-## PyFtdi for FT232H
-
-The FT232H is a general purpose USB to GPIO, SPI, I2C - USB-C & Stemma QT breakout board. The FT232H microcontroller
-connects to your computer via USB-C. See the
-link [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264)
-to come to know the capabilities of this microcontroller.
-
-The breakout board ist based on the chip manufactured by [FTDI Chip](https://ftdichip.com/products/ft232hq/). A lot of
-additional documentation, e.g. the datasheet and references to drivers are also available on this site.
-
-This project is coded in Python. The PyFTDI library cannot be praised enough. It has a terrific support for the FT232H,
-FT2232H and FT4232H devices.
-A detailed step-by-step instruction on how to install PyFTDI for Windows, macOS or Linux can be found here:
-
-[PyFtdi Documentation](https://eblot.github.io/pyftdi/)
+Install PyFTDI for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
 
 <a id="zadig"></a>
-### Fix Driver with Zadig
+#### Fix Driver with Zadig (Windows)
 
-To fix the FT232H driver on Windows, you must use a tool called Zadig.
+To fix the FT232H driver on Windows, use [Zadig](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/windows).
 
-[FT232H driver installation with Zadig](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/windows)
-
-When stuck, troubleshooting hints from the Arduino Help Center might be a door opener
-
-[Install or update FTDI drivers](https://support.arduino.cc/hc/en-us/articles/4411305694610-Install-or-update-FTDI-drivers)
-
-### FT232H EEPROM
-
-In case of problems it might help to have the EEPROM of the FT232H initialized.
-
-The [User_Guide_For_FT_PROG.pdf](https://ftdichip.com/wp-content/uploads/2020/07/AN_124_User_Guide_For_FT_PROG.pdf)
-gives a detailed description on how to do this using the
-[FT_PROG - EEPROM Programming Utility](https://ftdichip.com/utilities/).
+For troubleshooting, refer to the [Arduino Help Center](https://support.arduino.cc/hc/en-us/articles/4411305694610-Install-or-update-FTDI-drivers).
 
 <a id="libusb"></a>
-### libusb for macOS (Intel)
+#### libusb for macOS
 
-Make sure libusb is installed. See [Homebrew Formulae libusb](https://formulae.brew.sh/formula/libusb)
-
-```
+Install libusb using Homebrew:
+```bash
 brew install libusb
 ```
 
-The output from `brew ls libusb` should look like so
+Verify the installation with:
+```bash
+brew ls libusb
+```
 
+Expected output:
 ```
 /usr/local/Cellar/libusb/1.0.26/include/libusb-1.0/libusb.h
 /usr/local/Cellar/libusb/1.0.26/lib/libusb-1.0.0.dylib
@@ -147,14 +99,41 @@ The output from `brew ls libusb` should look like so
 /usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
 ```
 
-# Step By Step Description
+### Step-By-Step Description
 
-## Take A Photograph At The Press Of A Button
+#### Taking a Photograph with a Button Press
 
-A simple start to check if everything is set up fine.
-
-ToDo: Detailed description
+Ensure everything is set up correctly by taking a test photograph.
 
 ![Press of a button 1](./assets/img/press_of_a_button_1.png)
 
 ![Press of a button 2](./assets/img/press_of_a_button_2.png)
+
+## Contributing
+
+1. **Fork the Repository**
+2. **Create a Feature Branch:**
+   ```bash
+   git checkout -b feature/your-feature
+   ```
+3. **Commit Changes:**
+   ```bash
+   git commit -m 'Add some feature'
+   ```
+4. **Push to the Branch:**
+   ```bash
+   git push origin feature/your-feature
+   ```
+5. **Open a Pull Request**
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Acknowledgements
+
+- Thanks to the contributors of [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), and [Adafruit](https://www.adafruit.com/) for their libraries and support.
+
+---
+
+Follow these instructions to set up and use the Beck-View Digitalize application for digitizing Super 8 films or other image capture projects. Happy digitizing!
