@@ -1,10 +1,12 @@
 # Beck-View Digitalize
 
-Digitalize Super 8 films with Python, OpenCV, ReactiveX, and the Adafruit FT232H Breakout Board.
+Digitise Super 8 films with Python, OpenCV, ReactiveX, and the Adafruit FT232H Breakout Board.
 
 ## Project Summary
 
 This application is designed to digitalize Super 8 films. A modified Super 8 projector is equipped with a USB camera mounted in front of its lens. When a frame is positioned and at rest, an opto-coupler sends a signal to an Adafruit FT232H Microcontroller, which triggers the USB camera to capture the frame. The captured image is then processed using OpenCV.
+
+The captured images can be reassembled into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
 
 ![FT232H](./assets/img/BauerProjektorT610.png)
 *Image: By Joergsam - Own work, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)*
@@ -18,9 +20,9 @@ The FT232H board connects via USB-C to a computer. It transmits opto-coupler sig
 - **OK2 (GPIO C3):** Signals end of film
 - **LED (GPIO C1):** Lights up while processing an image
 
-This application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, at specified intervals (timelapse), or when triggered by a sensor.
+With some adaptions this application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, or at specified intervals (timelapse), or when triggered by a sensor.
 
-Additionally, the project includes functionality to reassemble the captured images into a movie.
+Additionally, the project includes functionality to reassemble the captured images into a movie by running [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie)..
 
 ## Project Installation
 
@@ -49,12 +51,14 @@ pip3 install --upgrade pip
    pip install -r requirements.txt
    ```
 
-### Manual Installation Steps
+### Additional Manual Installation Steps
 
 1. Set the environment variable `BLINKA=1` for your operating system (refer to the [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)).
-2. Install the FT232H driver:
-   - For Windows, use [Zadig](#zadig).
+2. Driver installation
+   - For Windows, install the FT232H driver use [Zadig](#zadig).
    - For macOS, install the [libusb library via brew](#libusb).
+
+A detailed installation description can be found in the following chapters.
 
 ### Detailed Installation Instructions
 
@@ -68,7 +72,7 @@ Ensure the environment variable BLINKA is set correctly. Follow the platform-spe
 
 The FT232H breakout board supports various protocols like GPIO, SPI, and I2C via USB-C. Refer to the [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) for more information.
 
-Install PyFTDI for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
+In case of problems install PyFTDI for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
 
 <a id="zadig"></a>
 #### Fix Driver with Zadig (Windows)
@@ -101,9 +105,18 @@ Expected output:
 
 ### Step-By-Step Description
 
-#### Taking a Photograph with a Button Press
+#### Taking a Photograph with a Press of a Button
 
-Ensure everything is set up correctly by taking a test photograph.
+An easy way to test the application without a modified Super V8 projector at hand is to use the simple
+circuit shown in the following images. Attach the FT232H Breakout board to a USB port of your computer.
+When starting the program supply the device number of your camera via the `-d` option. For this purpose, you can use 
+the builtin camera of your notebook or connect a USB camera to it. An IPhone on macOs can also be selected,
+if in the same wifi.
+
+Ensure everything is set up correctly by taking an image. Each pressing of the left button simulates a signal of an 
+opto-coupler. The `Ft232hConnector` class receives the signal and sends it to your computer. The `DigitizeVideo` class 
+handles the streams of signals. On each signal from the FT232H microcontroller the configured USB-camera is requested to
+take a picture. A press on the right button (end of film) terminates the program.
 
 ![Press of a button 1](./assets/img/press_of_a_button_1.png)
 

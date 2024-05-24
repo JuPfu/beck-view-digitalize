@@ -7,8 +7,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="added new logo">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="README.md update">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -54,17 +55,14 @@
   <component name="HighlightingSettingsPerFile">
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/context.py" root0="SKIP_INSPECTION" />
     <setting file="file:///Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/pool.py" root0="SKIP_INSPECTION" />
+    <setting file="file:///Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/pool.py" root0="SKIP_INSPECTION" />
     <setting file="file://$APPLICATION_HOME_DIR$/plugins/python-ce/helpers/typeshed/stdlib/multiprocessing/__init__.pyi" root0="SKIP_INSPECTION" />
-    <setting file="file://$PROJECT_DIR$/venv/lib/python3.11/site-packages/cv2/__init__.pyi" root0="SKIP_INSPECTION" />
-    <setting file="file://$PROJECT_DIR$/venv/lib/python3.11/site-packages/reactivex/observer/autodetachobserver.py" root0="SKIP_INSPECTION" />
-    <setting file="file://$PROJECT_DIR$/venv/lib/python3.11/site-packages/reactivex/operators/__init__.py" root0="SKIP_INSPECTION" />
-    <setting file="file://$PROJECT_DIR$/venv/lib/python3.11/site-packages/reactivex/operators/_takeuntil.py" root0="SKIP_INSPECTION" />
   </component>
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
   </component>
   <component name="ProblemsViewState">
-    <option name="selectedTabId" value="CurrentFile" />
+    <option name="selectedTabId" value="QODANA_PROBLEMS_VIEW_TAB" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 7
@@ -326,30 +324,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00018" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1690489367495</created>
-      <option name="number" value="00018" />
-      <option name="presentableId" value="LOCAL-00018" />
-      <option name="project" value="LOCAL" />
-      <updated>1690489367495</updated>
-    </task>
-    <task id="LOCAL-00019" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1690495028005</created>
-      <option name="number" value="00019" />
-      <option name="presentableId" value="LOCAL-00019" />
-      <option name="project" value="LOCAL" />
-      <updated>1690495028005</updated>
-    </task>
-    <task id="LOCAL-00020" summary="setup project">
-      <option name="closed" value="true" />
-      <created>1690642996711</created>
-      <option name="number" value="00020" />
-      <option name="presentableId" value="LOCAL-00020" />
-      <option name="project" value="LOCAL" />
-      <updated>1690642996711</updated>
     </task>
     <task id="LOCAL-00021" summary="setup project">
       <option name="closed" value="true" />
@@ -719,7 +693,31 @@
       <option name="project" value="LOCAL" />
       <updated>1715793767421</updated>
     </task>
-    <option name="localTasksCounter" value="67" />
+    <task id="LOCAL-00067" summary="package update">
+      <option name="closed" value="true" />
+      <created>1716311904205</created>
+      <option name="number" value="00067" />
+      <option name="presentableId" value="LOCAL-00067" />
+      <option name="project" value="LOCAL" />
+      <updated>1716311904206</updated>
+    </task>
+    <task id="LOCAL-00068" summary="README.md update">
+      <option name="closed" value="true" />
+      <created>1716468925339</created>
+      <option name="number" value="00068" />
+      <option name="presentableId" value="LOCAL-00068" />
+      <option name="project" value="LOCAL" />
+      <updated>1716468925340</updated>
+    </task>
+    <task id="LOCAL-00069" summary="README.md update">
+      <option name="closed" value="true" />
+      <created>1716469206490</created>
+      <option name="number" value="00069" />
+      <option name="presentableId" value="LOCAL-00069" />
+      <option name="project" value="LOCAL" />
+      <updated>1716469206491</updated>
+    </task>
+    <option name="localTasksCounter" value="70" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -769,7 +767,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="some small type improvements" />
     <MESSAGE value="some small improvements" />
     <MESSAGE value="packages update" />
     <MESSAGE value="upgrade to python 3.12" />
@@ -777,7 +774,6 @@
     <MESSAGE value="performance test using Process&#10;typing  enhanced" />
     <MESSAGE value="Refactoring for Processes" />
     <MESSAGE value="added some types and removed a typing error" />
-    <MESSAGE value="package update" />
     <MESSAGE value="enhanced documentation" />
     <MESSAGE value="added command line parsing" />
     <MESSAGE value="Windows fix for process usages" />
@@ -794,6 +790,8 @@
     <MESSAGE value="creation of standalone program (MacOS) added" />
     <MESSAGE value="added logo and splash-screen images" />
     <MESSAGE value="added new logo" />
-    <option name="LAST_COMMIT_MESSAGE" value="added new logo" />
+    <MESSAGE value="package update" />
+    <MESSAGE value="README.md update" />
+    <option name="LAST_COMMIT_MESSAGE" value="README.md update" />
   </component>
 </project>
