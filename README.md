@@ -11,6 +11,9 @@ The captured images can be reassembled into a movie with [Beck-View-Movie](https
 ![FT232H](./assets/img/BauerProjektorT610.png)
 *Image: By Joergsam - Own work, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)*
 
+ToDo
+- [ ] Add pictures and description of modified projector
+
 The circuit diagram:
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
 
@@ -22,7 +25,7 @@ The FT232H board connects via USB-C to a computer. It transmits opto-coupler sig
 
 With some adaptions this application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, or at specified intervals (timelapse), or when triggered by a sensor.
 
-Additionally, the project includes functionality to reassemble the captured images into a movie by running [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie)..
+You can reassemble the captured images into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
 
 ## Project Installation
 
@@ -55,10 +58,10 @@ pip3 install --upgrade pip
 
 1. Set the environment variable `BLINKA=1` for your operating system (refer to the [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)).
 2. Driver installation
-   - For Windows, install the FT232H driver use [Zadig](#zadig).
+   - For Windows, install the FT232H driver by means of [Zadig](#zadig).
    - For macOS, install the [libusb library via brew](#libusb).
 
-A detailed installation description can be found in the following chapters.
+The next chapters give some background about the libraries used and some detailed installation instructions in case of problems.
 
 ### Detailed Installation Instructions
 
