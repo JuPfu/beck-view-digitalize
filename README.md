@@ -59,7 +59,7 @@ pip3 install --upgrade pip
 1. Set the environment variable `BLINKA=1` for your operating system (refer to the [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)).
 2. Driver installation
    - For Windows, install the FT232H driver by means of [Zadig](#zadig).
-   - For macOS, install the [libusb library via brew](#libusb).
+   - For macOS, install the [libusb](#libusb) library via  [brew](https://brew.sh).
 
 The next chapters give some background about the libraries used and some detailed installation instructions in case of problems.
 
@@ -73,7 +73,8 @@ Ensure the environment variable BLINKA is set correctly. Follow the platform-spe
 
 #### PyFtdi for FT232H
 
-The FT232H breakout board supports various protocols like GPIO, SPI, and I2C via USB-C. Refer to the [Adafruit FT232H Breakout Board](https://www.adafruit.com/product/2264) for more information.
+PyFtdi aims at providing a user-space driver for popular FTDI devices, implemented in pure Python language.
+Supported FTDI devices include the FT232H Adafruit Breakout board.
 
 In case of problems install PyFTDI for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
 
@@ -106,15 +107,16 @@ Expected output:
 /usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
 ```
 
-### Step-By-Step Description
+### Validation
 
 #### Taking a Photograph with a Press of a Button
 
 An easy way to test the application without a modified Super V8 projector at hand is to use the simple
 circuit shown in the following images. Attach the FT232H Breakout board to a USB port of your computer.
-When starting the program supply the device number of your camera via the `-d` option. For this purpose, you can use 
-the builtin camera of your notebook or connect a USB camera to it. An IPhone on macOs can also be selected,
-if in the same wifi.
+When starting the program supply the device number of your camera via the `-d` option. At the moment you have to  guess
+the device id. Start  with `0` (default if no device id is specified) and increment the device id by `1` until the
+preferred USB camera is activated. Eligible cameras are the builtin camera of your notebook, a connected
+USB-camera or on macOS an IPhone can also be selected, if in the same Wi-Fi.
 
 Ensure everything is set up correctly by taking an image. Each pressing of the left button simulates a signal of an 
 opto-coupler. The `Ft232hConnector` class receives the signal and sends it to your computer. The `DigitizeVideo` class 

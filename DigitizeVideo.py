@@ -203,7 +203,7 @@ class DigitizeVideo:
             None
         """
         frame_data, frame_count = state
-        monitor_frame = frame_data.copy()
+        monitor_frame = cv2.flip(frame_data.copy(), 0)
         # Add image count tag to the upper left corner of the image
         cv2.putText(monitor_frame, text=f"Frame {frame_count}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
