@@ -24,6 +24,10 @@ class Ft232hConnector:
 
     # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 60-m-Cassette about 14.400 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 90-m-Cassette about 21.800 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
     def __init__(self, signal_subject: Subject, max_count: int) -> None:
         """
@@ -38,7 +42,7 @@ class Ft232hConnector:
         self._initialize_device()  # Initialize USB device
 
         self.signal_subject = signal_subject
-        self.__max_count = max_count  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+        self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count = 0  # Initialize frame count
 
