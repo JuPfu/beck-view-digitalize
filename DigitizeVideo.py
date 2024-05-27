@@ -155,6 +155,8 @@ class DigitizeVideo:
         success, frame = self.cap.read()
         if success:
             self.hint(count, signal_time)
+            if self.monitoring == False and count % 100 == 0:
+                print(f"\rWorking on Frame {count} ...", end="")
             return frame, count
         else:
             self.logger.error(f"Read error at frame {count}")
