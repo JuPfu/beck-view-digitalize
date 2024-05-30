@@ -11,7 +11,7 @@ from reactivex import operators as ops, Observer
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
-from TypeDefinitions import ImgDescType, StateType, ProcessType
+from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType
 from WriteImages import write_images
 
 
@@ -140,7 +140,7 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
 
-    def take_picture(self, descriptor: ImgDescType) -> StateType:
+    def take_picture(self, descriptor: SubjectDescType) -> StateType:
         """
         Capture and retrieve an image frame from the camera.
 
@@ -155,7 +155,7 @@ class DigitizeVideo:
         success, frame = self.cap.read()
         if success:
             self.hint(count, signal_time)
-            if self.monitoring == False and count % 100 == 0:
+            if self.monitoring is False and count % 100 == 0:
                 print(f"\rWorking on Frame {count} ...", end="")
             return frame, count
         else:
