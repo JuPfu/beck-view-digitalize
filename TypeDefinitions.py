@@ -10,6 +10,9 @@ RGBImageArray = npt.NDArray[np.uint8]
 # Define StateType as a tuple containing an RGB image array and an integer (frame count)
 StateType = tuple[RGBImageArray, int]
 
+# Define SubjectDescType as a tuple containing an integer and a float(frame  count, time stamp)
+SubjectDescType = tuple[int, float]
+
 # Define ImgDescType as a tuple containing two integers (size of the image data in bytes, frame count)
 ImgDescType = tuple[int, int]
 
