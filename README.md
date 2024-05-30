@@ -8,11 +8,17 @@ This application is designed to digitalize Super 8 films. A modified Super 8 pro
 
 The captured images can be reassembled into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
 
-![FT232H](./assets/img/BauerProjektorT610.png)
-*Image: By Joergsam - Own work, CC BY-SA 3.0, [Wikimedia Commons](https://commons.wikimedia.org/w/index.php?curid=18493617)*
+![FT232H](./assets/img/projector_1.jpg)
+*Image: By Jürgen Pfundt & Gerald Beck - Own work - Projector with mounted camera
 
-ToDo
-- [ ] Add pictures and description of modified projector
+![FT232H](./assets/img/projector_2.jpg)
+*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Optocoupler synchronized with rotating shutter.
+
+![FT232H](./assets/img/projector_3.jpg)
+*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Front view with spring damped wooden platform
+
+![FT232H](./assets/img/projector_4.jpg)
+*Image: By Jürgen Pfundt & Gerald Beck - Own work - 'Beck View' of projector
 
 The circuit diagram:
 ![FT232H](./assets/img/FT232-Board_Optocoupler.png)
