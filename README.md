@@ -129,9 +129,9 @@ opto-coupler. The `Ft232hConnector` class receives the signal and sends it to yo
 handles the streams of signals. On each signal from the FT232H microcontroller the configured USB-camera is requested to
 take a picture. A press on the right button (end of film) terminates the program.
 
-![Press of a button 1](./assets/img/press_of_a_button_1.png)
+![Press of a button 1](./assets/img/press_of_a_button_1.jpg)
 
-![Press of a button 2](./assets/img/press_of_a_button_2.png)
+![Press of a button 2](./assets/img/press_of_a_button_2.jpg)
 
 ## Contributing
 
