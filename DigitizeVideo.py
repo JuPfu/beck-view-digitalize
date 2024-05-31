@@ -1,4 +1,3 @@
-import copy
 import logging
 import multiprocessing
 import signal
@@ -41,6 +40,7 @@ class DigitizeVideo:
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
+        # Signal handler is called on interrupt (ctr-c)
         signal.signal(signal.SIGINT, self.sigint_handler)
 
         # Set up logging, camera, threading and process pool
@@ -220,7 +220,10 @@ class DigitizeVideo:
             None
         """
         frame_data, frame_count = state
-        monitor_frame = cv2.flip(frame_data.copy(), 0)
+        # The elp camera is mounted upside down - no flipping of image required.
+        # Adjust to your needs, e.g. add vertical flip
+        # monitor_frame = cv2.flip(frame_data.copy(), 0)
+        monitor_frame = frame_data.copy()
         # Add image count tag to the upper left corner of the image
         cv2.putText(monitor_frame, text=f"Frame {frame_count}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
@@ -377,7 +380,7 @@ class DigitizeVideo:
 
         self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
         self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
-        self.logger.info(f"Standard  deviation of read time = {np.std(self.time_read):.5f}")
+        self.logger.info(f"Standard deviation of read time = {np.std(self.time_read):.5f}")
 
         # Dispose of subscriptions
         self.monitorFrameDisposable.dispose()
