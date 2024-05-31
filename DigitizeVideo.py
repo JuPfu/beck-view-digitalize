@@ -1,9 +1,12 @@
+import copy
 import logging
 import multiprocessing
+import signal
 import time
 from argparse import Namespace
 from multiprocessing import shared_memory
 from pathlib import Path
+from types import FrameType
 
 import cv2
 import numpy as np
@@ -38,6 +41,8 @@ class DigitizeVideo:
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
+        signal.signal(signal.SIGINT, self.sigint_handler)
+
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_camera()
@@ -63,6 +68,8 @@ class DigitizeVideo:
         self.processed_frames: int = 0
         self.start_time: float = time.perf_counter()
         self.new_tick: float = self.start_time
+
+        self.time_read: list[float] = []
 
     def initialize_logging(self) -> None:
         """
@@ -140,6 +147,11 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
 
+    def sigint_handler(self, signum: int, frame: FrameType | None):
+        signame = signal.Signals(signum).name
+        print(f"\nProgram terminated by signal '{signame}' at {frame}")
+        exit(1)
+
     def take_picture(self, descriptor: SubjectDescType) -> StateType:
         """
         Capture and retrieve an image frame from the camera.
@@ -181,17 +193,20 @@ class DigitizeVideo:
         time_for_read = self.new_tick - signal_time
         round_trip_time = self.new_tick - self.last_tick
 
-        # Calculate FPS and timing constraints
-        fps = count / elapsed_time if elapsed_time > 0 else 0
-        upper_limit = (1 / fps) * 0.75
+        self.time_read.append(time_for_read)
 
-        # Check if the time taken to read a frame exceeds the upper limit
-        if time_for_read >= upper_limit:
-            percent = (time_for_read / upper_limit) * 100.0
-            self.logger.warning(
-                f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit {upper_limit:.4f}s, {percent - 100:.2f}% more than expected. Current FPS: {fps:.2f}, Round trip time: {round_trip_time:.4f}s.")
-            if time_for_read >= round_trip_time:
-                self.logger.error(f"Round trip time exceeded by frame {count}")
+        # Calculate FPS and timing constraints
+        if count > 0:
+            fps = count / elapsed_time
+            upper_limit = (1.0 / fps) * 0.75
+
+            # Check if the time taken to read a frame exceeds the upper limit
+            if time_for_read >= upper_limit:
+                percent = (time_for_read / upper_limit) * 100.0
+                self.logger.warning(
+                    f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit {upper_limit:.4f}s, {percent - 100:.2f}% more than expected. Current FPS: {fps:.2f}, Round trip time: {round_trip_time:.4f}s.")
+                if time_for_read >= round_trip_time:
+                    self.logger.error(f"Round trip time exceeded by frame {count}")
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -358,7 +373,11 @@ class DigitizeVideo:
         self.logger.info("------- End of Film ---------")
         self.logger.info(f"Total processed frames: {self.processed_frames}")
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
-        self.logger.info(f"Average FPS: {average_fps:.2f}")
+        self.logger.info(f"Average FPS: {average_fps:.2f}\n")
+
+        self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
+        self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
+        self.logger.info(f"Standard  deviation of read time = {np.std(self.time_read):.5f}")
 
         # Dispose of subscriptions
         self.monitorFrameDisposable.dispose()
