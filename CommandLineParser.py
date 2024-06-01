@@ -55,7 +55,7 @@ class CommandLineParser:
             type=int,
             nargs='?',
             default=8,
-            help='Chunk size (number of frames) passed to each process - default is 8  frames'
+            help='Chunk size (number of frames) passed to each process - default is 8 frames'
         )
 
     def parse_args(self) -> argparse.Namespace:

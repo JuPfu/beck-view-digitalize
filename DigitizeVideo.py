@@ -36,7 +36,7 @@ class DigitizeVideo:
         self.device_number: int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
         self.monitoring: bool = args.monitor  # Display monitoring window
-        self.chunk_size: int = args.chunk_size  # number of frames (images) passed to a process
+        self.chunk_size: int = args.chunk_size  # Quantity of frames (images) passed to a process
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
@@ -56,7 +56,7 @@ class DigitizeVideo:
 
         # Pre-allocate image data buffer and initialize frame descriptions list
         self.image_data = np.zeros(self.chunk_size * self.img_bytes, dtype=np.uint8)
-        self.img_desc: [ImgDescType] = []
+        self.img_desc: [ImgDescType] = []  # kind of meta data
 
         # Initialize list of processes
         self.processes: [ProcessType] = []
@@ -90,16 +90,18 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        # Log camera properties
-        self.logger.info("Camera properties:")
-        self.logger.info(f"   Frame width: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
-        self.logger.info(f"   Frame height: {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        self.logger.info(f"   FPS: {self.cap.get(cv2.CAP_PROP_FPS)}")
-        self.logger.info(f"   Auto exposure: {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-        self.logger.info(f"   Exposure: {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
-        self.logger.info(f"   Gain: {self.cap.get(cv2.CAP_PROP_GAIN)}")
-        self.logger.info(f"   Buffer size: {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
-        self.logger.info(f"   Format: {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+
+        self.logger.info(f"Camera properties:")
+        self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        self.logger.info(f"   frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f"   fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
+        self.logger.info(f"   height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        self.logger.info(f"   gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
+        self.logger.info(f"   auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
+        self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
+        self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
         """
@@ -110,7 +112,7 @@ class DigitizeVideo:
         self.thread_pool_scheduler = ThreadPoolScheduler(optimal_thread_count)
         self.logger.info(f"CPU count: {optimal_thread_count}")
 
-        # Create subjects for frame monitoring and writing
+        # Create reactivex subjects for frame monitoring and writing
         self.monitorFrameSubject = Subject()
         self.writeFrameSubject = Subject()
 
@@ -147,9 +149,9 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
 
-    def sigint_handler(self, signum: int, frame: FrameType | None):
+    def sigint_handler(self, signum: int, frame: FrameType | None) -> None:
         signame = signal.Signals(signum).name
-        print(f"\nProgram terminated by signal '{signame}' at {frame}")
+        self.logger.warning(f"\nProgram terminated by signal '{signame}' at {frame}")
         exit(1)
 
     def take_picture(self, descriptor: SubjectDescType) -> StateType:
@@ -278,7 +280,7 @@ class DigitizeVideo:
         def process_error_callback(error):
             self.logger.error(f"Error in child process: {error}")
 
-        # Use the pool to apply the `write_images` function with appropriate arguments
+        # Asynchronous application of `write_images` function with appropriate arguments to work on chunk of frames
         try:
             result = self.pool.apply_async(
                 write_images,
@@ -286,12 +288,13 @@ class DigitizeVideo:
                 error_callback=process_error_callback
             )
 
-            # Keep track of the process and its shared memory object
+            # Keep track of the processes and its shared memory object
+            # It's a Windows requirement to hold a reference to shared memory to prevent its premature release
             self.processes.append((result, shm))
         except Exception as e:
             self.logger.error(f"Error during `apply_async`: {e}")
         finally:
-            # Clear frame descriptions and filter finished processes
+            # Clear frame descriptions and remove finished processes from list of processes
             self.img_desc = []
             self.processes: [ProcessType] = list(filter(self.filter_finished_processes, self.processes))
 

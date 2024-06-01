@@ -23,7 +23,7 @@ def write_images(buffer_name: str,
 
     Args:
         buffer_name: str -- Reference to shared memory.
-        img_desc: list[ImgDescType] -- Array containing the data and frame number for each image in the chunk.
+        img_desc: list[ImgDescType] -- The size of the image data and frame number for each image in the chunk.
         img_width: int -- Width of images.
         img_height: int -- Height of images.
         output_path: Path -- Directory path to save images.
@@ -31,7 +31,7 @@ def write_images(buffer_name: str,
     Returns:
         list[ImgDescType]: The image descriptions array.
     """
-    # Initialize SharedMemory and handle potential exceptions
+    # Initialize shared memory and handle potential exceptions
     try:
         shm = shared_memory.SharedMemory(name=buffer_name, create=False)
     except Exception as e:
@@ -52,13 +52,13 @@ def write_images(buffer_name: str,
             start = end
             end += frame_bytes  # Calculate the end index for the current image slice
 
-            # Calculate the output filename for the current frame
+            # Set the output filename for the current frame
             filename = output_path / f"frame{frame_count}.png"
 
             # Reshape the slice of data to the image shape (height, width, 3)
             image_data = data[start:end].reshape((img_height, img_width, 3))
 
-            # Write the image data to persistent storage using cv2.imwrite
+            # Write the image data to persistent storage
             success = cv2.imwrite(str(filename), image_data)
 
             if not success:
@@ -68,7 +68,7 @@ def write_images(buffer_name: str,
         logger.error(f"Error in child process: {e}")
 
     finally:
-        # Manually manage the SharedMemory lifecycle
+        # Manually manage the shared  memory lifecycle
         shm.unlink()
 
     return img_desc

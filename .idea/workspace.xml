@@ -7,11 +7,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="splash screen removed">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="Removed vertical flip of image in monitor">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/nutika.sh" beforeDir="false" afterPath="$PROJECT_DIR$/nuitka.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/TypeDefinitions.py" beforeDir="false" afterPath="$PROJECT_DIR$/TypeDefinitions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/WriteImages.py" beforeDir="false" afterPath="$PROJECT_DIR$/WriteImages.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,7 +37,7 @@
     </option>
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="main" />
+        <entry key="$PROJECT_DIR$" value="ffmpeg" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -63,7 +64,7 @@
     <option name="stateVersion" value="1" />
   </component>
   <component name="ProblemsViewState">
-    <option name="selectedTabId" value="QODANA_PROBLEMS_VIEW_TAB" />
+    <option name="selectedTabId" value="CurrentFile" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 7
@@ -83,13 +84,14 @@
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;main&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/jp/PycharmProjects/beck-view-digitalize&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/jp/PycharmProjects/beck-view-digitalize/assets/img&quot;,
     &quot;run.code.analysis.last.selected.profile&quot;: &quot;aDefault&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
 }</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/assets/img" />
       <recent name="$PROJECT_DIR$" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -199,7 +201,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
-      <option name="PARAMETERS" value="-d 1 -m 3600 -c 8" />
+      <option name="PARAMETERS" value="-d 0 -m 3600 -c 4 -o ./test -s" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -325,78 +327,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00025" summary="update dependencies">
-      <option name="closed" value="true" />
-      <created>1691767425983</created>
-      <option name="number" value="00025" />
-      <option name="presentableId" value="LOCAL-00025" />
-      <option name="project" value="LOCAL" />
-      <updated>1691767425983</updated>
-    </task>
-    <task id="LOCAL-00026" summary="update dependencies">
-      <option name="closed" value="true" />
-      <created>1691878500968</created>
-      <option name="number" value="00026" />
-      <option name="presentableId" value="LOCAL-00026" />
-      <option name="project" value="LOCAL" />
-      <updated>1691878500968</updated>
-    </task>
-    <task id="LOCAL-00027" summary="some small optimizations">
-      <option name="closed" value="true" />
-      <created>1692470439274</created>
-      <option name="number" value="00027" />
-      <option name="presentableId" value="LOCAL-00027" />
-      <option name="project" value="LOCAL" />
-      <updated>1692470439274</updated>
-    </task>
-    <task id="LOCAL-00028" summary="some small optimizations">
-      <option name="closed" value="true" />
-      <created>1692655031843</created>
-      <option name="number" value="00028" />
-      <option name="presentableId" value="LOCAL-00028" />
-      <option name="project" value="LOCAL" />
-      <updated>1692655031844</updated>
-    </task>
-    <task id="LOCAL-00029" summary="some small optimizations">
-      <option name="closed" value="true" />
-      <created>1692951050433</created>
-      <option name="number" value="00029" />
-      <option name="presentableId" value="LOCAL-00029" />
-      <option name="project" value="LOCAL" />
-      <updated>1692951050433</updated>
-    </task>
-    <task id="LOCAL-00030" summary="some small optimizations">
-      <option name="closed" value="true" />
-      <created>1692995263975</created>
-      <option name="number" value="00030" />
-      <option name="presentableId" value="LOCAL-00030" />
-      <option name="project" value="LOCAL" />
-      <updated>1692995263975</updated>
-    </task>
-    <task id="LOCAL-00031" summary="logging added">
-      <option name="closed" value="true" />
-      <created>1693002580129</created>
-      <option name="number" value="00031" />
-      <option name="presentableId" value="LOCAL-00031" />
-      <option name="project" value="LOCAL" />
-      <updated>1693002580129</updated>
-    </task>
-    <task id="LOCAL-00032" summary="added some documentation">
-      <option name="closed" value="true" />
-      <created>1693003154980</created>
-      <option name="number" value="00032" />
-      <option name="presentableId" value="LOCAL-00032" />
-      <option name="project" value="LOCAL" />
-      <updated>1693003154980</updated>
-    </task>
-    <task id="LOCAL-00033" summary="added some documentation">
-      <option name="closed" value="true" />
-      <created>1693034928554</created>
-      <option name="number" value="00033" />
-      <option name="presentableId" value="LOCAL-00033" />
-      <option name="project" value="LOCAL" />
-      <updated>1693034928554</updated>
     </task>
     <task id="LOCAL-00034" summary="added some types">
       <option name="closed" value="true" />
@@ -718,7 +648,79 @@
       <option name="project" value="LOCAL" />
       <updated>1716571268081</updated>
     </task>
-    <option name="localTasksCounter" value="74" />
+    <task id="LOCAL-00074" summary="cassette size completed">
+      <option name="closed" value="true" />
+      <created>1716656876423</created>
+      <option name="number" value="00074" />
+      <option name="presentableId" value="LOCAL-00074" />
+      <option name="project" value="LOCAL" />
+      <updated>1716656876423</updated>
+    </task>
+    <task id="LOCAL-00075" summary="added progress information when no monitor window is displayed">
+      <option name="closed" value="true" />
+      <created>1716799490494</created>
+      <option name="number" value="00075" />
+      <option name="presentableId" value="LOCAL-00075" />
+      <option name="project" value="LOCAL" />
+      <updated>1716799490495</updated>
+    </task>
+    <task id="LOCAL-00076" summary="SubjectDescType defined">
+      <option name="closed" value="true" />
+      <created>1717079729795</created>
+      <option name="number" value="00076" />
+      <option name="presentableId" value="LOCAL-00076" />
+      <option name="project" value="LOCAL" />
+      <updated>1717079729796</updated>
+    </task>
+    <task id="LOCAL-00077" summary="SubjectDescType defined">
+      <option name="closed" value="true" />
+      <created>1717079850298</created>
+      <option name="number" value="00077" />
+      <option name="presentableId" value="LOCAL-00077" />
+      <option name="project" value="LOCAL" />
+      <updated>1717079850298</updated>
+    </task>
+    <task id="LOCAL-00078" summary="Added projector images">
+      <option name="closed" value="true" />
+      <created>1717090859954</created>
+      <option name="number" value="00078" />
+      <option name="presentableId" value="LOCAL-00078" />
+      <option name="project" value="LOCAL" />
+      <updated>1717090859954</updated>
+    </task>
+    <task id="LOCAL-00079" summary="Added projector images">
+      <option name="closed" value="true" />
+      <created>1717090959950</created>
+      <option name="number" value="00079" />
+      <option name="presentableId" value="LOCAL-00079" />
+      <option name="project" value="LOCAL" />
+      <updated>1717090959950</updated>
+    </task>
+    <task id="LOCAL-00080" summary="Added projector images">
+      <option name="closed" value="true" />
+      <created>1717093123031</created>
+      <option name="number" value="00080" />
+      <option name="presentableId" value="LOCAL-00080" />
+      <option name="project" value="LOCAL" />
+      <updated>1717093123031</updated>
+    </task>
+    <task id="LOCAL-00081" summary="Added signal handler&#10;Added statistics for read time&#10;Corrected frame count">
+      <option name="closed" value="true" />
+      <created>1717168649822</created>
+      <option name="number" value="00081" />
+      <option name="presentableId" value="LOCAL-00081" />
+      <option name="project" value="LOCAL" />
+      <updated>1717168649822</updated>
+    </task>
+    <task id="LOCAL-00082" summary="Removed vertical flip of image in monitor">
+      <option name="closed" value="true" />
+      <created>1717170612955</created>
+      <option name="number" value="00082" />
+      <option name="presentableId" value="LOCAL-00082" />
+      <option name="project" value="LOCAL" />
+      <updated>1717170612956</updated>
+    </task>
+    <option name="localTasksCounter" value="83" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -768,12 +770,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="upgrade to python 3.12" />
-    <MESSAGE value="performance test using Process" />
-    <MESSAGE value="performance test using Process&#10;typing  enhanced" />
-    <MESSAGE value="Refactoring for Processes" />
-    <MESSAGE value="added some types and removed a typing error" />
-    <MESSAGE value="enhanced documentation" />
     <MESSAGE value="added command line parsing" />
     <MESSAGE value="Windows fix for process usages" />
     <MESSAGE value="Windows fix for process usage" />
@@ -793,6 +789,12 @@
     <MESSAGE value="README.md update" />
     <MESSAGE value="README.md update&#10;Monitor image flipped vertically again" />
     <MESSAGE value="splash screen removed" />
-    <option name="LAST_COMMIT_MESSAGE" value="splash screen removed" />
+    <MESSAGE value="cassette size completed" />
+    <MESSAGE value="added progress information when no monitor window is displayed" />
+    <MESSAGE value="SubjectDescType defined" />
+    <MESSAGE value="Added projector images" />
+    <MESSAGE value="Added signal handler&#10;Added statistics for read time&#10;Corrected frame count" />
+    <MESSAGE value="Removed vertical flip of image in monitor" />
+    <option name="LAST_COMMIT_MESSAGE" value="Removed vertical flip of image in monitor" />
   </component>
 </project>
