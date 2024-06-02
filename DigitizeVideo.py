@@ -96,7 +96,6 @@ class DigitizeVideo:
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
         self.logger.info(f"   frame height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         self.logger.info(f"   fps = {self.cap.get(cv2.CAP_PROP_FPS)}")
-        self.logger.info(f"   height = {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
         self.logger.info(f"   gain = {self.cap.get(cv2.CAP_PROP_GAIN)}")
         self.logger.info(f"   auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
         self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
@@ -150,6 +149,9 @@ class DigitizeVideo:
         self.pool = multiprocessing.Pool(process_count)
 
     def sigint_handler(self, signum: int, frame: FrameType | None) -> None:
+        """
+        Handle interrupt signals.
+        """
         signame = signal.Signals(signum).name
         self.logger.warning(f"\nProgram terminated by signal '{signame}' at {frame}")
         exit(1)

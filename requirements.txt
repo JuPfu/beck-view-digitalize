@@ -4,7 +4,7 @@ adafruit-circuitpython-connectionmanager>=3.1.0
 adafruit-circuitpython-typing>=1.10.3
 Adafruit-Blinka>=8.39.2
 Adafruit-PureIO>=1.1.11
-Adafruit-PlatformDetect>=3.63.0
+Adafruit-PlatformDetect>=3.66.0
 mypy>=1.10.0
 mypy-extensions>=1.0.0
 numpy==1.26.4
