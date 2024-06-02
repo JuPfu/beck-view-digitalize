@@ -298,7 +298,7 @@ class DigitizeVideo:
         finally:
             # Clear frame descriptions and remove finished processes from list of processes
             self.img_desc = []
-            self.processes: [ProcessType] = list(filter(self.filter_finished_processes, self.processes))
+            self.processes: [ProcessType] = [p for p in self.processes if not p[0].done()]
 
     def final_write_to_shared_memory(self) -> None:
         """
@@ -315,19 +315,6 @@ class DigitizeVideo:
         # Due to Windows pool closing and joining can not be shifted to __del__.
         self.pool.close()
         self.pool.join()
-
-    def filter_finished_processes(self, item: ProcessType) -> bool:
-        """
-        Filter finished processes and manage shared memory lifecycle.
-
-        Args:
-            item: Tuple containing the process and its shared memory object.
-
-        Returns:
-            bool: True if the process is still running, False otherwise.
-        """
-        process, _ = item
-        return not process.ready()
 
     def create_monitoring_window(self) -> None:
         """
