@@ -298,7 +298,7 @@ class DigitizeVideo:
         finally:
             # Clear frame descriptions and remove finished processes from list of processes
             self.img_desc = []
-            self.processes: [ProcessType] = [p for p in self.processes if not p[0].done()]
+            self.processes = [process for process in self.processes if not process[0].ready()]
 
     def final_write_to_shared_memory(self) -> None:
         """
