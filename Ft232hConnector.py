@@ -76,7 +76,7 @@ class Ft232hConnector:
         self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
             raise ValueError("USB device not found.")
-        logging.info("USB device found: %s", self.dev)
+        logging.info(f"USB device found: {self.dev}")
 
     def signal_input(self) -> None:
         """

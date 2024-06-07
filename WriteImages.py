@@ -1,4 +1,5 @@
 import logging
+import sys
 from multiprocessing import shared_memory
 from pathlib import Path
 
@@ -11,7 +12,8 @@ from TypeDefinitions import ImgDescType
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
 
 def write_images(buffer_name: str,
                  img_desc: list[ImgDescType],

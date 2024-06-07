@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import signal
+import sys
 import time
 from argparse import Namespace
 from multiprocessing import shared_memory
@@ -77,6 +78,8 @@ class DigitizeVideo:
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
 
     def initialize_camera(self) -> None:
         """
@@ -171,8 +174,8 @@ class DigitizeVideo:
         success, frame = self.cap.read()
         if success:
             self.hint(count, signal_time)
-            if self.monitoring is False and count % 100 == 0:
-                print(f"\rWorking on Frame {count} ...", end="")
+            if not self.monitoring and count % 100 == 0:
+                self.logger.info(f"Working on Frame {count} ...")
             return frame, count
         else:
             self.logger.error(f"Read error at frame {count}")
@@ -316,6 +319,19 @@ class DigitizeVideo:
         self.pool.close()
         self.pool.join()
 
+        # Calculate elapsed time and log statistics
+        elapsed_time = time.perf_counter() - self.start_time
+        average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
+
+        self.logger.info("------- End of Film ---------")
+        self.logger.info(f"Total processed frames: {self.processed_frames}")
+        self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
+        self.logger.info(f"Average FPS: {average_fps:.2f}\n")
+
+        self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
+        self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
+        self.logger.info(f"Standard deviation of read time = {np.std(self.time_read):.5f}")
+
     def create_monitoring_window(self) -> None:
         """
         Create monitoring window for displaying all digitized images.
@@ -360,19 +376,6 @@ class DigitizeVideo:
 
         # Delete monitoring window
         self.delete_monitoring_window()
-
-        # Calculate elapsed time and log statistics
-        elapsed_time = time.perf_counter() - self.start_time
-        average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
-
-        self.logger.info("------- End of Film ---------")
-        self.logger.info(f"Total processed frames: {self.processed_frames}")
-        self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
-        self.logger.info(f"Average FPS: {average_fps:.2f}\n")
-
-        self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
-        self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
-        self.logger.info(f"Standard deviation of read time = {np.std(self.time_read):.5f}")
 
         # Dispose of subscriptions
         self.monitorFrameDisposable.dispose()

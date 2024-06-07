@@ -42,7 +42,7 @@ class CommandLineParser:
         )
         # Add arguments for monitoring frames
         self.parser.add_argument(
-            '-s', '--show_monitor',
+            '-s', '--show-monitor',
             dest="monitor",
             action="store_true",
             default=False,

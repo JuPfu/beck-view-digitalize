@@ -7,12 +7,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="Removed vertical flip of image in monitor">
+    <list default="true" id="571b57fb-bd6b-44f7-a77d-a3576a59ec76" name="Changes" comment="update dependencies">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CommandLineParser.py" beforeDir="false" afterPath="$PROJECT_DIR$/CommandLineParser.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DigitizeVideo.py" beforeDir="false" afterPath="$PROJECT_DIR$/DigitizeVideo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/TypeDefinitions.py" beforeDir="false" afterPath="$PROJECT_DIR$/TypeDefinitions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Ft232hConnector.py" beforeDir="false" afterPath="$PROJECT_DIR$/Ft232hConnector.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/WriteImages.py" beforeDir="false" afterPath="$PROJECT_DIR$/WriteImages.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -327,22 +328,6 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1688300160879</updated>
-    </task>
-    <task id="LOCAL-00034" summary="added some types">
-      <option name="closed" value="true" />
-      <created>1693074604388</created>
-      <option name="number" value="00034" />
-      <option name="presentableId" value="LOCAL-00034" />
-      <option name="project" value="LOCAL" />
-      <updated>1693074604388</updated>
-    </task>
-    <task id="LOCAL-00035" summary="some small type improvements">
-      <option name="closed" value="true" />
-      <created>1697977290131</created>
-      <option name="number" value="00035" />
-      <option name="presentableId" value="LOCAL-00035" />
-      <option name="project" value="LOCAL" />
-      <updated>1697977290131</updated>
     </task>
     <task id="LOCAL-00036" summary="some small type improvements">
       <option name="closed" value="true" />
@@ -720,7 +705,23 @@
       <option name="project" value="LOCAL" />
       <updated>1717170612956</updated>
     </task>
-    <option name="localTasksCounter" value="83" />
+    <task id="LOCAL-00083" summary="minor performance optimization">
+      <option name="closed" value="true" />
+      <created>1717356631571</created>
+      <option name="number" value="00083" />
+      <option name="presentableId" value="LOCAL-00083" />
+      <option name="project" value="LOCAL" />
+      <updated>1717356631571</updated>
+    </task>
+    <task id="LOCAL-00084" summary="update dependencies">
+      <option name="closed" value="true" />
+      <created>1717618395710</created>
+      <option name="number" value="00084" />
+      <option name="presentableId" value="LOCAL-00084" />
+      <option name="project" value="LOCAL" />
+      <updated>1717618395711</updated>
+    </task>
+    <option name="localTasksCounter" value="85" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -734,12 +735,12 @@
             <list>
               <RecentGroup>
                 <option name="FILTER_VALUES">
-                  <option value="process" />
+                  <option value="main" />
                 </option>
               </RecentGroup>
               <RecentGroup>
                 <option name="FILTER_VALUES">
-                  <option value="main" />
+                  <option value="process" />
                 </option>
               </RecentGroup>
             </list>
@@ -757,7 +758,7 @@
                   <entry key="branch">
                     <value>
                       <list>
-                        <option value="process" />
+                        <option value="main" />
                       </list>
                     </value>
                   </entry>
@@ -770,8 +771,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="added command line parsing" />
-    <MESSAGE value="Windows fix for process usages" />
     <MESSAGE value="Windows fix for process usage" />
     <MESSAGE value="take_picture method simplified&#10;Type definitions corrected" />
     <MESSAGE value="passing of command line arguments changed" />
@@ -795,6 +794,8 @@
     <MESSAGE value="Added projector images" />
     <MESSAGE value="Added signal handler&#10;Added statistics for read time&#10;Corrected frame count" />
     <MESSAGE value="Removed vertical flip of image in monitor" />
-    <option name="LAST_COMMIT_MESSAGE" value="Removed vertical flip of image in monitor" />
+    <MESSAGE value="minor performance optimization" />
+    <MESSAGE value="update dependencies" />
+    <option name="LAST_COMMIT_MESSAGE" value="update dependencies" />
   </component>
 </project>
