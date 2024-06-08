@@ -41,9 +41,6 @@ class DigitizeVideo:
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
-        # Signal handler is called on interrupt (ctr-c)
-        signal.signal(signal.SIGINT, self.sigint_handler)
-
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_camera()
@@ -368,6 +365,9 @@ class DigitizeVideo:
         Returns:
             None
         """
+
+        self.logger.info("Cleaning up ...")
+
         if hasattr(self, 'thread_pool_scheduler'):
             self.thread_pool_scheduler.executor.shutdown()
 
