@@ -42,11 +42,15 @@ def main():
     ftdi = Ftdi()
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
-    print(f"List Devices: {ftdi.list_devices()}")
-    # open a dedicated ftdi device contained in the list of ftdi devices
-    # URL Scheme
-    # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
-    ftdi.open_from_url("ftdi:///1")
+    print(f"List attached FT232H devices: {ftdi.list_devices()}")
+    try:
+        # open a dedicated ftdi device contained in the list of ftdi devices
+        # URL Scheme
+        # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
+        ftdi.open_from_url("ftdi:///1")
+    except Exception as e:
+        print(f"Error accessing FT232H chip: {e}")
+        exit(1)
 
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
