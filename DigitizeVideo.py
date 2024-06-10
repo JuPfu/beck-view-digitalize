@@ -41,6 +41,10 @@ class DigitizeVideo:
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
+        # Signal handler is called on interrupt (ctrrl-c) and terminate
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_camera()
@@ -148,7 +152,7 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
 
-    def sigint_handler(self, signum: int, frame: FrameType | None) -> None:
+    def signal_handler(self, signum: int, frame: FrameType | None) -> None:
         """
         Handle interrupt signals.
         """
