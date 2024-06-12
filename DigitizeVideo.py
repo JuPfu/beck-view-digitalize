@@ -97,9 +97,8 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
-        #   off     0.25
-        #   on      0.75
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3) # automode
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # manual
         # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
         # CAP_PROP_EXPOSURE  Actual exposure time
         #     0                    1s
@@ -114,6 +113,8 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -5)
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
+
+        time.sleep(1)
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
