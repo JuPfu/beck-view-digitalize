@@ -1,3 +1,4 @@
+import signal
 from argparse import Namespace
 from multiprocessing import freeze_support
 
@@ -5,6 +6,7 @@ from pyftdi.ftdi import Ftdi
 from reactivex import Subject
 
 from CommandLineParser import CommandLineParser
+from SignalHandler import signal_handler
 
 """
 Technologies used in this project
@@ -34,6 +36,10 @@ Logging:
 
 def main():
     freeze_support()
+
+    # Signal handler is called on interrupt (ctrl-c) and terminate
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()

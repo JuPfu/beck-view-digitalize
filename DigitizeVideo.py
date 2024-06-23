@@ -6,7 +6,6 @@ import time
 from argparse import Namespace
 from multiprocessing import shared_memory
 from pathlib import Path
-from types import FrameType
 
 import cv2
 import numpy as np
@@ -14,6 +13,7 @@ from reactivex import operators as ops, Observer
 from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
+from SignalHandler import signal_handler
 from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType
 from WriteImages import write_images
 
@@ -41,9 +41,9 @@ class DigitizeVideo:
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
-        # Signal handler is called on interrupt (ctrrl-c) and terminate
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
+        # Signal handler is called on interrupt (ctrl-c) and terminate
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
@@ -97,8 +97,8 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3) # automode
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # manual
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual
         # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
         # CAP_PROP_EXPOSURE  Actual exposure time
         #     0                    1s
@@ -171,14 +171,6 @@ class DigitizeVideo:
         process_count = multiprocessing.cpu_count()
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
-
-    def signal_handler(self, signum: int, frame: FrameType | None) -> None:
-        """
-        Handle interrupt signals.
-        """
-        signame = signal.Signals(signum).name
-        self.logger.warning(f"\nProgram terminated by signal '{signame}' at {frame}")
-        exit(1)
 
     def take_picture(self, descriptor: SubjectDescType) -> StateType:
         """
