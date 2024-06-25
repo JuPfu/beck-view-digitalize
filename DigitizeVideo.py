@@ -98,6 +98,7 @@ class DigitizeVideo:
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
+        time.sleep(1)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual
         # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
         # CAP_PROP_EXPOSURE  Actual exposure time
