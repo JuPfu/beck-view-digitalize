@@ -48,22 +48,22 @@ class Ft232hConnector:
 
         # Set up the LED to indicate frame processing
         self.__led = digitalio.DigitalInOut(board.C1)
-        self.__led.direction = digitalio.Direction.OUTPUT
-        self.__led.value = False
+        # switch direction to output and set initial led value
+        self.__led.switch_to_output(value=False)
 
         # Set up opto-coupler OK1 to trigger frame processing
         self.__opto_coupler_ok1 = digitalio.DigitalInOut(board.C2)
-        self.__opto_coupler_ok1.direction = digitalio.Direction.INPUT
+        # switch to output and set initial trigger value to false
+        self.__opto_coupler_ok1.switch_to_output(value=False)
+        # switch to INPUT mode
+        self.__opto_coupler_ok1.switch_to_input() # pull is set to None
 
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         self.__eof = digitalio.DigitalInOut(board.C3)
-        self.__eof.direction = digitalio.Direction.OUTPUT
-        # set initial eof value
-        self.__eof.value = False
-
+        # switch to output and set initial eof value
+        self.__eof.switch_to_output(value=False)
         # switch to INPUT mode
-        self.__eof = digitalio.DigitalInOut(board.C3)
-        self.__eof.direction = digitalio.Direction.INPUT
+        self.__eof.switch_to_input()  # pull is set to None
 
     def _initialize_device(self) -> None:
         """
