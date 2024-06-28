@@ -111,7 +111,7 @@ class DigitizeVideo:
         #    -6                    15.6ms
         #    -7                     7.8ms
         #    ...
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -5)
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
