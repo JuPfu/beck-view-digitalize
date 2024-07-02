@@ -127,6 +127,7 @@ class DigitizeVideo:
         self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
         self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
+        self.logger.info(f"   backend = {self.cap.getBackendName()}")
 
     def initialize_threads(self) -> None:
         """
