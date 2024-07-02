@@ -69,6 +69,7 @@ class DigitizeVideo:
         # Initialize counters and timing
         self.processed_frames: int = 0
         self.start_time: float = time.perf_counter()
+        self.last_tick: float = self.start_time
         self.new_tick: float = self.start_time
 
         self.time_read: list[float] = []
