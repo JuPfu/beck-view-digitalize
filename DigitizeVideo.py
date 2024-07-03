@@ -87,13 +87,16 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        self.cap = cv2.VideoCapture(self.device_number,  # + cv2.CAP_DSHOW, # just for testing purposes
-                                    cv2.CAP_ANY,
+        self.cap = cv2.VideoCapture(self.device_number,
+                                    cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         # Set camera resolution to HDMI
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+        # warm up camera before setting properties
+        ret, frame = self.cap.read()
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
@@ -118,7 +121,7 @@ class DigitizeVideo:
 
         time.sleep(1)
 
-        #  self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
+        # self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
