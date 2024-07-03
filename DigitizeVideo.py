@@ -87,7 +87,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        self.cap = cv2.VideoCapture(self.device_number,
+        self.cap = cv2.VideoCapture(self.device_number,  # + cv2.CAP_DSHOW, # just for testing purposes
                                     cv2.CAP_ANY,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
@@ -117,6 +117,8 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
         time.sleep(1)
+
+        #  self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
