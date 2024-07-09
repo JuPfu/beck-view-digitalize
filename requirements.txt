@@ -1,5 +1,5 @@
 adafruit-circuitpython-busdevice>=5.2.9
-adafruit-circuitpython-requests>=3.2.10
+adafruit-circuitpython-requests>=4.1.4
 adafruit-circuitpython-connectionmanager>=3.1.1
 adafruit-circuitpython-typing>=1.10.3
 Adafruit-Blinka>=8.45.2
