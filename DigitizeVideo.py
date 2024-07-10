@@ -84,11 +84,12 @@ class DigitizeVideo:
         self.logger.addHandler(handler)
 
     def initialize_camera(self) -> None:
+        self.logger.info(f"Build details: {cv2.getBuildInformation()}")
         """
         Initialize the camera for video capturing based on the device number.
         """
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
+                                    cv2.CAP_MSMF,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         # Set camera resolution to HDMI
@@ -96,7 +97,7 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
         # warm up camera before setting properties
-        ret, frame = self.cap.read()
+        _, _ = self.cap.read()
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
@@ -135,7 +136,7 @@ class DigitizeVideo:
         self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
-        self.logger.info(f"   gain hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
+        self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   gain hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_GAIN)}")
         self.logger.info(f"   auto exposure hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_EXPOSURE)}")
         self.logger.info(f"   exposure hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_AUTO_EXPOSURE)}")
