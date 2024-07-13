@@ -169,10 +169,12 @@ class DigitizeVideo:
 
         # Subscribe to frame monitoring and writing
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(monitor_frame_function)
+            ops.map(monitor_frame_function),
+            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
+            # ops.observe_on(self.thread_pool_scheduler),
             ops.map(self.memory_write_picture)
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
@@ -181,10 +183,10 @@ class DigitizeVideo:
 
         # Subscribe to photo cell signals and handle emitted values
         self.photoCellSignalDisposable = self.signal_subject.pipe(
-            ops.observe_on(self.thread_pool_scheduler),
             ops.map(self.take_picture),
             ops.do_action(self.writeFrameSubject.on_next),
             ops.do_action(self.monitorFrameSubject.on_next),
+            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(self.signal_observer)
 
     def initialize_process_pool(self) -> None:
@@ -208,7 +210,7 @@ class DigitizeVideo:
             Tuple containing the captured image data and frame count.
         """
         count, signal_time = descriptor
-
+        print(f"take picture {count=}")
         success, frame = self.cap.read()
         if success:
             self.hint(count, signal_time)
@@ -243,6 +245,7 @@ class DigitizeVideo:
 
         # Calculate FPS and timing constraints
         if count > 0:
+            print(f"round_trip_time {round_trip_time} at frame {count}  delta to last roundtrip time {round_trip_time - self.time_roundtrip[-2]}")
             fps = count / elapsed_time
             upper_limit = (1.0 / fps) * 0.75
 
@@ -269,6 +272,7 @@ class DigitizeVideo:
             None
         """
         frame_data, frame_count = state
+        print(f"monitor picture {frame_count=}")
         # The elp camera is mounted upside down - no flipping of image required.
         # Adjust to your needs, e.g. add vertical flip
         # monitor_frame = cv2.flip(frame_data.copy(), 0)
@@ -324,6 +328,7 @@ class DigitizeVideo:
         Returns:
             None
         """
+        print(">>>in write_to_shared_memory")
         # Calculate total size of shared memory for the current chunk
         shm = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
         shm.buf[:] = self.image_data[:]

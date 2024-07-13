@@ -57,13 +57,13 @@ class Ft232hEmulator:
         ts = time.perf_counter()
         te = ts
         while self.count < self.__max_count:
-            round  =  ts
             ts  = time.perf_counter()
+            round = ts
             print(f">>> trigger_ok1")
             self.signal_input()
             te  = time.perf_counter()
-            print(f"<<<trigger_ok1 {(te-ts)}  {self.count=}   {0.05 - (te-ts)}  {0.05 - (ts - round)}")
-            await asyncio.sleep(0.05  - (te - ts))
+            print(f"<<<trigger_ok1 {(te-ts)}  {self.count=}   {0.1 - (te-ts)}  {0.1 - (ts - round)}")
+            await asyncio.sleep(0.1  - (te - ts) - 0.001)
             print(f"===>{time.perf_counter() -  round}")
 
         self.signal_subject.on_completed()
