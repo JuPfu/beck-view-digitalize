@@ -90,7 +90,7 @@ class DigitizeVideo:
         Initialize the camera for video capturing based on the device number.
         """
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_MSMF,  # using cv2.CAP_DSHOW just for testing purposes
+                                    cv2.CAP_ANY, # cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         # Set camera resolution to HDMI

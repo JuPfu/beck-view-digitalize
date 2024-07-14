@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -56,7 +57,7 @@ class Ft232hConnector:
         # switch to output and set initial trigger value to false
         self.__opto_coupler_ok1.switch_to_output(value=False)
         # switch to INPUT mode
-        self.__opto_coupler_ok1.switch_to_input() # pull is set to None
+        self.__opto_coupler_ok1.switch_to_input()  # pull is set to None
 
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         self.__eof = digitalio.DigitalInOut(board.C3)
@@ -78,6 +79,9 @@ class Ft232hConnector:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
 
+    async def send_signal(self, count: int, perf_counter: float) -> None:
+        self.signal_subject.on_next((count, perf_counter()))
+
     def signal_input(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
@@ -93,7 +97,7 @@ class Ft232hConnector:
                 # turn on led to show processing of frame has started
                 self.__led.value = True
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.signal_subject.on_next((self.count, time.perf_counter()))
+                asyncio.run(self.send_signal(self.count, time.perf_counter()))
 
                 # Wait for self.__opto_coupler_ok1 (ok1) to change to false
                 # Latency of ok1 is about one millisecond
