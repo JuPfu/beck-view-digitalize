@@ -73,6 +73,7 @@ class DigitizeVideo:
         self.new_tick: float = self.start_time
 
         self.time_read: list[float] = []
+        self.time_roundtrip: list[float] = []
 
     def initialize_logging(self) -> None:
         """
@@ -84,7 +85,7 @@ class DigitizeVideo:
         self.logger.addHandler(handler)
 
     def initialize_camera(self) -> None:
-        self.logger.info(f"Build details: {cv2.getBuildInformation()}")
+        # self.logger.info(f"Build details: {cv2.getBuildInformation()}")
         """
         Initialize the camera for video capturing based on the device number.
         """
@@ -100,6 +101,10 @@ class DigitizeVideo:
         _, _ = self.cap.read()
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+
+        self.cap.set(cv2.CAP_PROP_FORMAT, -1)
+
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
@@ -132,15 +137,18 @@ class DigitizeVideo:
         self.logger.info(f"   auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
         self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
         self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"   mode = {self.cap.get(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
         self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
+        self.logger.info(f"   fps support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FPS)}")
         self.logger.info(f"   gain hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_GAIN)}")
         self.logger.info(f"   auto exposure hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_EXPOSURE)}")
         self.logger.info(f"   exposure hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_AUTO_EXPOSURE)}")
         self.logger.info(f"   format hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"   mode hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_BUFFERSIZE)}")
 
     def initialize_threads(self) -> None:
@@ -161,10 +169,12 @@ class DigitizeVideo:
 
         # Subscribe to frame monitoring and writing
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(monitor_frame_function)
+            ops.map(monitor_frame_function),
+            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
+            # ops.observe_on(self.thread_pool_scheduler),
             ops.map(self.memory_write_picture)
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
@@ -174,9 +184,9 @@ class DigitizeVideo:
         # Subscribe to photo cell signals and handle emitted values
         self.photoCellSignalDisposable = self.signal_subject.pipe(
             ops.map(self.take_picture),
+            ops.do_action(self.writeFrameSubject.on_next),
             ops.do_action(self.monitorFrameSubject.on_next),
-            ops.observe_on(self.thread_pool_scheduler),
-            ops.do_action(self.writeFrameSubject.on_next)
+            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(self.signal_observer)
 
     def initialize_process_pool(self) -> None:
@@ -231,18 +241,23 @@ class DigitizeVideo:
         round_trip_time = self.new_tick - self.last_tick
 
         self.time_read.append(time_for_read)
+        self.time_roundtrip.append(round_trip_time)
 
         # Calculate FPS and timing constraints
         if count > 0:
+            print(f"round_trip_time {round_trip_time} at frame {count}  delta to last roundtrip time {round_trip_time - self.time_roundtrip[-2]}")
             fps = count / elapsed_time
             upper_limit = (1.0 / fps) * 0.75
+
+            if  round_trip_time > 0.1:
+                self.logger.error(f"Round trip time {round_trip_time}  for frame {count}")
 
             # Check if the time taken to read a frame exceeds the upper limit
             if time_for_read >= upper_limit:
                 percent = (time_for_read / upper_limit) * 100.0
                 self.logger.warning(
                     f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit {upper_limit:.4f}s, {percent - 100:.2f}% more than expected. Current FPS: {fps:.2f}, Round trip time: {round_trip_time:.4f}s.")
-                if time_for_read >= round_trip_time:
+                if round_trip_time >= 2.0 * time_for_read:
                     self.logger.error(f"Round trip time exceeded by frame {count}")
 
     @staticmethod
@@ -267,7 +282,7 @@ class DigitizeVideo:
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(1)
 
-    def memory_write_picture(self, state: StateType) -> None:
+    def memory_write_picture(self, state: StateType) -> StateType:
         """
         Write captured image data to a buffer in memory and keep track of processed frames.
 
@@ -300,6 +315,8 @@ class DigitizeVideo:
         # Check if the chunk size has been reached
         if self.processed_frames % self.chunk_size == 0:
             self.write_to_shared_memory()
+
+        return state
 
     def write_to_shared_memory(self) -> None:
         """
@@ -361,6 +378,16 @@ class DigitizeVideo:
         self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
         self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
         self.logger.info(f"Standard deviation of read time = {np.std(self.time_read):.5f}")
+        self.logger.info(f"Minimum read time = {np.min(self.time_read):.5f}")
+        self.logger.info(f"Maximum read time = {np.max(self.time_read):.5f}")
+
+        self.logger.info(f"Average roundtrip time = {np.average(self.time_roundtrip):.5f} seconds")
+        self.logger.info(f"Variance of roundtrip time = {np.var(self.time_roundtrip):.5f}")
+        self.logger.info(f"Standard deviation of roundtrip time = {np.std(self.time_roundtrip):.5f}")
+        self.logger.info(f"Minimum roundtrip time = {np.min(self.time_roundtrip):.5f}")
+        self.logger.info(f"Maximum roundtrip time = {np.max(self.time_roundtrip):.5f}")
+
+        self.logger.info(f"Sorted roundtrip time = {sorted(self.time_roundtrip, reverse=True)[:100]}")
 
     def create_monitoring_window(self) -> None:
         """
