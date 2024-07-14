@@ -80,7 +80,7 @@ class Ft232hConnector:
         logging.info(f"USB device found: {self.dev}")
 
     async def send_signal(self, count: int, perf_counter: float) -> None:
-        self.signal_subject.on_next((count, perf_counter()))
+        self.signal_subject.on_next((count, perf_counter))
 
     def signal_input(self) -> None:
         """
