@@ -245,11 +245,10 @@ class DigitizeVideo:
 
         # Calculate FPS and timing constraints
         if count > 0:
-            print(f"round_trip_time {round_trip_time} at frame {count}  delta to last roundtrip time {round_trip_time - self.time_roundtrip[-2]}")
             fps = count / elapsed_time
             upper_limit = (1.0 / fps) * 0.75
 
-            if  round_trip_time > 0.1:
+            if  round_trip_time > 0.5555:
                 self.logger.error(f"Round trip time {round_trip_time}  for frame {count}")
 
             # Check if the time taken to read a frame exceeds the upper limit
