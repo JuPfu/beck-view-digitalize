@@ -3,7 +3,6 @@ import logging
 import time
 
 import usb
-from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
@@ -30,7 +29,7 @@ class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: int) -> None:
+    def __init__(self, signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -39,8 +38,6 @@ class Ft232hConnector:
 
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
-
-        self.ftdi = ftdi
 
         self._initialize_device()  # Initialize USB device
 
@@ -65,9 +62,6 @@ class Ft232hConnector:
 
         # Set direction to input for OK1 and  OK2
         self.gpio.set_direction(pins=self.OK1 | self.EOF, direction=0x0200)
-
-        # Set  latency to 1ms
-        ftdi.set_latency_timer(6)
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
@@ -114,6 +108,7 @@ class Ft232hConnector:
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
 
+            # Retrieve pins
             self.pins = self.gpio.read()[0]
 
         # Signal the completion of frame processing and EoF detection
