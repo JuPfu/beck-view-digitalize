@@ -102,17 +102,14 @@ class Ft232hConnector:
         """
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if True or (self.pins & self.OK1):
+            if (self.pins & self.OK1):
                 self.count += 1
+
                 # turn on led to show processing of frame has started
                 self.gpio.write(0x0000)
 
-                t_start = time.perf_counter()
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 asyncio.run(self.send_signal(self.count, time.perf_counter()))
-                t_end = time.perf_counter()
-                print(f"send_signal {self.count=} took {t_end - t_start=}")
-                print(f"Total  send_signal took {time.perf_counter() - t_start=}")
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
