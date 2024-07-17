@@ -99,11 +99,6 @@ class Ft232hConnector:
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 asyncio.run(self.send_signal(self.count, time.perf_counter()))
 
-                # Wait for self.__opto_coupler_ok1 (ok1) to change to false
-                # Latency of ok1 is about one millisecond
-                while self.__opto_coupler_ok1.value:
-                    time.sleep(0.0005)
-
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.__led.value = False
 
