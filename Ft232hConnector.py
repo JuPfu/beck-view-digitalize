@@ -61,7 +61,7 @@ class Ft232hConnector:
                             initial=0x0200)
 
         # Set direction to input for OK1 and  OK2
-        self.gpio.set_direction(pins=self.OK1 | self.EOF, direction=0x0200)
+        self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
