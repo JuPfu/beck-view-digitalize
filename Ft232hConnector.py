@@ -88,10 +88,10 @@ class Ft232hConnector:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
 
-    async def send_signal(self, count: int, perf_counter: float) -> None:
+    def send_signal(self, count: int, perf_counter: float) -> None:
         self.signal_subject.on_next((count, perf_counter))
 
-    def signal_input(self) -> None:
+    async def process_signals(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
 
@@ -100,24 +100,25 @@ class Ft232hConnector:
         """
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if (self.pins & self.OK1):
+            if True or self.pins & self.OK1:
                 self.count += 1
 
                 # turn on led to show processing of frame has started
-                self.gpio.write(0x0000)
+                self.gpio.write(0x0000)  # Turn on LED
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                asyncio.run(self.send_signal(self.count, time.perf_counter()))
+                self.send_signal(self.count, time.perf_counter())
 
-                # latency
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
 
-                # turn off led to show processing of frame has been delegated to another thread or has been finished
-                self.gpio.write(self.LED)
+                self.gpio.write(self.LED)  # Turn off LED
 
             # Retrieve pins
             self.pins = self.gpio.read()[0]
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
+
+    def signal_input(self) -> None:
+        asyncio.run(self.process_signals())
