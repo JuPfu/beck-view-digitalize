@@ -88,9 +88,6 @@ class Ft232hConnector:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
 
-    def send_signal(self, count: int, perf_counter: float) -> None:
-        self.signal_subject.on_next((count, perf_counter))
-
     async def process_signals(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
@@ -107,7 +104,7 @@ class Ft232hConnector:
                 self.gpio.write(0x0000)  # Turn on LED
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.send_signal(self.count, time.perf_counter())
+                self.signal_subject.on_next((self.count, time.perf_counter))
 
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
