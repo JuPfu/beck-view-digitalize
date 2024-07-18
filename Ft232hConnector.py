@@ -100,7 +100,7 @@ class Ft232hConnector:
         """
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if True or self.pins & self.OK1:
+            if self.pins & self.OK1:
                 self.count += 1
 
                 # turn on led to show processing of frame has started
