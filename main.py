@@ -55,7 +55,7 @@ def main():
         # URL Scheme
         # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
         ftdi.open_mpsse_from_url("ftdi:///1",
-                                 direction=0xD00, # set AC1, AC2 and AC3 as output
+                                 direction=0xD00,  # set AC1, AC2 and AC3 as output
                                  initial=0x0200)  # switch off LED (AC3)
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
@@ -69,7 +69,7 @@ def main():
     # create class instances
     DigitizeVideo(args, optocoupler_signal_subject)
 
-    ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount)
+    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount)
 
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()

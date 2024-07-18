@@ -3,6 +3,7 @@ import logging
 import time
 
 import usb
+from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
@@ -29,7 +30,7 @@ class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-    def __init__(self, signal_subject: Subject, max_count: int) -> None:
+    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -57,11 +58,14 @@ class Ft232hConnector:
         # Set direction to output and switch to initial value of false for the specified pins
         self.gpio.configure('ftdi:///1',
                             direction=self.LED | self.OK1 | self.EOF,
-                            frequency=6000000.0,
+                            frequency=ftdi.frequency_max,
                             initial=0x0200)
 
         # Set direction to input for OK1 and  OK2
         self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
+
+        # high latency improves performance - may be due to more work ggetting done asynchronously
+        ftdi.set_latency_timer(128)
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
@@ -104,6 +108,10 @@ class Ft232hConnector:
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 asyncio.run(self.send_signal(self.count, time.perf_counter()))
+
+                # latency
+                while self.pins & self.OK1:
+                    self.pins = self.gpio.read()[0]
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
