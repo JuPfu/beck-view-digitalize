@@ -1,6 +1,6 @@
 # Beck-View Digitalize
 
-Digitise Super 8 films with Python, OpenCV, ReactiveX, and the Adafruit FT232H Breakout Board.
+Digitise Super 8 films with Python, OpenCV, ReactiveX, PyFtdi and the Adafruit FT232H Breakout Board.
 
 ## Project Summary
 
@@ -62,8 +62,7 @@ pip3 install --upgrade pip
 
 ### Additional Manual Installation Steps
 
-1. Set the environment variable `BLINKA=1` for your operating system (refer to the [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup)).
-2. Driver installation
+Driver installation
    - For Windows, install the FT232H driver by means of [Zadig](#zadig).
    - For macOS, install the [libusb](#libusb) library via  [brew](https://brew.sh).
 
@@ -71,18 +70,12 @@ The next chapters give some background about the libraries used and some detaile
 
 ### Detailed Installation Instructions
 
-#### BLINKA
-
-Blinka is a pip-installable Python library that runs on desktop Python. It supports USB adapter boards like the FT232H Adafruit breakout board, allowing hardware operations like GPIO, I2C, and SPI through USB connections.
-
-Ensure the environment variable BLINKA is set correctly. Follow the platform-specific [Blinka installation instructions](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/setup).
-
 #### PyFtdi for FT232H
 
 PyFtdi aims at providing a user-space driver for popular FTDI devices, implemented in pure Python language.
 Supported FTDI devices include the FT232H Adafruit Breakout board.
 
-In case of problems install PyFTDI for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
+In case of problems install PyFtdi for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
 
 <a id="zadig"></a>
 #### Fix Driver with Zadig (Windows)
@@ -134,6 +127,9 @@ take a picture. A press on the right button (end of film) terminates the program
 ![Press of a button 2](./assets/img/press_of_a_button_2.jpg)
 
 ## Contributing
+
+Feel free to fork this repository and contribute by submitting pull requests. 
+For major changes, please open an issue first to discuss what you would like to change.
 
 1. **Fork the Repository**
 2. **Create a Feature Branch:**
