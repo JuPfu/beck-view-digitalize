@@ -90,7 +90,7 @@ class DigitizeVideo:
         Initialize the camera for video capturing based on the device number.
         """
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_ANY, # cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
+                                    cv2.CAP_ANY,  # cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         # Set camera resolution to HDMI
@@ -142,7 +142,6 @@ class DigitizeVideo:
         self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
-        self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   fps support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FPS)}")
         self.logger.info(f"   gain hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_GAIN)}")
         self.logger.info(f"   auto exposure hardware support = {cv2.checkHardwareSupport(cv2.CAP_PROP_EXPOSURE)}")
@@ -246,9 +245,9 @@ class DigitizeVideo:
         # Calculate FPS and timing constraints
         if count > 0:
             fps = count / elapsed_time
-            upper_limit = (1.0 / fps) * 0.75
+            upper_limit = (1.0 / fps) * 0.95
 
-            if  round_trip_time > 0.5555:
+            if round_trip_time > 0.5555:
                 self.logger.error(f"Round trip time {round_trip_time}  for frame {count}")
 
             # Check if the time taken to read a frame exceeds the upper limit
@@ -385,8 +384,6 @@ class DigitizeVideo:
         self.logger.info(f"Standard deviation of roundtrip time = {np.std(self.time_roundtrip):.5f}")
         self.logger.info(f"Minimum roundtrip time = {np.min(self.time_roundtrip):.5f}")
         self.logger.info(f"Maximum roundtrip time = {np.max(self.time_roundtrip):.5f}")
-
-        self.logger.info(f"Sorted roundtrip time = {sorted(self.time_roundtrip, reverse=True)[:100]}")
 
     def create_monitoring_window(self) -> None:
         """
