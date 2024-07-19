@@ -152,7 +152,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Acknowledgements
 
-- Thanks to the contributors of [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), and [Adafruit](https://www.adafruit.com/) for their libraries and support.
+- Thanks to the contributors of [NumPy](https://numpy.org/), [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), [PyFtdi](https://eblot.github.io/pyftdi/installation.html), and [Adafruit](https://www.adafruit.com/) for their libraries and support.
 
 ---
 
