@@ -104,7 +104,7 @@ class Ft232hConnector:
                 self.gpio.write(0x0000)  # Turn on LED
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                self.signal_subject.on_next((self.count, time.perf_counter))
+                self.signal_subject.on_next((self.count, time.perf_counter()))
 
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
