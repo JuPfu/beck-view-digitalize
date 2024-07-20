@@ -35,6 +35,8 @@ class Ft232hConnector:
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
+            ftdi: Ftdi -- Device driver
+
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
@@ -71,6 +73,7 @@ class Ft232hConnector:
         self.pins = self.gpio.read()[0]
 
         self.signal_subject = signal_subject
+        self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count = -1  # Initialize frame count
 
