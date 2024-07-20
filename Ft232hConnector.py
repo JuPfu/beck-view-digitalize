@@ -61,10 +61,10 @@ class Ft232hConnector:
                             frequency=ftdi.frequency_max,
                             initial=0x0200)
 
-        # Set direction to input for OK1 and  OK2
+        # Set direction to input for OK1 and OK2
         self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
 
-        # high latency improves performance - may be due to more work ggetting done asynchronously
+        # high latency improves performance - may be due to more work getting done asynchronously on the host
         ftdi.set_latency_timer(128)
 
         # initialize pins with current values
@@ -101,7 +101,7 @@ class Ft232hConnector:
                 self.count += 1
 
                 # turn on led to show processing of frame has started
-                self.gpio.write(0x0000)  # Turn on LED
+                self.gpio.write(0)  # Turn on LED
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 self.signal_subject.on_next((self.count, time.perf_counter()))
