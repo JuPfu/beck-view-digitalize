@@ -71,7 +71,6 @@ class Ft232hConnector:
         self.pins = self.gpio.read()[0]
 
         self.signal_subject = signal_subject
-        self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count = -1  # Initialize frame count
 
