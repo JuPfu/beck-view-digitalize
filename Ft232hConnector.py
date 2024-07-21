@@ -122,4 +122,5 @@ class Ft232hConnector:
             self.gpio.close()
 
     def signal_input(self) -> None:
+        asyncio.timeout(None)
         asyncio.run(self.process_signals())
