@@ -93,6 +93,8 @@ class DigitizeVideo:
                                     cv2.CAP_ANY,  # cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
+        time.sleep(1) # Windows needs some time to initialize the camera
+
         # Set camera resolution to HDMI
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
