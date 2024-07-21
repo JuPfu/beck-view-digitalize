@@ -59,7 +59,7 @@ class Ft232hConnector:
         # Set direction to output and switch to initial value of false for the specified pins
         self.gpio.configure('ftdi:///1',
                             direction=self.LED | self.OK1 | self.EOF,
-                            frequency=ftdi.frequency_max,
+                            frequency=30000000,
                             initial=0x0200)
 
         # Set direction to input for OK1 and OK2
@@ -122,5 +122,4 @@ class Ft232hConnector:
             self.gpio.close()
 
     def signal_input(self) -> None:
-        asyncio.timeout(None)
         asyncio.run(self.process_signals())
