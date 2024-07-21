@@ -118,7 +118,8 @@ class Ft232hConnector:
         self.signal_subject.on_completed()
 
         #  Close the gpio port
-        self.gpio.close()
+        if self.gpio.is_connected:
+            self.gpio.close()
 
     def signal_input(self) -> None:
         asyncio.run(self.process_signals())
