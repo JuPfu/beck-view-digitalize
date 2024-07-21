@@ -3,7 +3,7 @@ import logging
 import time
 
 import usb
-from pyftdi.gpio import GpioMpsseController
+from pyftdi.i2c import I2cController
 from reactivex import Subject
 
 
@@ -52,28 +52,32 @@ class Ft232hConnector:
         # switch to output and set initial eof value
         self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
-        self.gpio = GpioMpsseController()
+        self.i2c = I2cController()  # GpioMpsseController()
 
-        ftdi = self.gpio.ftdi
+        ftdi = self.i2c.ftdi
 
         # Set direction to output and switch to initial value of false for the specified pins
-        self.gpio.configure('ftdi:///1',
-                            direction=self.LED | self.OK1 | self.EOF,
-                            frequency=ftdi.frequency_max,
-                            initial=0x0200)
+        kwargs = {"direction": self.LED | self.OK1 | self.EOF,
+                  "frequency": 30000000.0,
+                  "initial": 0x0200}
 
-        # Set direction to input for OK1 and OK2
-        self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
+        self.i2c.configure('ftdi:///1', **kwargs)
 
         # high latency improves performance - may be due to more work getting done asynchronously on the host
         ftdi.set_latency_timer(128)
 
+        self.gpio = self.i2c.get_gpio()
+        print(f"FRREQUENCY = {self.i2c.frequency_max=}")
+
+        # Set direction to input for OK1 and OK2
+        self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
+
         # initialize pins with current values
-        self.pins = self.gpio.read()[0]
+        self.pins = self.i2c.read_gpio()
 
         self.signal_subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
-
+        self.__max_count = 1000
         self.count = -1  # Initialize frame count
 
     def _initialize_device(self) -> None:
@@ -97,30 +101,33 @@ class Ft232hConnector:
             None
         """
 
+        t1 = time.perf_counter()
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if self.pins & self.OK1:
+            t2 = time.perf_counter()
+            if (t2 -  t1)  > 0.0555 or self.pins & self.OK1:
+                t1 = t2
                 self.count += 1
 
-                self.gpio.write(0)  # Turn on led to show processing of frame has started
+                self.i2c.write_gpio(0)  # Turn on led to show processing of frame has started
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 self.signal_subject.on_next((self.count, time.perf_counter()))
 
                 while self.pins & self.OK1:
-                    self.pins = self.gpio.read()[0]
+                    self.pins = self.i2c.read_gpio()
 
-                self.gpio.write(self.LED)  # Turn off LED
+                self.i2c.write_gpio(self.LED)  # Turn off LED
 
             # Retrieve pins
-            self.pins = self.gpio.read()[0]
+            self.pins = self.i2c.read_gpio()
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
 
         #  Close the gpio port
-        if self.gpio.is_connected:
-            self.gpio.close()
+        self.i2c.close()
 
     def signal_input(self) -> None:
-        asyncio.timeout(None)
+
         asyncio.run(self.process_signals())
+        #asyncio.timeout(None)
