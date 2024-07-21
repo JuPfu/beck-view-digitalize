@@ -3,7 +3,6 @@ import logging
 import time
 
 import usb
-from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
@@ -30,13 +29,11 @@ class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: int) -> None:
+    def __init__(self, signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
-            ftdi: Ftdi -- Device driver
-
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
 
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
@@ -56,6 +53,8 @@ class Ft232hConnector:
         self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
         self.gpio = GpioMpsseController()
+
+        ftdi = self.gpio.ftdi
 
         # Set direction to output and switch to initial value of false for the specified pins
         self.gpio.configure('ftdi:///1',
@@ -102,8 +101,7 @@ class Ft232hConnector:
             if self.pins & self.OK1:
                 self.count += 1
 
-                # turn on led to show processing of frame has started
-                self.gpio.write(0)  # Turn on LED
+                self.gpio.write(0)  # Turn on led to show processing of frame has started
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 self.signal_subject.on_next((self.count, time.perf_counter()))
@@ -118,6 +116,9 @@ class Ft232hConnector:
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
+
+        #  Close the gpio port
+        self.gpio.close()
 
     def signal_input(self) -> None:
         asyncio.run(self.process_signals())
