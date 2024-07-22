@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 
@@ -89,7 +88,7 @@ class Ft232hConnector:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
 
-    async def process_signals(self) -> None:
+    def signal_input(self) -> None:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
 
@@ -105,7 +104,6 @@ class Ft232hConnector:
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 self.signal_subject.on_next((self.count, time.perf_counter()))
-
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
 
@@ -120,6 +118,3 @@ class Ft232hConnector:
         #  Close the gpio port
         if self.gpio.is_connected:
             self.gpio.close()
-
-    def signal_input(self) -> None:
-        asyncio.run(self.process_signals())

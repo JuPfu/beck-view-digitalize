@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import multiprocessing
 import signal
@@ -90,10 +91,10 @@ class DigitizeVideo:
         Initialize the camera for video capturing based on the device number.
         """
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_ANY,  # cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
+                                    cv2.CAP_ANY, # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
-        time.sleep(1) # Windows needs some time to initialize the camera
+        time.sleep(1)  # Windows needs some time to initialize the camera
 
         # Set camera resolution to HDMI
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -171,12 +172,10 @@ class DigitizeVideo:
         # Subscribe to frame monitoring and writing
         self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
             ops.map(monitor_frame_function),
-            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
-            # ops.observe_on(self.thread_pool_scheduler),
-            ops.map(self.memory_write_picture)
+            ops.map(self.write_frame)
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         # Create an observer for processing photo cell signals
@@ -187,7 +186,6 @@ class DigitizeVideo:
             ops.map(self.take_picture),
             ops.do_action(self.writeFrameSubject.on_next),
             ops.do_action(self.monitorFrameSubject.on_next),
-            # ops.observe_on(self.thread_pool_scheduler),
         ).subscribe(self.signal_observer)
 
     def initialize_process_pool(self) -> None:
@@ -282,7 +280,10 @@ class DigitizeVideo:
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(1)
 
-    def memory_write_picture(self, state: StateType) -> StateType:
+    def write_frame(self, state: StateType):
+        asyncio.run(self.memory_write_picture(state))
+
+    async def memory_write_picture(self, state: StateType) -> StateType:
         """
         Write captured image data to a buffer in memory and keep track of processed frames.
 
