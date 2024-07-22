@@ -73,8 +73,8 @@ class DigitizeVideo:
         self.last_tick: float = self.start_time
         self.new_tick: float = self.start_time
 
-        self.time_read: list[float] = []
-        self.time_roundtrip: list[float] = []
+        self.time_read: list[(int, float)] = []
+        self.time_roundtrip: list[(int, float)] = []
 
     def initialize_logging(self) -> None:
         """
@@ -91,7 +91,7 @@ class DigitizeVideo:
         Initialize the camera for video capturing based on the device number.
         """
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_ANY, # using cv2.CAP_DSHOW just for testing purposes
+                                    cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         time.sleep(1)  # Windows needs some time to initialize the camera
@@ -239,8 +239,8 @@ class DigitizeVideo:
         time_for_read = self.new_tick - signal_time
         round_trip_time = self.new_tick - self.last_tick
 
-        self.time_read.append(time_for_read)
-        self.time_roundtrip.append(round_trip_time)
+        self.time_read.append((count, time_for_read))
+        self.time_roundtrip.append((count, round_trip_time))
 
         # Calculate FPS and timing constraints
         if count > 0:
@@ -382,11 +382,15 @@ class DigitizeVideo:
         self.logger.info(f"Minimum read time = {np.min(self.time_read):.5f}")
         self.logger.info(f"Maximum read time = {np.max(self.time_read):.5f}")
 
+        self.logger.info("Read time  = {self.time_read.sort(key=lambda x: x[1])[:100]")
+
         self.logger.info(f"Average roundtrip time = {np.average(self.time_roundtrip):.5f} seconds")
         self.logger.info(f"Variance of roundtrip time = {np.var(self.time_roundtrip):.5f}")
         self.logger.info(f"Standard deviation of roundtrip time = {np.std(self.time_roundtrip):.5f}")
         self.logger.info(f"Minimum roundtrip time = {np.min(self.time_roundtrip):.5f}")
         self.logger.info(f"Maximum roundtrip time = {np.max(self.time_roundtrip):.5f}")
+
+        self.logger.info("Roundtrip time  = {self.time_roundtrip.sort(key=lambda x: x[1])[:100]")
 
     def create_monitoring_window(self) -> None:
         """
