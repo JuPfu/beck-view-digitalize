@@ -92,7 +92,7 @@ class Ft232hConnector:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
 
-        :returns
+        # :returns
             None
         """
 
@@ -104,6 +104,7 @@ class Ft232hConnector:
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 self.signal_subject.on_next((self.count, time.perf_counter()))
+
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
 

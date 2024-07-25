@@ -175,7 +175,7 @@ class DigitizeVideo:
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
-            ops.map(self.write_frame)
+            ops.map(self.memory_write_picture)
         ).subscribe(on_error=lambda e: self.logger.error(e))
 
         # Create an observer for processing photo cell signals
@@ -280,10 +280,7 @@ class DigitizeVideo:
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(1)
 
-    def write_frame(self, state: StateType):
-        asyncio.run(self.memory_write_picture(state))
-
-    async def memory_write_picture(self, state: StateType) -> StateType:
+    def memory_write_picture(self, state: StateType) -> StateType:
         """
         Write captured image data to a buffer in memory and keep track of processed frames.
 
@@ -315,11 +312,11 @@ class DigitizeVideo:
 
         # Check if the chunk size has been reached
         if self.processed_frames % self.chunk_size == 0:
-            self.write_to_shared_memory()
+            asyncio.run(self.write_to_shared_memory())
 
         return state
 
-    def write_to_shared_memory(self) -> None:
+    async def write_to_shared_memory(self) -> None:
         """
         Write a chunk of images to shared memory and start a separate process to emit images to persistent storage.
 
@@ -360,7 +357,7 @@ class DigitizeVideo:
         """
         # Ensure there are images left to write
         if len(self.img_desc) > 0:
-            self.write_to_shared_memory()
+            asyncio.run(self.write_to_shared_memory())
 
         # Close and join the pool to properly manage resources
         # Due to Windows pool closing and joining can not be shifted to __del__.
@@ -382,7 +379,7 @@ class DigitizeVideo:
         self.logger.info(f"Minimum read time = {np.min(self.time_read):.5f}")
         self.logger.info(f"Maximum read time = {np.max(self.time_read):.5f}")
 
-        self.logger.info("Read time  = {self.time_read.sort(key=lambda x: x[1])[:100]")
+        self.logger.info(f"Sorted read  time = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)}")
 
         self.logger.info(f"Average roundtrip time = {np.average(self.time_roundtrip):.5f} seconds")
         self.logger.info(f"Variance of roundtrip time = {np.var(self.time_roundtrip):.5f}")
@@ -390,7 +387,7 @@ class DigitizeVideo:
         self.logger.info(f"Minimum roundtrip time = {np.min(self.time_roundtrip):.5f}")
         self.logger.info(f"Maximum roundtrip time = {np.max(self.time_roundtrip):.5f}")
 
-        self.logger.info("Roundtrip time  = {self.time_roundtrip.sort(key=lambda x: x[1])[:100]")
+        self.logger.info(f"Sorted roundtrip time = {sorted(self.time_roundtrip, key=lambda tup: tup[1], reverse=True)}")
 
     def create_monitoring_window(self) -> None:
         """
