@@ -373,19 +373,23 @@ class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}\n")
 
-        self.logger.info(f"Average read time = {np.average(self.time_read):.5f} seconds")
-        self.logger.info(f"Variance of read time = {np.var(self.time_read):.5f}")
-        self.logger.info(f"Standard deviation of read time = {np.std(self.time_read):.5f}")
-        self.logger.info(f"Minimum read time = {np.min(self.time_read):.5f}")
-        self.logger.info(f"Maximum read time = {np.max(self.time_read):.5f}")
+        read_time = np.asarray([[*x] for x in self.time_read])
+
+        self.logger.info(f"Average read time = {np.average(read_time[:,1]):.5f} seconds")
+        self.logger.info(f"Variance of read time = {np.var(read_time[:,1]):.5f}")
+        self.logger.info(f"Standard deviation of read time = {np.std(read_time[:,1]):.5f}")
+        self.logger.info(f"Minimum read time = {np.min(read_time[:,1]):.5f}")
+        self.logger.info(f"Maximum read time = {np.max(read_time[:,1]):.5f}")
 
         self.logger.info(f"Sorted read  time = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)}")
 
-        self.logger.info(f"Average roundtrip time = {np.average(self.time_roundtrip):.5f} seconds")
-        self.logger.info(f"Variance of roundtrip time = {np.var(self.time_roundtrip):.5f}")
-        self.logger.info(f"Standard deviation of roundtrip time = {np.std(self.time_roundtrip):.5f}")
-        self.logger.info(f"Minimum roundtrip time = {np.min(self.time_roundtrip):.5f}")
-        self.logger.info(f"Maximum roundtrip time = {np.max(self.time_roundtrip):.5f}")
+        roundtrip_time = np.asarray([[*x] for x in self.time_roundtrip])
+
+        self.logger.info(f"Average roundtrip time = {np.average(roundtrip_time[:,1]):.5f} seconds")
+        self.logger.info(f"Variance of roundtrip time = {np.var(roundtrip_time[:,1]):.5f}")
+        self.logger.info(f"Standard deviation of roundtrip time = {np.std(roundtrip_time[:,1]):.5f}")
+        self.logger.info(f"Minimum roundtrip time = {np.min(roundtrip_time[:,1]):.5f}")
+        self.logger.info(f"Maximum roundtrip time = {np.max(roundtrip_time[:,1]):.5f}")
 
         self.logger.info(f"Sorted roundtrip time = {sorted(self.time_roundtrip, key=lambda tup: tup[1], reverse=True)}")
 
