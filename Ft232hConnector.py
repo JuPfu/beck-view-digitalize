@@ -96,25 +96,57 @@ class Ft232hConnector:
             None
         """
 
+        cycle_time = 1.0 / 10.0  # 10 frames per second
+        start_time = time.perf_counter()
+        loop_time = start_time
+        start_cycle = start_time
+        end_cycle = start_time
+        delta = start_time
+
+        self.timing: [{"count": int, "cycle": float, "work": float, "delta": float}] = []
+
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
             if self.pins & self.OK1:
+                start_cycle = time.perf_counter()
+                delta = start_cycle - end_cycle
+
                 self.count += 1
 
                 self.gpio.write(0)  # Turn on led to show processing of frame has started
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
+                work_time_start = time.perf_counter()
                 self.signal_subject.on_next((self.count, time.perf_counter()))
+                work_time = time.perf_counter() - work_time_start
 
                 while self.pins & self.OK1:
                     self.pins = self.gpio.read()[0]
 
                 self.gpio.write(self.LED)  # Turn off LED
 
+                end_cycle = time.perf_counter()
+
+                self.timing.append(
+                    {"count": self.count, "cycle": end_cycle - start_cycle, "work": work_time, "delta": delta,
+                     "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001})
+
+                if end_cycle - start_cycle - 0.0001 < cycle_time:
+                    start_cycle = end_cycle + cycle_time - (end_cycle - start_cycle) - 0.0001
+                else:
+                    logging.warning(
+                        f"Maximum cycle time {cycle_time} exceeded {end_cycle - start_cycle} at frame {self.count}. Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped")
+                    start_cycle += cycle_time
+
             # Retrieve pins
             self.pins = self.gpio.read()[0]
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
+
+        self.timing.sort(key=lambda x: x["work"], reverse=True)
+
+        print(f"FT22H First {self.timing[:10]=}")
+        print(f"FT22H Last  {self.timing[::-10]=}")
 
         #  Close the gpio port
         if self.gpio.is_connected:
