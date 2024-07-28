@@ -1,7 +1,10 @@
 import logging
 import time
+from struct import unpack
+from typing import Tuple, Union, Iterable
 
 import usb
+from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
@@ -53,19 +56,21 @@ class Ft232hConnector:
 
         self.gpio = GpioMpsseController()
 
-        ftdi = self.gpio.ftdi
+        self.ftdi = self.gpio.ftdi
 
         # Set direction to output and switch to initial value of false for the specified pins
+        self.direction = self.LED | self.OK1 | self.EOF
         self.gpio.configure('ftdi:///1',
-                            direction=self.LED | self.OK1 | self.EOF,
+                            direction=self.direction,
                             frequency=30000000,
                             initial=0x0200)
 
         # Set direction to input for OK1 and OK2
-        self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=0x0200)
+        self.direction = 0x0200
+        self.gpio.set_direction(pins=self.OK1 | self.EOF | self.LED, direction=self.direction)
 
         # high latency improves performance - may be due to more work getting done asynchronously on the host
-        ftdi.set_latency_timer(128)
+        self.ftdi.set_latency_timer(128)
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
@@ -74,6 +79,8 @@ class Ft232hConnector:
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count = -1  # Initialize frame count
+
+        self.cmd = bytearray([Ftdi.GET_BITS_LOW, Ftdi.GET_BITS_HIGH, Ftdi.SEND_IMMEDIATE])
 
     def _initialize_device(self) -> None:
         """
@@ -87,6 +94,25 @@ class Ft232hConnector:
         if self.dev is None:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
+
+    def read_mpsse(self) -> Tuple[int]:
+        """
+        Optimized read for gpio values
+        """
+        self.ftdi.write_data(self.cmd)  # write command and ...
+        data = self.ftdi.read_data_bytes(2, 4)  # receive data
+        return unpack('<1H', data)  # format little endian ('<') one ('1') unsigned short ('H')
+
+    def write_mpsse(self, out: Union[bytes, bytearray, Iterable[int], int]) -> None:
+        """
+        Optimized write for gpio values
+        """
+        low_dir = self.direction & 0xFF
+        high_dir = (self.direction >> 8) & 0xFF
+        low_data = out & 0xFF
+        high_data = (out >> 8) & 0xFF
+        cmd = bytearray([Ftdi.SET_BITS_LOW, low_data, low_dir, Ftdi.SET_BITS_HIGH, high_data, high_dir])
+        self.ftdi.write_data(cmd)
 
     def signal_input(self) -> None:
         """
@@ -112,7 +138,7 @@ class Ft232hConnector:
 
                 self.count += 1
 
-                self.gpio.write(0)  # Turn on led to show processing of frame has started
+                self.write_mpsse(0)  # Turn on led to show processing of frame has started
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 work_time_start = time.perf_counter()
@@ -120,9 +146,9 @@ class Ft232hConnector:
                 work_time = time.perf_counter() - work_time_start
 
                 while self.pins & self.OK1:
-                    self.pins = self.gpio.read()[0]
+                    self.pins = self.read_mpsse()[0]
 
-                self.gpio.write(self.LED)  # Turn off LED
+                self.write_mpsse(self.LED)  # Turn off LED
 
                 end_cycle = time.perf_counter()
 
@@ -138,7 +164,7 @@ class Ft232hConnector:
                     start_cycle += cycle_time
 
             # Retrieve pins
-            self.pins = self.gpio.read()[0]
+            self.pins = self.read_mpsse()[0]
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
