@@ -8,6 +8,8 @@ from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
+from Timing import timing
+
 
 # see circuit diagram in README.md
 
@@ -55,7 +57,6 @@ class Ft232hConnector:
         self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
         self.gpio = GpioMpsseController()
-
         self.ftdi = self.gpio.ftdi
 
         # Set direction to output and switch to initial value of false for the specified pins
@@ -77,7 +78,7 @@ class Ft232hConnector:
 
         self.signal_subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
-
+        self.__max_count = 1000
         self.count = -1  # Initialize frame count
 
         self.cmd = bytearray([Ftdi.GET_BITS_LOW, Ftdi.GET_BITS_HIGH, Ftdi.SEND_IMMEDIATE])
@@ -129,14 +130,16 @@ class Ft232hConnector:
         end_cycle = start_time
         delta = start_time
 
-        self.timing: [{"count": int, "cycle": float, "work": float, "delta": float}] = []
-
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if self.pins & self.OK1:
+            loop_time = time.perf_counter()
+            if loop_time > start_cycle or self.pins & self.OK1:
                 start_cycle = time.perf_counter()
                 delta = start_cycle - end_cycle
+                elapsed_time = start_cycle - start_time
 
                 self.count += 1
+                fps = (self.count + 1) / elapsed_time
+                cycle_time = 1.0 / fps
 
                 self.write_mpsse(0)  # Turn on led to show processing of frame has started
 
@@ -149,31 +152,28 @@ class Ft232hConnector:
                     self.pins = self.read_mpsse()[0]
 
                 self.write_mpsse(self.LED)  # Turn off LED
-
                 end_cycle = time.perf_counter()
 
-                self.timing.append(
-                    {"count": self.count, "cycle": end_cycle - start_cycle, "work": work_time, "delta": delta,
-                     "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001})
+                timing.append({
+                    "count": self.count,
+                    "cycle": end_cycle - start_cycle,
+                    "work": work_time,
+                    "delta": delta,
+                    "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001
+                })
 
                 if end_cycle - start_cycle - 0.0001 < cycle_time:
-                    start_cycle = end_cycle + cycle_time - (end_cycle - start_cycle) - 0.0001
+                    start_cycle = end_cycle + cycle_time - (end_cycle - start_cycle)
                 else:
                     logging.warning(
-                        f"Maximum cycle time {cycle_time} exceeded {end_cycle - start_cycle} at frame {self.count}. Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped")
+                        f"Maximum cycle time {end_cycle - start_cycle} exceeded {cycle_time} for fps={fps} at frame {self.count}. "
+                        f"Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
+                    )
                     start_cycle += cycle_time
 
-            # Retrieve pins
             self.pins = self.read_mpsse()[0]
 
-        # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
 
-        self.timing.sort(key=lambda x: x["work"], reverse=True)
-
-        print(f"FT22H First {self.timing[:10]=}")
-        print(f"FT22H Last  {self.timing[::-10]=}")
-
-        #  Close the gpio port
         if self.gpio.is_connected:
             self.gpio.close()

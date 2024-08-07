@@ -15,6 +15,7 @@ from reactivex.scheduler import ThreadPoolScheduler
 from reactivex.subject import Subject
 
 from SignalHandler import signal_handler
+from Timing import timing
 from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType
 from WriteImages import write_images
 
@@ -70,7 +71,6 @@ class DigitizeVideo:
         # Initialize counters and timing
         self.processed_frames: int = 0
         self.start_time: float = time.perf_counter()
-        self.last_tick: float = self.start_time
         self.new_tick: float = self.start_time
 
         self.time_read: list[(int, float)] = []
@@ -232,31 +232,10 @@ class DigitizeVideo:
         Returns:
             None
         """
-        # Calculate elapsed time and intervals
-        self.last_tick = self.new_tick
+        # Calculate interval
         self.new_tick = time.perf_counter()
-        elapsed_time = self.new_tick - self.start_time
         time_for_read = self.new_tick - signal_time
-        round_trip_time = self.new_tick - self.last_tick
-
         self.time_read.append((count, time_for_read))
-        self.time_roundtrip.append((count, round_trip_time))
-
-        # Calculate FPS and timing constraints
-        if count > 0:
-            fps = count / elapsed_time
-            upper_limit = (1.0 / fps) * 0.95
-
-            if round_trip_time > 0.5555:
-                self.logger.error(f"Round trip time {round_trip_time}  for frame {count}")
-
-            # Check if the time taken to read a frame exceeds the upper limit
-            if time_for_read >= upper_limit:
-                percent = (time_for_read / upper_limit) * 100.0
-                self.logger.warning(
-                    f"Frame {count}: Read time {time_for_read:.4f}s exceeded upper limit {upper_limit:.4f}s, {percent - 100:.2f}% more than expected. Current FPS: {fps:.2f}, Round trip time: {round_trip_time:.4f}s.")
-                if round_trip_time >= 2.0 * time_for_read:
-                    self.logger.error(f"Round trip time exceeded by frame {count}")
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -375,23 +354,30 @@ class DigitizeVideo:
 
         read_time = np.asarray([[*x] for x in self.time_read])
 
-        self.logger.info(f"Average read time = {np.average(read_time[:,1]):.5f} seconds")
-        self.logger.info(f"Variance of read time = {np.var(read_time[:,1]):.5f}")
-        self.logger.info(f"Standard deviation of read time = {np.std(read_time[:,1]):.5f}")
-        self.logger.info(f"Minimum read time = {np.min(read_time[:,1]):.5f}")
-        self.logger.info(f"Maximum read time = {np.max(read_time[:,1]):.5f}")
+        self.logger.info(f"Average read time = {np.average(read_time[:, 1]):.5f} seconds")
+        self.logger.info(f"Variance of read time = {np.var(read_time[:, 1]):.5f}")
+        self.logger.info(f"Standard deviation of read time = {np.std(read_time[:, 1]):.5f}")
+        self.logger.info(f"Minimum read time = {np.min(read_time[:, 1]):.5f}")
+        self.logger.info(f"Maximum read time = {np.max(read_time[:, 1]):.5f}")
 
-        self.logger.info(f"Sorted read  time = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)}")
+        self.logger.info(
+            f"First 50 sorted read times = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)[:50]}")
 
         roundtrip_time = np.asarray([[*x] for x in self.time_roundtrip])
 
-        self.logger.info(f"Average roundtrip time = {np.average(roundtrip_time[:,1]):.5f} seconds")
-        self.logger.info(f"Variance of roundtrip time = {np.var(roundtrip_time[:,1]):.5f}")
-        self.logger.info(f"Standard deviation of roundtrip time = {np.std(roundtrip_time[:,1]):.5f}")
-        self.logger.info(f"Minimum roundtrip time = {np.min(roundtrip_time[:,1]):.5f}")
-        self.logger.info(f"Maximum roundtrip time = {np.max(roundtrip_time[:,1]):.5f}")
+        self.logger.info(f"Average roundtrip time = {np.average(roundtrip_time[:, 1]):.5f} seconds")
+        self.logger.info(f"Variance of roundtrip time = {np.var(roundtrip_time[:, 1]):.5f}")
+        self.logger.info(f"Standard deviation of roundtrip time = {np.std(roundtrip_time[:, 1]):.5f}")
+        self.logger.info(f"Minimum roundtrip time = {np.min(roundtrip_time[:, 1]):.5f}")
+        self.logger.info(f"Maximum roundtrip time = {np.max(roundtrip_time[:, 1]):.5f}")
 
-        self.logger.info(f"Sorted roundtrip time = {sorted(self.time_roundtrip, key=lambda tup: tup[1], reverse=True)}")
+        self.logger.info(
+            f"First 50 sorted roundtrip times = {sorted(self.time_roundtrip, key=lambda tup: tup[1], reverse=True)[:50]}")
+
+        timing.sort(key=lambda x: x["work"], reverse=True)
+
+        self.logger.info(f"First 50 sorted effective roundtrip times = {timing[:50]=}")
+        self.logger.info(f"Last 50 sorted effective roundtrip times = {timing[-50:]=}")
 
     def create_monitoring_window(self) -> None:
         """
