@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import multiprocessing
+import os
 import signal
 import sys
 import time
@@ -90,8 +91,9 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
+        api = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
         self.cap = cv2.VideoCapture(self.device_number,
-                                    cv2.CAP_ANY,  # using cv2.CAP_DSHOW just for testing purposes
+                                    api,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
         time.sleep(1)  # Windows needs some time to initialize the camera
@@ -104,9 +106,7 @@ class DigitizeVideo:
         _, _ = self.cap.read()
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
-
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
-
         self.cap.set(cv2.CAP_PROP_FPS, 30)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
@@ -124,13 +124,14 @@ class DigitizeVideo:
         #    -6                    15.6ms
         #    -7                     7.8ms
         #    ...
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
         time.sleep(1)
 
-        # self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
+        if os.name == "nt":
+            self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
@@ -362,17 +363,6 @@ class DigitizeVideo:
 
         self.logger.info(
             f"First 50 sorted read times = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)[:50]}")
-
-        roundtrip_time = np.asarray([[*x] for x in self.time_roundtrip])
-
-        self.logger.info(f"Average roundtrip time = {np.average(roundtrip_time[:, 1]):.5f} seconds")
-        self.logger.info(f"Variance of roundtrip time = {np.var(roundtrip_time[:, 1]):.5f}")
-        self.logger.info(f"Standard deviation of roundtrip time = {np.std(roundtrip_time[:, 1]):.5f}")
-        self.logger.info(f"Minimum roundtrip time = {np.min(roundtrip_time[:, 1]):.5f}")
-        self.logger.info(f"Maximum roundtrip time = {np.max(roundtrip_time[:, 1]):.5f}")
-
-        self.logger.info(
-            f"First 50 sorted roundtrip times = {sorted(self.time_roundtrip, key=lambda tup: tup[1], reverse=True)[:50]}")
 
         timing.sort(key=lambda x: x["work"], reverse=True)
 
