@@ -57,6 +57,14 @@ class CommandLineParser:
             default=12,
             help='Chunk size (number of frames) passed to each process - default is 12 frames'
         )
+        # Add arguments for direct show settings menu
+        self.parser.add_argument(
+            '--show-menu',
+            dest="settings",
+            action="store_true",
+            default=False,
+            help='Display direct show settings menu'
+        )
 
     def parse_args(self) -> argparse.Namespace:
         # Parse arguments and return the namespace

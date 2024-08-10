@@ -129,6 +129,7 @@ class Ft232hConnector:
                     "count": self.count,
                     "cycle": end_cycle - start_cycle,
                     "work": work_time,
+                    "read": -1.0,
                     "delta": delta,
                     "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001
                 })

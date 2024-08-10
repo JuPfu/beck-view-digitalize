@@ -41,6 +41,7 @@ class DigitizeVideo:
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
         self.monitoring: bool = args.monitor  # Display monitoring window
         self.chunk_size: int = args.chunk_size  # Quantity of frames (images) passed to a process
+        self.settings: bool = args.settings  # Display direct show settings menu
 
         self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
@@ -130,8 +131,8 @@ class DigitizeVideo:
 
         time.sleep(1)
 
-        if os.name == "nt":
-            self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # might launch DirectShow menu for ELP camera
+        if os.name == "nt" and self.settings:
+            self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
@@ -353,6 +354,9 @@ class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}\n")
 
+        for i in range(len(timing)):
+            timing[i]["read"] = self.time_read[i][1]
+
         read_time = np.asarray([[*x] for x in self.time_read])
 
         self.logger.info(f"Average read time = {np.average(read_time[:, 1]):.5f} seconds")
@@ -361,13 +365,15 @@ class DigitizeVideo:
         self.logger.info(f"Minimum read time = {np.min(read_time[:, 1]):.5f}")
         self.logger.info(f"Maximum read time = {np.max(read_time[:, 1]):.5f}")
 
-        self.logger.info(
-            f"First 50 sorted read times = {sorted(self.time_read, key=lambda tup: tup[1], reverse=True)[:50]}")
-
         timing.sort(key=lambda x: x["work"], reverse=True)
 
-        self.logger.info(f"First 50 sorted effective roundtrip times = {timing[:50]=}")
-        self.logger.info(f"Last 50 sorted effective roundtrip times = {timing[-50:]=}")
+        l = len(timing)
+        for i in range(min(50, l)):
+            self.logger.info(f"first elements of {timing[i]=}")
+
+        timing.reverse()
+        for i in range(min(50, l)):
+            self.logger.info(f"last elements of {timing[i]=}")
 
     def create_monitoring_window(self) -> None:
         """
