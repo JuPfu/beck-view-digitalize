@@ -92,7 +92,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        api = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        api = cv2.CAP_DSHOW if os.name == "nt" and self.args.settings else cv2.CAP_ANY
         self.cap = cv2.VideoCapture(self.device_number,
                                     api,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
@@ -211,6 +211,8 @@ class DigitizeVideo:
             Tuple containing the captured image data and frame count.
         """
         count, signal_time = descriptor
+
+        self.cap.retrieve() # discard frame
 
         success, frame = self.cap.read()
         if success:

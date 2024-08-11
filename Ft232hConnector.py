@@ -118,9 +118,10 @@ class Ft232hConnector:
                 self.signal_subject.on_next((self.count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
+                latency_time =  time.perf_counter()
                 while self.__opto_coupler_ok1.value:
                     pass
-
+                latency_time = time.perf_counter() - latency_time
                 self.__led.value = True  # Turn off LED
 
                 end_cycle = time.perf_counter()
@@ -130,6 +131,7 @@ class Ft232hConnector:
                     "cycle": end_cycle - start_cycle,
                     "work": work_time,
                     "read": -1.0,
+                    "latency": latency_time,
                     "delta": delta,
                     "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001
                 })
