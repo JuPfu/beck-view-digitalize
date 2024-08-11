@@ -92,7 +92,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        api = cv2.CAP_DSHOW if os.name == "nt" and self.args.settings else cv2.CAP_ANY
+        api = cv2.CAP_DSHOW if os.name == "nt" and self.settings else cv2.CAP_ANY
         self.cap = cv2.VideoCapture(self.device_number,
                                     api,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
@@ -106,9 +106,9 @@ class DigitizeVideo:
         # warm up camera before setting properties
         _, _ = self.cap.read()
 
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
@@ -126,8 +126,9 @@ class DigitizeVideo:
         #    -7                     7.8ms
         #    ...
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
-
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
+
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
 
         time.sleep(1)
 
@@ -210,9 +211,13 @@ class DigitizeVideo:
         Returns:
             Tuple containing the captured image data and frame count.
         """
+
+        # https://www.reddit.com/r/opencv/comments/p415cc/question_how_do_i_get_a_fresh_frame_taken_after/
+
         count, signal_time = descriptor
 
-        self.cap.retrieve() # discard frame
+        if os.name == "nt" and self.settings:
+            self.cap.retrieve()  # discard frame
 
         success, frame = self.cap.read()
         if success:
@@ -367,7 +372,7 @@ class DigitizeVideo:
         self.logger.info(f"Minimum read time = {np.min(read_time[:, 1]):.5f}")
         self.logger.info(f"Maximum read time = {np.max(read_time[:, 1]):.5f}")
 
-        timing.sort(key=lambda x: x["work"], reverse=True)
+        timing.sort(key=lambda x: x["cycle"], reverse=True)
 
         l = len(timing)
         for i in range(min(50, l)):
