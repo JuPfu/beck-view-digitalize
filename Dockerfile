@@ -1,11 +1,11 @@
+# https://stackoverflow.com/questions/72305901/how-to-mount-an-ftdi-usb-device-to-a-docker-container
 # Use a slim version of the python base image
 # FROM python:3.12.2-bookworm
 
-#FROM alpine:latest
-#FROM python:3.12.2-slim-bookworm
-FROM python:3.12.2
+FROM alpine:latest
 
 RUN apt-get update && apt-get install -y libusb-1.0 udev
+RUN apt-get install -y python3 py3-pip
 #RUN apk add --no-cache python-3.12.2 py3-pip # && ln -sf python3 /usr/bin/python
 
 # Set working directory
@@ -42,9 +42,6 @@ ENV export FTDI_FT232H="FTDI_FT232H"
 # Copy Python source code
 COPY . .
 
-# Copy requirements.txt
-# COPY requirements.txt ./
-
 # Install dependencies using pip
 # RUN pip install -r requirements.txt
 # RUN pip install --no-cache-dir --break-system-packages --upgrade pip
@@ -52,10 +49,7 @@ COPY . .
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Python source code
-# COPY . .
-
 # Set the main entrypoint command
-CMD [ "python", "main.py"]
+CMD [ "python", "main.py", "--help"]
 
 

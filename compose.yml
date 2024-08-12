@@ -1,7 +1,9 @@
 services:
   ftdi:
-    image: beck-view:latest
+    image: beck-view-digitize:latest
     privileged: true
+    devices:
+      - "/dev/serial/by-id/usb-0403_6014-if00-port0:/dev/ftdi"
 #    devices:
 #      - /dev/cu.usbserial-FT66CVI0
 #      - /dev/tty.usbserial-FT66CVI0

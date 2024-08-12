@@ -222,7 +222,7 @@ class DigitizeVideo:
 
         success, frame = self.cap.read()
         if success:
-            self.hint(count, signal_time)
+            self.time_read.append((count, time.perf_counter() - signal_time))
             if not self.monitoring and count % 100 == 0:
                 self.logger.info(f"Working on Frame {count} ...")
             return frame, count
@@ -230,20 +230,6 @@ class DigitizeVideo:
             self.logger.error(f"Read error at frame {count}")
             # Return blank image in case of read error
             return np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8), count
-
-    def hint(self, count, signal_time) -> None:
-        """
-        Calculate and log processing statistics such as FPS and potential late reads.
-
-        Args:
-            count: Current frame count.
-            signal_time: Time the signal was received.
-
-        Returns:
-            None
-        """
-        # Calculate interval
-        self.time_read.append((count, time.perf_counter() - signal_time))
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
