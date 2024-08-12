@@ -7,6 +7,7 @@ import sys
 import time
 from argparse import Namespace
 from multiprocessing import shared_memory
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
 import cv2
@@ -17,7 +18,7 @@ from reactivex.subject import Subject
 
 from SignalHandler import signal_handler
 from Timing import timing
-from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType
+from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType, RGBImageArray
 from WriteImages import write_images
 
 
@@ -43,7 +44,7 @@ class DigitizeVideo:
         self.chunk_size: int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: bool = args.settings  # Display direct show settings menu
 
-        self.signal_subject = signal_subject  # A reactivex subject emitting photo cell signals.
+        self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
         # Signal handler is called on interrupt (ctrl-c) and terminate
         signal.signal(signal.SIGINT, signal_handler)
@@ -56,9 +57,9 @@ class DigitizeVideo:
         self.initialize_process_pool()
 
         # Retrieve video frame properties
-        self.img_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
-        self.img_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
-        self.img_bytes = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
+        self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
+        self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
+        self.img_bytes: int = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
 
         # Pre-allocate image data buffer and initialize frame descriptions list
         self.image_data = np.zeros(self.chunk_size * self.img_bytes, dtype=np.uint8)
@@ -92,7 +93,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        api = cv2.CAP_DSHOW if os.name == "nt" and self.settings else cv2.CAP_ANY
+        api: int = cv2.CAP_DSHOW if os.name == "nt" and self.settings else cv2.CAP_ANY
         self.cap = cv2.VideoCapture(self.device_number,
                                     api,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
@@ -242,9 +243,7 @@ class DigitizeVideo:
             None
         """
         # Calculate interval
-        self.new_tick = time.perf_counter()
-        time_for_read = self.new_tick - signal_time
-        self.time_read.append((count, time_for_read))
+        self.time_read.append((count, time.perf_counter() - signal_time))
 
     @staticmethod
     def monitor_picture(state: StateType) -> None:
@@ -261,7 +260,7 @@ class DigitizeVideo:
         # The elp camera is mounted upside down - no flipping of image required.
         # Adjust to your needs, e.g. add vertical flip
         # monitor_frame = cv2.flip(frame_data.copy(), 0)
-        monitor_frame = frame_data.copy()
+        monitor_frame: RGBImageArray = frame_data.copy()
         # Add image count tag to the upper left corner of the image
         cv2.putText(monitor_frame, text=f"Frame {frame_count}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
                     fontScale=1, color=(0, 255, 0), thickness=2)
@@ -286,7 +285,7 @@ class DigitizeVideo:
         frame_data, frame_count = state
 
         # Calculate the index for this frame in the pre-allocated image_data array
-        start_index = (frame_count % self.chunk_size) * self.img_bytes
+        start_index: int = (frame_count % self.chunk_size) * self.img_bytes
 
         # Use NumPy vectorized operations to flatten image data and insert it into the buffer
         self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()
@@ -312,7 +311,7 @@ class DigitizeVideo:
             None
         """
         # Calculate total size of shared memory for the current chunk
-        shm = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
+        shm: SharedMemory = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
         shm.buf[:] = self.image_data[:]
 
         def process_error_callback(error):
@@ -353,8 +352,8 @@ class DigitizeVideo:
         self.pool.join()
 
         # Calculate elapsed time and log statistics
-        elapsed_time = time.perf_counter() - self.start_time
-        average_fps = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
+        elapsed_time: float = time.perf_counter() - self.start_time
+        average_fps: float = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("------- End of Film ---------")
         self.logger.info(f"Total processed frames: {self.processed_frames}")

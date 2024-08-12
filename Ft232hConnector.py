@@ -6,6 +6,7 @@ import digitalio
 import usb
 from pyftdi.ftdi import Ftdi
 from reactivex import Subject
+from usb import Device
 
 from Timing import timing
 
@@ -44,25 +45,25 @@ class Ft232hConnector:
 
         self._initialize_device()  # Initialize USB device
 
-        self.signal_subject = signal_subject
-        self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+        self.signal_subject: Subject = signal_subject
+        self.__max_count: int = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-        self.count = -1  # Initialize frame count
+        self.count: int = -1  # Initialize frame count
 
         # Set up the LED to indicate frame processing
-        self.__led = digitalio.DigitalInOut(board.C1)
+        self.__led: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C1)
         # switch direction to output and set initial led value
         self.__led.switch_to_output(value=True)
 
         # Set up opto-coupler OK1 to trigger frame processing
-        self.__opto_coupler_ok1 = digitalio.DigitalInOut(board.C2)
+        self.__opto_coupler_ok1: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C2)
         # switch to output and set initial trigger value to false
         self.__opto_coupler_ok1.switch_to_output(value=False)
         # switch to INPUT mode
         self.__opto_coupler_ok1.switch_to_input()  # pull is set to None
 
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
-        self.__eof = digitalio.DigitalInOut(board.C3)
+        self.__eof: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C3)
         # switch to output and set initial eof value
         self.__eof.switch_to_output(value=False)
         # switch to INPUT mode
@@ -81,7 +82,7 @@ class Ft232hConnector:
             ValueError: If the USB device is not found.
         """
         # Find the USB device with specified Vendor and Product IDs
-        self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        self.dev: Device = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
@@ -94,12 +95,12 @@ class Ft232hConnector:
             None
         """
 
-        cycle_time = 1.0 / 10.0  # 10 frames per second
-        start_time = time.perf_counter()
-        loop_time = start_time
-        start_cycle = start_time
-        end_cycle = start_time
-        delta = start_time
+        cycle_time: float = 1.0 / 10.0  # 10 frames per second
+        start_time: float = time.perf_counter()
+        loop_time: float = start_time
+        start_cycle: float = start_time
+        end_cycle: float = start_time
+        delta: float = start_time
 
         while not self.__eof.value and (self.count < self.__max_count):
             if self.__opto_coupler_ok1.value:
@@ -108,23 +109,23 @@ class Ft232hConnector:
                 elapsed_time = start_cycle - start_time
 
                 self.count += 1
-                fps = (self.count + 1) / elapsed_time
+                fps: float = (self.count + 1) / elapsed_time
                 cycle_time = 1.0 / fps
 
                 self.__led.value = False  # Turn on led to show processing of frame has started
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                work_time_start = time.perf_counter()
+                work_time_start: float = time.perf_counter()
                 self.signal_subject.on_next((self.count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
-                latency_time =  time.perf_counter()
+                latency_time: float = time.perf_counter()
                 while self.__opto_coupler_ok1.value:
                     pass
                 latency_time = time.perf_counter() - latency_time
                 self.__led.value = True  # Turn off LED
 
-                end_cycle = time.perf_counter()
+                end_cycle: float = time.perf_counter()
 
                 timing.append({
                     "count": self.count,
