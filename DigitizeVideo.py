@@ -285,11 +285,11 @@ class DigitizeVideo:
 
         # Check if the chunk size has been reached
         if self.processed_frames % self.chunk_size == 0:
-            asyncio.run(self.write_to_shared_memory())
+            self.write_to_shared_memory()
 
         return state
 
-    async def write_to_shared_memory(self) -> None:
+    def write_to_shared_memory(self) -> None:
         """
         Write a chunk of images to shared memory and start a separate process to emit images to persistent storage.
 
@@ -330,7 +330,7 @@ class DigitizeVideo:
         """
         # Ensure there are images left to write
         if len(self.img_desc) > 0:
-            asyncio.run(self.write_to_shared_memory())
+            self.write_to_shared_memory()
 
         # Close and join the pool to properly manage resources
         # Due to Windows pool closing and joining can not be shifted to __del__.
