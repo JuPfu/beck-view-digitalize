@@ -54,7 +54,7 @@ def main():
         # open a dedicated ftdi device contained in the list of ftdi devices
         # URL Scheme
         # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
-        ftdi.open_mpsse_from_url("ftdi:///1")
+        ftdi.open_from_url("ftdi:///1")
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
         exit(1)
