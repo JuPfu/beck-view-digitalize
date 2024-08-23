@@ -65,12 +65,12 @@ class Ft232hConnector:
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         self.__eof: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C3)
         # switch to output and set initial eof value
-        self.__eof.switch_to_output(value=False)
+        self.__eof.switch_to_output(value=True)
         # switch to INPUT mode
         self.__eof.switch_to_input()  # pull is set to None
 
         # high latency improves performance - may be due to more work getting done asynchronously on the host
-        ftdi.set_latency_timer(128)
+        ftdi.set_latency_timer(64)
         # set maximum frequency for MPSSE clock
         ftdi.set_frequency(ftdi.frequency_max)
 
@@ -102,7 +102,7 @@ class Ft232hConnector:
         end_cycle: float = start_time
         delta: float = start_time
 
-        while not self.__eof.value and (self.count < self.__max_count):
+        while self.__eof.value and (self.count < self.__max_count):
             if self.__opto_coupler_ok1.value:
                 start_cycle = time.perf_counter()
                 delta = start_cycle - end_cycle
@@ -121,7 +121,7 @@ class Ft232hConnector:
 
                 latency_time: float = time.perf_counter()
                 while self.__opto_coupler_ok1.value:
-                    pass
+                    time.sleep(0.005)
                 latency_time = time.perf_counter() - latency_time
                 self.__led.value = True  # Turn off LED
 
