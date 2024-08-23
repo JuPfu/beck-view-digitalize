@@ -366,6 +366,8 @@ class DigitizeVideo:
         for i in range(min(50, l)):
             self.logger.info(f"last elements of {timing[i]=}")
 
+        self.cleanup()
+
     def create_monitoring_window(self) -> None:
         """
         Create monitoring window for displaying all digitized images.
@@ -395,7 +397,7 @@ class DigitizeVideo:
         """
         self.cap.release()
 
-    def __del__(self) -> None:
+    def cleanup(self) -> None:
         """
         Clean up resources and log statistics upon instance destruction.
 
