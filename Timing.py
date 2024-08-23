@@ -5,5 +5,6 @@ timing: [{
     "read": float,
     "latency": float,
     "delta": float,
-    "wait_time": float
+    "wait_time": float,
+    "total": float
 }] = []

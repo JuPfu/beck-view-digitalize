@@ -1,12 +1,10 @@
 import logging
 import time
 
-import board
-import digitalio
 import usb
 from pyftdi.ftdi import Ftdi
+from pyftdi.gpio import GpioAsyncController, GpioMpsseController
 from reactivex import Subject
-from usb import Device
 
 from Timing import timing
 
@@ -38,41 +36,46 @@ class Ft232hConnector:
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
-            ftdi: Ftdi -- Ftdi device driver
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
+
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
 
         self._initialize_device()  # Initialize USB device
 
-        self.signal_subject: Subject = signal_subject
-        self.__max_count: int = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
-
-        self.count: int = -1  # Initialize frame count
-
+        self.MSB = 8
         # Set up the LED to indicate frame processing
-        self.__led: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C1)
-        # switch direction to output and set initial led value
-        self.__led.switch_to_output(value=True)
-
+        # switch LED direction to output and set initial led value
+        self.LED = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
         # Set up opto-coupler OK1 to trigger frame processing
-        self.__opto_coupler_ok1: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C2)
         # switch to output and set initial trigger value to false
-        self.__opto_coupler_ok1.switch_to_output(value=False)
-        # switch to INPUT mode
-        self.__opto_coupler_ok1.switch_to_input()  # pull is set to None
-
+        self.OK1 = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
-        self.__eof: digitalio.DigitalInOut = digitalio.DigitalInOut(board.C3)
         # switch to output and set initial eof value
-        self.__eof.switch_to_output(value=True)
-        # switch to INPUT mode
-        self.__eof.switch_to_input()  # pull is set to None
+        self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
-        # high latency improves performance - may be due to more work getting done asynchronously on the host
-        ftdi.set_latency_timer(64)
-        # set maximum frequency for MPSSE clock
-        ftdi.set_frequency(ftdi.frequency_max)
+        self.gpio = GpioMpsseController()
+
+        self.gpio.configure('ftdi:///1',
+                            direction=self.LED | self.OK1 | self.EOF,
+                            frequency=ftdi.frequency_max,
+                            initial=self.LED)
+
+        print(f"<<<{self.gpio.all_pins=:016b}")
+
+        # Set direction to input for OK1 and EOF and lED to output
+        self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.OK1 | self.EOF)
+
+        # high latency improves performance - may be due to more work getting done asynchronously
+        ftdi.set_latency_timer(128)
+
+        # initialize pins with current values
+        self.pins = self.gpio.read()[0]
+
+        self.signal_subject = signal_subject
+        self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
+
+        self.count = -1  # Initialize frame count
 
     def _initialize_device(self) -> None:
         """
@@ -82,7 +85,7 @@ class Ft232hConnector:
             ValueError: If the USB device is not found.
         """
         # Find the USB device with specified Vendor and Product IDs
-        self.dev: Device = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
             raise ValueError("USB device not found.")
         logging.info(f"USB device found: {self.dev}")
@@ -91,39 +94,57 @@ class Ft232hConnector:
         """
         Process the input signals and trigger frame processing when opto-coupler OK1 is triggered.
 
-        # :returns
+        :returns
             None
         """
-
-        cycle_time: float = 1.0 / 10.0  # 10 frames per second
+        cycle_time: float = 1.0 / 10.0  # 5 frames per second
         start_time: float = time.perf_counter()
         loop_time: float = start_time
         start_cycle: float = start_time
         end_cycle: float = start_time
         delta: float = start_time
 
-        while self.__eof.value and (self.count < self.__max_count):
-            if self.__opto_coupler_ok1.value:
+        while not (self.pins & self.EOF) and (self.count < self.__max_count):
+            if time.perf_counter() > start_cycle and (self.pins & self.OK1) != self.OK1:
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+                self.gpio.write(self.OK1)
+                # time.sleep(0.005)
+                self.pins = self.gpio.read()[0]
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+
+            if self.pins & self.OK1:
                 start_cycle = time.perf_counter()
-                delta = start_cycle - end_cycle
+                delta = start_cycle - end_cycle  # time spent in outer loop - total_cycle = cycle_time + delta
                 elapsed_time = start_cycle - start_time
 
                 self.count += 1
+
                 fps: float = (self.count + 1) / elapsed_time
                 cycle_time = 1.0 / fps
+                # cycle_time = 1.0 / 5.0
 
-                self.__led.value = False  # Turn on led to show processing of frame has started
+                # turn on led to show processing of frame has started - reset OK1
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+                self.gpio.write(0x00)
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 work_time_start: float = time.perf_counter()
                 self.signal_subject.on_next((self.count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
+                self.pins = self.gpio.read()[0]
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+
+                # latency
                 latency_time: float = time.perf_counter()
-                while self.__opto_coupler_ok1.value:
-                    time.sleep(0.005)
+                while self.pins & self.OK1:
+                    time.sleep(0.001)
+                    self.pins = self.gpio.read()[0]
+                    print(f"Latency LOOP OK1 expected to be 0 {self.pins & self.OK1=:01b}")
                 latency_time = time.perf_counter() - latency_time
-                self.__led.value = True  # Turn off LED
+
+                # turn off led to show processing of frame has been delegated to another thread or has been finished
+                self.gpio.write(self.LED)
 
                 end_cycle: float = time.perf_counter()
 
@@ -134,7 +155,8 @@ class Ft232hConnector:
                     "read": -1.0,
                     "latency": latency_time,
                     "delta": delta,
-                    "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001
+                    "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001,
+                    "total": end_cycle - start_cycle + delta
                 })
 
                 if end_cycle - start_cycle - 0.0001 < cycle_time:
@@ -146,4 +168,8 @@ class Ft232hConnector:
                     )
                     start_cycle += cycle_time
 
+            # Retrieve pins
+            self.pins = self.gpio.read()[0]
+
+        # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
