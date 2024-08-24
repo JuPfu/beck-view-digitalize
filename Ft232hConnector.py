@@ -3,7 +3,7 @@ import time
 
 import usb
 from pyftdi.ftdi import Ftdi
-from pyftdi.gpio import GpioAsyncController, GpioMpsseController
+from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
 from Timing import timing
