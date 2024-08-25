@@ -299,7 +299,7 @@ class DigitizeVideo:
         """
         # Calculate total size of shared memory for the current chunk
         shm: SharedMemory = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
-        shm.buf = self.image_data.copy()
+        shm.buf[:] = self.image_data.copy()
 
         def process_error_callback(error):
             self.logger.error(f"Error in child process: {error}")
