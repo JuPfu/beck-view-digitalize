@@ -5,7 +5,6 @@ timing: [{
     "work": float,
     "read": float,
     "latency": float,
-    "delta": float,
     "wait_time": float,
     "total_work": float,
     "total": float
