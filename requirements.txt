@@ -1,4 +1,4 @@
-mypy>=1.11.1
+mypy>=1.11.2
 numpy==1.26.4
 opencv-python>=4.10.0.84
 pyftdi>=0.55.4
