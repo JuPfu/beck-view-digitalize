@@ -99,10 +99,7 @@ class Ft232hConnector:
         """
         cycle_time: float = 1.0 / 5.0  # 5 frames per second
         start_time: float = time.perf_counter()
-        loop_time: float = start_time
         start_wait: float = start_time
-        start_cycle: float = start_time
-        end_cycle: float = start_time
         trigger_cycle: float = start_time
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
@@ -115,13 +112,13 @@ class Ft232hConnector:
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
             if self.pins & self.OK1:
-                start_cycle = time.perf_counter()
+                start_cycle: float = time.perf_counter()
                 elapsed_time = start_cycle - start_time
 
                 self.count += 1
 
                 fps: float = (self.count + 1) / elapsed_time
-                cycle_time = 1.0 / fps
+                # cycle_time = 1.0 / fps
                 cycle_time = 1.0 / 5.0
 
                 # turn on led to show processing of frame has started - reset OK1
@@ -169,8 +166,9 @@ class Ft232hConnector:
 
                 start_wait = time.perf_counter()
 
-        # Retrieve pins
-        self.pins = self.gpio.read()[0]
+            # Retrieve pins
+            self.pins = self.gpio.read()[0]
 
-    # Signal the completion of frame processing and EoF detection
-    self.signal_subject.on_completed()
+        # Signal the completion of frame processing and EoF detection
+        self.signal_subject.on_completed()
+
