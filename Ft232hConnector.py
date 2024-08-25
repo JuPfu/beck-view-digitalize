@@ -97,15 +97,17 @@ class Ft232hConnector:
         :returns
             None
         """
-        cycle_time: float = 1.0 / 10.0  # 5 frames per second
+        cycle_time: float = 1.0 / 5.0  # 5 frames per second
         start_time: float = time.perf_counter()
         loop_time: float = start_time
+        start_wait: float = start_time
         start_cycle: float = start_time
         end_cycle: float = start_time
-        delta: float = start_time
+        trigger_cycle: float = start_time
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if time.perf_counter() > start_cycle and (self.pins & self.OK1) != self.OK1:
+            if time.perf_counter() > trigger_cycle and (self.pins & self.OK1) != self.OK1:
+                trigger_cycle = start_time + (self.count + 2) * cycle_time
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
                 self.gpio.write(self.OK1)
                 # time.sleep(0.005)
@@ -114,14 +116,13 @@ class Ft232hConnector:
 
             if self.pins & self.OK1:
                 start_cycle = time.perf_counter()
-                delta = start_cycle - end_cycle  # time spent in outer loop - total_cycle = cycle_time + delta
                 elapsed_time = start_cycle - start_time
 
                 self.count += 1
 
                 fps: float = (self.count + 1) / elapsed_time
                 cycle_time = 1.0 / fps
-                # cycle_time = 1.0 / 5.0
+                cycle_time = 1.0 / 5.0
 
                 # turn on led to show processing of frame has started - reset OK1
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
@@ -132,44 +133,44 @@ class Ft232hConnector:
                 self.signal_subject.on_next((self.count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
+                # latency
+                latency_time: float = time.perf_counter()
                 self.pins = self.gpio.read()[0]
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
-                # latency
-                latency_time: float = time.perf_counter()
                 while self.pins & self.OK1:
                     time.sleep(0.001)
                     self.pins = self.gpio.read()[0]
                     print(f"Latency LOOP OK1 expected to be 0 {self.pins & self.OK1=:01b}")
-                latency_time = time.perf_counter() - latency_time
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
+                latency_time = time.perf_counter() - latency_time
 
                 end_cycle: float = time.perf_counter()
 
                 timing.append({
                     "count": self.count,
                     "cycle": end_cycle - start_cycle,
+                    "intro": work_time_start - start_cycle,
                     "work": work_time,
                     "read": -1.0,
                     "latency": latency_time,
-                    "delta": delta,
-                    "wait_time": cycle_time - (end_cycle - start_cycle) - 0.0001,
-                    "total": end_cycle - start_cycle + delta
+                    "wait_time": start_cycle - start_wait,
+                    "total_work": (work_time_start - start_cycle) + work_time + latency_time,
+                    "total": end_cycle - start_wait
                 })
 
-                if end_cycle - start_cycle - 0.0001 < cycle_time:
-                    start_cycle = end_cycle + cycle_time - (end_cycle - start_cycle)
-                else:
+                if end_cycle - start_cycle >= cycle_time:
                     logging.warning(
-                        f"Maximum cycle time {end_cycle - start_cycle} exceeded {cycle_time} for fps={fps} at frame {self.count}. "
+                        f"Frame {self.count} exceeds cycle time of {cycle_time} with {end_cycle - start_cycle} at fps={fps}."
                         f"Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
-                    start_cycle += cycle_time
 
-            # Retrieve pins
-            self.pins = self.gpio.read()[0]
+                start_wait = time.perf_counter()
 
-        # Signal the completion of frame processing and EoF detection
-        self.signal_subject.on_completed()
+        # Retrieve pins
+        self.pins = self.gpio.read()[0]
+
+    # Signal the completion of frame processing and EoF detection
+    self.signal_subject.on_completed()
