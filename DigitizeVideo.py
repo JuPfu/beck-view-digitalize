@@ -214,7 +214,7 @@ class DigitizeVideo:
 
         # How to get the latest frame from camera
         # https://www.reddit.com/r/opencv/comments/p415cc/question_how_do_i_get_a_fresh_frame_taken_after/
-        # https://stackoverflow/questions/453665208/how-to-get-the-latest-frame-from-camera
+        # https://stackoverflow.com/questions/453665208/how-to-get-the-latest-frame-from-camera
 
         count, signal_time = descriptor
 
