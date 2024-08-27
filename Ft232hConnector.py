@@ -103,13 +103,13 @@ class Ft232hConnector:
         trigger_cycle: float = start_time
 
         while not (self.pins & self.EOF) and (self.count < self.__max_count):
-            if time.perf_counter() > trigger_cycle and (self.pins & self.OK1) != self.OK1:
-                trigger_cycle = start_time + (self.count + 2) * cycle_time
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
-                self.gpio.write(self.OK1)
-                # time.sleep(0.005)
-                self.pins = self.gpio.read()[0]
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+            # if time.perf_counter() > trigger_cycle and (self.pins & self.OK1) != self.OK1:
+            #     trigger_cycle = start_time + (self.count + 2) * cycle_time
+            #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+            #     self.gpio.write(self.OK1)
+            #     # time.sleep(0.005)
+            #     self.pins = self.gpio.read()[0]
+            #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
             if self.pins & self.OK1:
                 start_cycle: float = time.perf_counter()
@@ -118,11 +118,10 @@ class Ft232hConnector:
                 self.count += 1
 
                 fps: float = (self.count + 1) / elapsed_time
-                # cycle_time = 1.0 / fps
-                cycle_time = 1.0 / 5.0
+                cycle_time = 1.0 / fps
+                # cycle_time = 1.0 / 5.0
 
                 # turn on led to show processing of frame has started - reset OK1
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
                 self.gpio.write(0x00)
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
@@ -132,6 +131,10 @@ class Ft232hConnector:
 
                 # latency
                 latency_time: float = time.perf_counter()
+
+                # turn on led to show processing of frame has started - reset OK1
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+                self.gpio.write(0x00)
                 self.pins = self.gpio.read()[0]
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
@@ -171,4 +174,3 @@ class Ft232hConnector:
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
-
