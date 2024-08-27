@@ -60,7 +60,7 @@ class Ft232hConnector:
                             direction=self.LED | self.OK1 | self.EOF,
                             frequency=ftdi.frequency_max,
                             initial=self.LED)
-
+        # temporarily print available pins
         print(f"<<<{self.gpio.all_pins=:016b}")
 
         # Set direction to input for OK1 and EOF and lED to output
@@ -71,6 +71,8 @@ class Ft232hConnector:
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
+        # temporarily print available start value of pins
+        print(f"<<<{self.pins=:016b}")
 
         self.signal_subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
