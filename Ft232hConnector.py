@@ -132,7 +132,7 @@ class Ft232hConnector:
                 # latency
                 latency_time: float = time.perf_counter()
 
-                # turn on led to show processing of frame has started - reset OK1
+                # reset OK1
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
                 self.gpio.write(0x00)
                 self.pins = self.gpio.read()[0]
