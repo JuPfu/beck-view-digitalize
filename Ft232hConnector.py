@@ -59,15 +59,30 @@ class Ft232hConnector:
         self.gpio.configure('ftdi:///1',
                             direction=self.LED | self.OK1 | self.EOF,
                             frequency=ftdi.frequency_max,
-                            initial=self.LED)
+                            initial=self.LED | self.EOF)
+
+        # temporarily print the (TX, RX) tuple of hardware FIFO sizes
+        print(f"{ftdi.fifo_sizes=}")
+
+        # temporarily print mpsse support
+        print(f"{ftdi.is_mpsse=}")
+        print(f"{ftdi.mpsse_bit_delay=}")  # Minimum delay between execution of two MPSSE SET_BITS commands in seconds
+        # temporarily print latency timer
+        print(f"{ftdi.get_latency_timer()=}")
         # temporarily print available pins
         print(f"<<<{self.gpio.all_pins=:016b}")
+
+        print(f"{ftdi.has_drivezero=}")
+        ftdi.enable_drivezero_mode(self.EOF)
 
         # Set direction to input for OK1 and EOF and lED to output
         self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.OK1 | self.EOF)
 
         # high latency improves performance - may be due to more work getting done asynchronously
         ftdi.set_latency_timer(128)
+
+        ftdi.set_frequency(
+            ftdi.frequency_max)  # Set the frequency at which sequence of GPIO samples are read and written.
 
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
@@ -104,7 +119,7 @@ class Ft232hConnector:
         start_wait: float = start_time
         trigger_cycle: float = start_time
 
-        while not (self.pins & self.EOF) and (self.count < self.__max_count):
+        while (self.pins & self.EOF) and (self.count < self.__max_count):
             # if time.perf_counter() > trigger_cycle and (self.pins & self.OK1) != self.OK1:
             #     trigger_cycle = start_time + (self.count + 2) * cycle_time
             #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
