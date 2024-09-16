@@ -36,8 +36,8 @@ class Ft232hConnector:
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
         Args:
+            ftdi: Ftdi -- Ftdi device driver
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
-
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
 
@@ -61,25 +61,25 @@ class Ft232hConnector:
                             frequency=ftdi.frequency_max,
                             initial=self.LED | self.EOF)
 
+        # high latency improves performance - may be due to more work getting done asynchronously
+        ftdi.set_latency_timer(128)
+
         # temporarily print the (TX, RX) tuple of hardware FIFO sizes
-        print(f"{ftdi.fifo_sizes=}")
-
-        # temporarily print mpsse support
-        print(f"{ftdi.is_mpsse=}")
-        print(f"{ftdi.mpsse_bit_delay=}")  # Minimum delay between execution of two MPSSE SET_BITS commands in seconds
-        # temporarily print latency timer
-        print(f"{ftdi.get_latency_timer()=}")
-        # temporarily print available pins
-        print(f"<<<{self.gpio.all_pins=:016b}")
-
-        print(f"{ftdi.has_drivezero=}")
+        # print(f"{ftdi.fifo_sizes=}")
+        #
+        # # temporarily print mpsse support
+        # print(f"{ftdi.is_mpsse=}")
+        # print(f"{ftdi.mpsse_bit_delay=}")  # Minimum delay between execution of two MPSSE SET_BITS commands in seconds
+        # # temporarily print latency timer
+        # print(f"{ftdi.get_latency_timer()=}")
+        # # temporarily print available pins
+        # print(f"{self.gpio.all_pins=:016b}")
+        #
+        # print(f"{ftdi.has_drivezero=}")
         ftdi.enable_drivezero_mode(self.EOF)
 
         # Set direction to input for OK1 and EOF and lED to output
         self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.OK1 | self.EOF)
-
-        # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(128)
 
         ftdi.set_frequency(
             ftdi.frequency_max)  # Set the frequency at which sequence of GPIO samples are read and written.
@@ -117,18 +117,21 @@ class Ft232hConnector:
         cycle_time: float = 1.0 / 5.0  # 5 frames per second
         start_time: float = time.perf_counter()
         start_wait: float = start_time
-        trigger_cycle: float = start_time
+        end_wait: float = start_time
+        # trigger_cycle: float = start_time
+        # save_time: float = start_time
 
-        while (self.pins & self.EOF) and (self.count < self.__max_count):
-            # if time.perf_counter() > trigger_cycle and (self.pins & self.OK1) != self.OK1:
+        #  while (self.pins & self.EOF) and (self.count < self.__max_count):
+        while (self.pins & self.EOF) != self.EOF and (self.count < self.__max_count):
+            # if time.perf_counter() > trigger_cycle: #  and (self.pins & self.OK1) != self.OK1:
+            #     end_wait = time.perf_counter()
             #     trigger_cycle = start_time + (self.count + 2) * cycle_time
             #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
             #     self.gpio.write(self.OK1)
-            #     # time.sleep(0.005)
             #     self.pins = self.gpio.read()[0]
             #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
-            if self.pins & self.OK1:
+            if (self.pins & self.OK1) == self.OK1:
                 start_cycle: float = time.perf_counter()
                 elapsed_time = start_cycle - start_time
 
@@ -136,7 +139,7 @@ class Ft232hConnector:
 
                 fps: float = (self.count + 1) / elapsed_time
                 cycle_time = 1.0 / fps
-                # cycle_time = 1.0 / 5.0
+                # cycle_time = 1.0 / 10.0
 
                 # turn on led to show processing of frame has started - reset OK1
                 self.gpio.write(0x00)
@@ -154,6 +157,7 @@ class Ft232hConnector:
                 self.gpio.write(0x00)
                 self.pins = self.gpio.read()[0]
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+                # self.pins = self.gpio.read()[0]
 
                 while self.pins & self.OK1:
                     time.sleep(0.001)
@@ -164,7 +168,16 @@ class Ft232hConnector:
                 self.gpio.write(self.LED)
                 latency_time = time.perf_counter() - latency_time
 
-                end_cycle: float = time.perf_counter()
+                if latency_time > 0.01:
+                    print(f"LATENCY {latency_time=}for {self.count=} to  large!!!")
+
+                end_cycle = time.perf_counter()
+
+                # save_time = time.perf_counter()
+                wait_time = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
+
+                if wait_time <= 0.0:
+                    print(f"WAIT TIME {wait_time=} for {self.count=} to small!!!")
 
                 timing.append({
                     "count": self.count,
@@ -173,15 +186,15 @@ class Ft232hConnector:
                     "work": work_time,
                     "read": -1.0,
                     "latency": latency_time,
-                    "wait_time": start_cycle - start_wait,
+                    "wait_time": wait_time,
                     "total_work": (work_time_start - start_cycle) + work_time + latency_time,
-                    "total": end_cycle - start_wait
+                    "total_calc": (work_time_start - start_cycle) + work_time + latency_time + wait_time
                 })
 
                 if end_cycle - start_cycle >= cycle_time:
                     logging.warning(
                         f"Frame {self.count} exceeds cycle time of {cycle_time} with {end_cycle - start_cycle} at fps={fps}."
-                        f"Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
+                        f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
 
                 start_wait = time.perf_counter()

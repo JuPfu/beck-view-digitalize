@@ -7,5 +7,5 @@ timing: [{
     "latency": float,
     "wait_time": float,
     "total_work": float,
-    "total": float
+    "total_calc": float,
 }] = []
