@@ -79,7 +79,7 @@ class Ft232hConnector:
         # ftdi.enable_drivezero_mode(self.EOF)
 
         # Set direction to input for OK1 and EOF and lED to output
-        self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.OK1)
+        self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
         ftdi.set_frequency(
             ftdi.frequency_max)  # Set the frequency at which sequence of GPIO samples are read and written.
