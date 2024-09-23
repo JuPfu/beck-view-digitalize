@@ -170,7 +170,6 @@ class Ft232hConnector:
 
                 end_cycle = time.perf_counter()
 
-                # save_time = time.perf_counter()
                 wait_time = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
 
                 if wait_time <= 0.0:
@@ -193,8 +192,6 @@ class Ft232hConnector:
                         f"Frame {self.count} exceeds cycle time of {cycle_time} with {end_cycle - start_cycle} at fps={fps}."
                         f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
-
-                start_wait = time.perf_counter()
 
             # Retrieve pins
             self.pins = self.gpio.read()[0]
