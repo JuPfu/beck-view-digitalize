@@ -1,4 +1,5 @@
 import logging
+import sys
 import time
 
 import usb
@@ -40,7 +41,7 @@ class Ft232hConnector:
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
-
+        self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
         self.MSB: int = 8
@@ -94,6 +95,15 @@ class Ft232hConnector:
 
         self.count = -1  # Initialize frame count
 
+    def _initialize_logging(self) -> None:
+        """
+        Configure logging for the application.
+        """
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+
     def _initialize_device(self) -> None:
         """
         Initialize the USB device based on Vendor and Product IDs.
@@ -105,7 +115,7 @@ class Ft232hConnector:
         self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
             raise ValueError("USB device not found.")
-        logging.info(f"USB device found: {self.dev}")
+        self.logger.warning(f"USB device found: {self.dev}")
 
     def signal_input(self) -> None:
         """
@@ -166,14 +176,14 @@ class Ft232hConnector:
                 latency_time = time.perf_counter() - latency_time
 
                 if latency_time > 0.01:
-                    print(f"Suspicious high latenncy {latency_time} for frame {self.count} !")
+                    self.logger.warning(f"Suspicious high latenncy {latency_time} for frame {self.count} !")
 
                 end_cycle = time.perf_counter()
 
                 wait_time = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
 
                 if wait_time <= 0.0:
-                    print(f"Negative wait time {wait_time} s for frame {self.count} !")
+                    self.logger.warning(f"Negative wait time {wait_time} s for frame {self.count} !")
 
                 timing.append({
                     "count": self.count,

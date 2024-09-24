@@ -92,7 +92,13 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        api: int = cv2.CAP_DSHOW if os.name == "nt" and self.settings else cv2.CAP_ANY
+        api: int = cv2.CAP_ANY
+        if os.name == "nt":
+            if self.settings:
+                api = cv2.CAP_DSHOW
+            else:
+                api = cv2.CAP_MSMF
+
         self.cap = cv2.VideoCapture(self.device_number,
                                     api,
                                     [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
