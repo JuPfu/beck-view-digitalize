@@ -3,7 +3,7 @@ import sys
 import time
 
 import usb
-from pyftdi.ftdi import Ftdi
+from pyftdi.ftdi import Ftdi, FtdiError
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
@@ -32,6 +32,11 @@ class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
+    # Constants
+    CYCLE_SLEEP = 0.001  # Sleep time in seconds
+    LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
+    INITIAL_COUNT = -1
+
     def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
@@ -57,6 +62,11 @@ class Ft232hConnector:
 
         self.gpio: GpioMpsseController = GpioMpsseController()
 
+        try:
+            ftdi.validate_mpsse()
+        except FtdiError as err:
+            self.logger.error(f"Ftdi MPSSE error: {err}")
+
         self.gpio.configure('ftdi:///1',
                             direction=self.LED | self.OK1 | self.EOF,
                             frequency=ftdi.frequency_max,
@@ -65,35 +75,19 @@ class Ft232hConnector:
         # high latency improves performance - may be due to more work getting done asynchronously
         ftdi.set_latency_timer(128)
 
-        # temporarily print the (TX, RX) tuple of hardware FIFO sizes
-        # print(f"{ftdi.fifo_sizes=}")
-        #
-        # # temporarily print mpsse support
-        # print(f"{ftdi.is_mpsse=}")
-        # print(f"{ftdi.mpsse_bit_delay=}")  # Minimum delay between execution of two MPSSE SET_BITS commands in seconds
-        # # temporarily print latency timer
-        # print(f"{ftdi.get_latency_timer()=}")
-        # # temporarily print available pins
-        # print(f"{self.gpio.all_pins=:016b}")
-        #
-        # print(f"{ftdi.has_drivezero=}")
-        # ftdi.enable_drivezero_mode(self.EOF)
+        # Set the frequency at which sequence of GPIO samples are read and written.
+        ftdi.set_frequency(ftdi.frequency_max)
 
         # Set direction to input for OK1 and EOF and lED to output
         self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
-        ftdi.set_frequency(
-            ftdi.frequency_max)  # Set the frequency at which sequence of GPIO samples are read and written.
-
         # initialize pins with current values
         self.pins = self.gpio.read()[0]
-        # temporarily print available start value of pins
-        print(f"<<<{self.pins=:016b}")
 
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-        self.count = -1  # Initialize frame count
+        self.count = self.INITIAL_COUNT  # Initialize frame count
 
     def _initialize_logging(self) -> None:
         """
@@ -129,7 +123,7 @@ class Ft232hConnector:
         # trigger_cycle: float = start_time
 
         while (self.pins & self.EOF) != self.EOF and (self.count < self.__max_count):
-            # if time.perf_counter() > trigger_cycle: #  and (self.pins & self.OK1) != self.OK1:
+            # if time.perf_counter() > trigger_cycle:  # and (self.pins & self.OK1) != self.OK1:
             #     end_wait = time.perf_counter()
             #     trigger_cycle = start_time + (self.count + 2) * cycle_time
             #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
@@ -144,8 +138,8 @@ class Ft232hConnector:
                 self.count += 1
 
                 fps: float = (self.count + 1) / elapsed_time
-                cycle_time = 1.0 / fps
-                # cycle_time = 1.0 / 10.0
+                # cycle_time = 1.0 / fps
+                cycle_time = 1.0 / 5.0
 
                 # turn on led to show processing of frame has started - reset OK1
                 self.gpio.write(0x0000)
@@ -161,13 +155,12 @@ class Ft232hConnector:
                 # reset OK1 - might be redundant - remove after thorough testing
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
                 self.gpio.write(0x0000)
-                self.pins = self.gpio.read()[0]
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
                 self.pins = self.gpio.read()[0]
 
                 while self.pins & self.OK1:
-                    time.sleep(0.001)
+                    time.sleep(self.CYCLE_SLEEP)
                     self.pins = self.gpio.read()[0]
                     print(f"Latency LOOP OK1 expected to be 0 {self.pins & self.OK1=:01b}")
 
@@ -175,8 +168,8 @@ class Ft232hConnector:
                 self.gpio.write(self.LED)
                 latency_time = time.perf_counter() - latency_time
 
-                if latency_time > 0.01:
-                    self.logger.warning(f"Suspicious high latenncy {latency_time} for frame {self.count} !")
+                if latency_time > self.LATENCY_THRESHOLD:
+                    self.logger.warning(f"Suspicious high latency {latency_time} for frame {self.count} !")
 
                 end_cycle = time.perf_counter()
 
