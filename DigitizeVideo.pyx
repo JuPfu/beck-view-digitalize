@@ -1,3 +1,4 @@
+import cython
 import logging
 import multiprocessing
 import os
@@ -37,11 +38,11 @@ class DigitizeVideo:
             signal_subject: Subject emitting photo cell signals.
         """
         # Initialize instance attributes
-        self.device_number: int = args.device  # device number of camera
+        self.device_number: cython.int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
-        self.monitoring: bool = args.monitor  # Display monitoring window
-        self.chunk_size: int = args.chunk_size  # Quantity of frames (images) passed to a process
-        self.settings: bool = args.settings  # Display direct show settings menu
+        self.monitoring: cython.bool = args.monitor  # Display monitoring window
+        self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
+        self.settings: cython.bool = args.settings  # Display direct show settings menu
 
         self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
@@ -56,9 +57,9 @@ class DigitizeVideo:
         self.initialize_process_pool()
 
         # Retrieve video frame properties
-        self.img_width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
-        self.img_height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
-        self.img_bytes: int = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
+        self.img_width: cython.int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
+        self.img_height: cython.int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
+        self.img_bytes: cython.int = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
 
         # Pre-allocate image data buffer and initialize frame descriptions list
         self.image_data = np.zeros(self.chunk_size * self.img_bytes, dtype=np.uint8)
@@ -71,12 +72,12 @@ class DigitizeVideo:
         self.create_monitoring_window()
 
         # Initialize counters and timing
-        self.processed_frames: int = 0
-        self.start_time: float = time.perf_counter()
-        self.new_tick: float = self.start_time
+        self.processed_frames: cython.int = 0
+        self.start_time: cython.double = time.perf_counter()
+        self.new_tick: cython.double = self.start_time
 
-        self.time_read: list[(int, float)] = []
-        self.time_roundtrip: list[(int, float)] = []
+        self.time_read: cython.list[(cython.int, cython.double)] = []
+        self.time_roundtrip: cython.list[(cython.int, cython.double)] = []
 
     def initialize_logging(self) -> None:
         """
@@ -92,7 +93,7 @@ class DigitizeVideo:
         """
         Initialize the camera for video capturing based on the device number.
         """
-        api: int = cv2.CAP_ANY
+        api: cython.int = cv2.CAP_ANY
         if os.name == "nt":
             if self.settings:
                 api = cv2.CAP_DSHOW
@@ -278,7 +279,7 @@ class DigitizeVideo:
         frame_data, frame_count = state
 
         # Calculate the index for this frame in the pre-allocated image_data array
-        start_index: int = (frame_count % self.chunk_size) * self.img_bytes
+        start_index: cython.int = (frame_count % self.chunk_size) * self.img_bytes
 
         # Use NumPy vectorized operations to flatten image data and insert it into the buffer
         self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()
@@ -345,8 +346,8 @@ class DigitizeVideo:
         self.pool.join()
 
         # Calculate elapsed time and log statistics
-        elapsed_time: float = time.perf_counter() - self.start_time
-        average_fps: float = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
+        elapsed_time: cython.double = time.perf_counter() - self.start_time
+        average_fps: cython.double = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("------- End of Film ---------")
         self.logger.info(f"Total processed frames: {self.processed_frames}")

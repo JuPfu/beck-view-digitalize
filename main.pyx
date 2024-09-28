@@ -1,3 +1,4 @@
+import cython
 import signal
 from argparse import Namespace
 from multiprocessing import freeze_support

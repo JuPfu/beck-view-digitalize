@@ -1,3 +1,4 @@
+import cython
 import logging
 import sys
 import time
@@ -37,7 +38,7 @@ class Ft232hConnector:
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: int) -> None:
+    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -49,16 +50,16 @@ class Ft232hConnector:
         self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
-        self.MSB: int = 8
+        self.MSB: cython.int = 8
         # Set up the LED to indicate frame processing
         # switch LED direction to output and set initial led value
-        self.LED: int = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
+        self.LED: cython.int = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
         # Set up opto-coupler OK1 to trigger frame processing
         # switch to output and set initial trigger value to false
-        self.OK1: int = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
+        self.OK1: cython.int = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         # switch to output and set initial eof value
-        self.EOF: int = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
+        self.EOF: cython.int = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
         self.gpio: GpioMpsseController = GpioMpsseController()
 
@@ -82,12 +83,13 @@ class Ft232hConnector:
         self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
         # initialize pins with current values
-        self.pins = self.gpio.read()[0]
+        self.pins: cython.int = self.gpio.read()[0]
+        print(f"init {self.pins=}")
 
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-        self.count = self.INITIAL_COUNT  # Initialize frame count
+        self.count: cython.int = self.INITIAL_COUNT  # Initialize frame count
 
     def _initialize_logging(self) -> None:
         """
@@ -118,26 +120,26 @@ class Ft232hConnector:
         :returns
             None
         """
-        cycle_time: float = 1.0 / 5.0  # 5 frames per second
-        start_time: float = time.perf_counter()
-        # trigger_cycle: float = start_time
+        cycle_time: cython.double = 1.0 / 5.0  # 5 frames per second
+        start_time: cython.double = time.perf_counter()
+        trigger_cycle: cython.double = start_time
 
         while (self.pins & self.EOF) != self.EOF and (self.count < self.__max_count):
-            # if time.perf_counter() > trigger_cycle:  # and (self.pins & self.OK1) != self.OK1:
-            #     end_wait = time.perf_counter()
-            #     trigger_cycle = start_time + (self.count + 2) * cycle_time
-            #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
-            #     self.gpio.write(self.OK1)
-            #     self.pins = self.gpio.read()[0]
-            #     self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+            if time.perf_counter() > trigger_cycle:  # and (self.pins & self.OK1) != self.OK1:
+                end_wait = time.perf_counter()
+                trigger_cycle = start_time + (self.count + 2) * cycle_time
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+                self.gpio.write(self.OK1)
+                self.pins = self.gpio.read()[0]
+                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
             if (self.pins & self.OK1) == self.OK1:
-                start_cycle: float = time.perf_counter()
-                elapsed_time = start_cycle - start_time
+                start_cycle: cython.double = time.perf_counter()
+                elapsed_time: cython.double = start_cycle - start_time
 
                 self.count += 1
 
-                fps: float = (self.count + 1) / elapsed_time
+                fps: cython.float = (self.count + 1) / elapsed_time
                 # cycle_time = 1.0 / fps
                 cycle_time = 1.0 / 5.0
 
@@ -145,12 +147,12 @@ class Ft232hConnector:
                 self.gpio.write(0x0000)
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
-                work_time_start: float = time.perf_counter()
+                work_time_start: cython.double = time.perf_counter()
                 self.signal_subject.on_next((self.count, start_cycle))
-                work_time = time.perf_counter() - work_time_start
+                work_time: cython.double = time.perf_counter() - work_time_start
 
                 # latency
-                latency_time: float = time.perf_counter()
+                latency_time: cython.double  = time.perf_counter()
 
                 # reset OK1 - might be redundant - remove after thorough testing
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
@@ -166,14 +168,14 @@ class Ft232hConnector:
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
-                latency_time = time.perf_counter() - latency_time
+                latency_time:  cython.double = time.perf_counter() - latency_time
 
                 if latency_time > self.LATENCY_THRESHOLD:
                     self.logger.warning(f"Suspicious high latency {latency_time} for frame {self.count} !")
 
-                end_cycle = time.perf_counter()
+                end_cycle: cython.double  = time.perf_counter()
 
-                wait_time = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
+                wait_time: cython.double = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
 
                 if wait_time <= 0.0:
                     self.logger.warning(f"Negative wait time {wait_time} s for frame {self.count} !")

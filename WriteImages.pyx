@@ -1,3 +1,4 @@
+import cython
 import logging
 import sys
 from multiprocessing import shared_memory
@@ -15,11 +16,11 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
-def write_images(buffer_name: str,
-                 img_desc: list[ImgDescType],
-                 img_width: int,
-                 img_height: int,
-                 output_path: Path) -> list[ImgDescType]:
+def write_images(buffer_name: cython.str,
+                 img_desc: cython.list[ImgDescType],
+                 img_width: cython.int,
+                 img_height: cython.int,
+                 output_path: Path) -> cython.list[ImgDescType]:
     """
     Write batch of images to persistent storage from shared memory.
 
@@ -42,12 +43,12 @@ def write_images(buffer_name: str,
 
     try:
         # Calculate total size of the image data
-        total_size = len(img_desc) * img_height * img_width * 3
+        total_size: cython.int = len(img_desc) * img_height * img_width * 3
 
         # Create a NumPy array view of the shared memory buffer
         data: npt.NDArray[np.uint8] = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
 
-        end: int = 0
+        end: cython.int = 0
 
         # Iterate through image descriptions and write each image to persistent storage
         for frame_bytes, frame_count in img_desc:
