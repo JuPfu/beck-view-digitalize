@@ -1,3 +1,5 @@
+# cython: language_level=3
+# cython.infer_types(True)
 import cython
 import logging
 import sys

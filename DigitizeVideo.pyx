@@ -1,3 +1,5 @@
+# cython: language_level=3
+# cython.infer_types(True)
 import cython
 import logging
 import multiprocessing
@@ -21,7 +23,6 @@ from Timing import timing
 from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType, RGBImageArray
 from WriteImages import write_images
 
-
 class DigitizeVideo:
     """
     Class for digitizing analog super 8 film frames.
@@ -40,9 +41,9 @@ class DigitizeVideo:
         # Initialize instance attributes
         self.device_number: cython.int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
-        self.monitoring: cython.bool = args.monitor  # Display monitoring window
+        self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
-        self.settings: cython.bool = args.settings  # Display direct show settings menu
+        self.settings: cython.bint = args.settings  # Display direct show settings menu
 
         self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 

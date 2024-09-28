@@ -1,3 +1,5 @@
+# cython: language_level=3
+# cython.infer_types(True)
 import signal
 from types import FrameType
 

@@ -1,3 +1,5 @@
+# cython: language_level=3
+# cython.infer_types(True)
 import cython
 import logging
 import sys
@@ -34,9 +36,9 @@ class Ft232hConnector:
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
     # Constants
-    CYCLE_SLEEP = 0.001  # Sleep time in seconds
-    LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
-    INITIAL_COUNT = -1
+    CYCLE_SLEEP: cython.double = 0.001  # Sleep time in seconds
+    LATENCY_THRESHOLD: cython.double = 0.01  # Suspicious latency threshold in seconds
+    INITIAL_COUNT: cython.int = -1
 
     def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int) -> None:
         """
@@ -50,16 +52,16 @@ class Ft232hConnector:
         self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
-        self.MSB: cython.int = 8
+        self.MSB: cython.uint = 8
         # Set up the LED to indicate frame processing
         # switch LED direction to output and set initial led value
-        self.LED: cython.int = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
+        self.LED: cython.uint = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
         # Set up opto-coupler OK1 to trigger frame processing
         # switch to output and set initial trigger value to false
-        self.OK1: cython.int = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
+        self.OK1: cython.uint = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
         # switch to output and set initial eof value
-        self.EOF: cython.int = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
+        self.EOF: cython.uint = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
         self.gpio: GpioMpsseController = GpioMpsseController()
 
@@ -125,7 +127,7 @@ class Ft232hConnector:
         trigger_cycle: cython.double = start_time
 
         while (self.pins & self.EOF) != self.EOF and (self.count < self.__max_count):
-            if time.perf_counter() > trigger_cycle:  # and (self.pins & self.OK1) != self.OK1:
+            if time.perf_counter() > trigger_cycle:
                 end_wait = time.perf_counter()
                 trigger_cycle = start_time + (self.count + 2) * cycle_time
                 self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
@@ -139,9 +141,9 @@ class Ft232hConnector:
 
                 self.count += 1
 
-                fps: cython.float = (self.count + 1) / elapsed_time
+                fps: cython.double = (self.count + 1) / elapsed_time
                 # cycle_time = 1.0 / fps
-                cycle_time = 1.0 / 5.0
+                cycle_time = 1.0 / 10.0
 
                 # turn on led to show processing of frame has started - reset OK1
                 self.gpio.write(0x0000)
@@ -168,12 +170,12 @@ class Ft232hConnector:
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
-                latency_time:  cython.double = time.perf_counter() - latency_time
+                latency_time: cython.double = time.perf_counter() - latency_time
 
                 if latency_time > self.LATENCY_THRESHOLD:
                     self.logger.warning(f"Suspicious high latency {latency_time} for frame {self.count} !")
 
-                end_cycle: cython.double  = time.perf_counter()
+                end_cycle: cython.double = time.perf_counter()
 
                 wait_time: cython.double = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
 

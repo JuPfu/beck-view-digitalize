@@ -1,3 +1,5 @@
+# cython: language_level=3
+# cython.infer_types(True)
 import cython
 from multiprocessing.pool import AsyncResult
 from multiprocessing.shared_memory import SharedMemory
