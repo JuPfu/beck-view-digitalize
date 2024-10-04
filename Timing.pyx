@@ -1,11 +1,12 @@
+# cython: language_level=3
+# cython.infer_types(True)
+import cython
 timing: [{
-    "count": int,
-    "cycle": float,
-    "intro": float,
-    "work": float,
-    "read": float,
-    "latency": float,
-    "wait_time": float,
-    "total_work": float,
-    "total_calc": float,
+    "count": cython.int,
+    "cycle": cython.double,
+    "work": cython.double,
+    "read": cython.double,
+    "latency": cython.double,
+    "wait_time": cython.double,
+    "total_work": cython.double
 }] = []

@@ -64,7 +64,7 @@ def write_images(buffer_name: cython.str,
             image_data = data[start:end].reshape((img_height, img_width, 3))
 
             # Write the image data to persistent storage
-            success = cv2.imwrite(str(filename), image_data)
+            success: cython.bint = cv2.imwrite(str(filename), image_data)
 
             if not success:
                 logger.error(f"Failed to write image: {filename}")

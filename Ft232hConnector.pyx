@@ -73,7 +73,7 @@ class Ft232hConnector:
         self.gpio.configure('ftdi:///1',
                             direction=self.LED | self.OK1 | self.EOF,
                             frequency=ftdi.frequency_max,
-                            initial=self.LED)
+                            initial=self.LED|self.OK1|self.EOF)
 
         # high latency improves performance - may be due to more work getting done asynchronously
         ftdi.set_latency_timer(128)
@@ -85,13 +85,14 @@ class Ft232hConnector:
         self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
         # initialize pins with current values
-        self.pins: cython.int = self.gpio.read()[0]
-        print(f"init {self.pins=}")
+        self.pins: cython.uint = self.gpio.read()[0]
+        print(f"<<<init {self.pins>>8=:08b}")
 
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
         self.count: cython.int = self.INITIAL_COUNT  # Initialize frame count
+
 
     def _initialize_logging(self) -> None:
         """
@@ -124,26 +125,35 @@ class Ft232hConnector:
         """
         cycle_time: cython.double = 1.0 / 5.0  # 5 frames per second
         start_time: cython.double = time.perf_counter()
-        trigger_cycle: cython.double = start_time
+        # trigger_cycle: cython.double = start_time
 
-        while (self.pins & self.EOF) != self.EOF and (self.count < self.__max_count):
-            if time.perf_counter() > trigger_cycle:
-                end_wait = time.perf_counter()
-                trigger_cycle = start_time + (self.count + 2) * cycle_time
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
-                self.gpio.write(self.OK1)
-                self.pins = self.gpio.read()[0]
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
-            if (self.pins & self.OK1) == self.OK1:
-                start_cycle: cython.double = time.perf_counter()
+        self.pins = self.gpio.read()[0]
+        print(f"===while {self.pins>>8=:08b}")
+        start_cycle: cython.double = start_time
+
+        while (self.pins & self.EOF) == self.EOF and (self.count < self.__max_count):
+            # if time.perf_counter() > trigger_cycle:
+            #    end_wait = time.perf_counter()
+            #    trigger_cycle = start_time + (self.count + 2) * cycle_time
+            #    self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+            #    self.gpio.write(self.LED)
+            #    self.pins = self.gpio.read()[0]
+            #    print(f"time_perf {self.pins>>8=:08b}")
+            #    self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+
+            if (self.pins & self.OK1) != self.OK1:
+                stop_cycle: cython.double = time.perf_counter()
+                delta: cython.double = stop_cycle - start_cycle
+                start_cycle: cython.double = stop_cycle
+
                 elapsed_time: cython.double = start_cycle - start_time
 
                 self.count += 1
 
-                fps: cython.double = (self.count + 1) / elapsed_time
-                # cycle_time = 1.0 / fps
-                cycle_time = 1.0 / 10.0
+                fps: cython.double = 1.0 / delta # (self.count + 1) / elapsed_time
+                cycle_time = 1.0 / fps
+                # cycle_time = 1.0 / 10.0
 
                 # turn on led to show processing of frame has started - reset OK1
                 self.gpio.write(0x0000)
@@ -157,13 +167,13 @@ class Ft232hConnector:
                 latency_time: cython.double  = time.perf_counter()
 
                 # reset OK1 - might be redundant - remove after thorough testing
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
-                self.gpio.write(0x0000)
-                self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+                # self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED | self.OK1)
+                # self.gpio.write(self.OK1)
+                # self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
 
                 self.pins = self.gpio.read()[0]
 
-                while self.pins & self.OK1:
+                while (self.pins & self.OK1) != self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     self.pins = self.gpio.read()[0]
                     print(f"Latency LOOP OK1 expected to be 0 {self.pins & self.OK1=:01b}")
@@ -177,21 +187,19 @@ class Ft232hConnector:
 
                 end_cycle: cython.double = time.perf_counter()
 
-                wait_time: cython.double = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
-
+                # wait_time: cython.double = cycle_time - ((work_time_start - start_cycle) + work_time + latency_time)
+                wait_time: cython.double =  cycle_time - (end_cycle - start_cycle)
                 if wait_time <= 0.0:
                     self.logger.warning(f"Negative wait time {wait_time} s for frame {self.count} !")
 
                 timing.append({
                     "count": self.count,
                     "cycle": end_cycle - start_cycle,
-                    "intro": work_time_start - start_cycle,
                     "work": work_time,
                     "read": -1.0,
                     "latency": latency_time,
                     "wait_time": wait_time,
-                    "total_work": (work_time_start - start_cycle) + work_time + latency_time,
-                    "total_calc": (work_time_start - start_cycle) + work_time + latency_time + wait_time
+                    "total_work": delta, # (work_time_start - start_cycle) + work_time + latency_time
                 })
 
                 if end_cycle - start_cycle >= cycle_time:
