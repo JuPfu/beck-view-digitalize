@@ -1,6 +1,16 @@
+# distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
+
 # cython: language_level=3
 # cython.infer_types(True)
+
 import cython
+from cython.view cimport array  # Import for memory views
+
+import numpy as np              # Import numpy for Python-level use
+cimport numpy as np             # Import numpy for uint8 type
+
+np.import_array()
+
 import logging
 import multiprocessing
 import os
@@ -22,6 +32,7 @@ from SignalHandler import signal_handler
 from Timing import timing
 from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType, RGBImageArray
 from WriteImages import write_images
+
 
 class DigitizeVideo:
     """
@@ -277,6 +288,8 @@ class DigitizeVideo:
         Returns:
             None
         """
+
+
         frame_data, frame_count = state
 
         # Calculate the index for this frame in the pre-allocated image_data array
@@ -307,7 +320,9 @@ class DigitizeVideo:
         """
         # Calculate total size of shared memory for the current chunk
         shm: SharedMemory = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
-        shm.buf[:] = self.image_data.copy()
+
+        # Use memory view to copy data into shared memory
+        shm.buf[:] = self.image_data.view().reshape(-1)
 
         def process_error_callback(error):
             self.logger.error(f"Error in child process: {error}")
