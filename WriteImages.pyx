@@ -1,5 +1,5 @@
 # cython: language_level=3
-# cython.infer_types(True)
+# cython: boundscheck=False, wraparound=False, initializedcheck=False, infer_types=True
 import cython
 import logging
 import sys
@@ -8,7 +8,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import numpy.typing as npt
+# Use memory views for better performance than NumPy arrays
+cimport numpy as np
 
 from TypeDefinitions import ImgDescType
 
@@ -36,7 +37,10 @@ def write_images(buffer_name: cython.str,
     Returns:
         list[ImgDescType]: The image descriptions array.
     """
-    # Initialize shared memory and handle potential exceptions
+
+    cdef int total_size, start, end, frame_bytes, frame_count, success
+
+    # Initialize shared memory
     try:
         shm = shared_memory.SharedMemory(name=buffer_name, create=False)
     except Exception as e:
@@ -45,12 +49,12 @@ def write_images(buffer_name: cython.str,
 
     try:
         # Calculate total size of the image data
-        total_size: cython.int = len(img_desc) * img_height * img_width * 3
+        total_size = len(img_desc) * img_height * img_width * 3
 
         # Create a NumPy array view of the shared memory buffer
         data: npt.NDArray[np.uint8] = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
 
-        end: cython.int = 0
+        end = 0
 
         # Iterate through image descriptions and write each image to persistent storage
         for frame_bytes, frame_count in img_desc:
@@ -64,7 +68,7 @@ def write_images(buffer_name: cython.str,
             image_data = data[start:end].reshape((img_height, img_width, 3))
 
             # Write the image data to persistent storage
-            success: cython.bint = cv2.imwrite(str(filename), image_data)
+            success = cv2.imwrite(str(filename), image_data)
 
             if not success:
                 logger.error(f"Failed to write image: {filename}")
@@ -73,7 +77,7 @@ def write_images(buffer_name: cython.str,
         logger.error(f"Error in child process: {e}")
 
     finally:
-        # Manually manage the shared  memory lifecycle
-        shm.unlink()
+        if shm is not None:
+            shm.unlink()
 
     return img_desc
