@@ -173,7 +173,7 @@ class Ft232hConnector:
                 while (pins & self.OK1) != self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read()[0]
-                    print(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
+                    logging.warning(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
