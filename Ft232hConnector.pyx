@@ -173,7 +173,7 @@ class Ft232hConnector:
                 while (pins & self.OK1) != self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read()[0]
-                    logging.warning(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
+                    self.logger.warning(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 # turn off led to show processing of frame has been delegated to another thread or has been finished
                 self.gpio.write(self.LED)
@@ -197,7 +197,7 @@ class Ft232hConnector:
                 })
 
                 if wait_time <= 0.0:
-                    logging.warning(
+                    self.logger.warning(
                         f"Negative wait time {wait_time:.5f} s for frame {count} at fps={fps}."
                         f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
