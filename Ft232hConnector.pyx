@@ -185,8 +185,6 @@ class Ft232hConnector:
                 end_cycle = time.perf_counter()
 
                 wait_time =  cycle_time - (end_cycle - start_cycle)
-                if wait_time <= 0.0:
-                    self.logger.warning(f"Negative wait time {wait_time} s for frame {count} !")
 
                 timing.append({
                     "count": count,
@@ -198,9 +196,9 @@ class Ft232hConnector:
                     "total_work": delta,
                 })
 
-                if end_cycle - start_cycle >= cycle_time:
+                if wait_time <= 0.0:
                     logging.warning(
-                        f"Frame {count} exceeds cycle time of {cycle_time} with {end_cycle - start_cycle} at fps={fps}."
+                        f"Negative wait time {wait_time:.5f} s for frame {count} at fps={fps}."
                         f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
 
