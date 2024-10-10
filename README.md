@@ -1,12 +1,52 @@
 # Beck-View Digitalize
 
-Digitise Super 8 films with Python, OpenCV, ReactiveX, PyFtdi and the Adafruit FT232H Breakout Board.
+Digitize Super 8 films with **Cython**, OpenCV, ReactiveX, PyFtdi, and the Adafruit FT232H Breakout Board.
 
 ## Project Summary
 
 This application is designed to digitalize Super 8 films. A modified Super 8 projector is equipped with a USB camera mounted in front of its lens. When a frame is positioned and at rest, an opto-coupler sends a signal to an Adafruit FT232H Microcontroller, which triggers the USB camera to capture the frame. The captured image is then processed using OpenCV.
 
+To improve the overall performance, **Cython** has been integrated into the project. This migration from Python to Cython allows for faster execution of the core processing routines, making the image capture and processing pipeline more efficient.
+
 The captured images can be reassembled into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
+
+## Using Cython in This Project
+
+### Why Cython?
+
+Cython provides an easy way to significantly boost the performance of your Python code by converting it into C. It is particularly useful when working with computationally intensive tasks, such as image processing in this project.
+
+By integrating Cython into **Beck-View Digitalize**, the speed of processing frames has increased compared to the pure Python version.
+
+### Setting Up Cython
+
+1. **Install Cython:**
+
+   Ensure that Cython is installed in your environment:
+   ```bash
+   pip install cython
+   ```
+
+2. **Compiling the Cython Code:**
+
+   In this project, certain modules are implemented in Cython to enhance performance. To compile the Cython `.pyx` files into C and then build the extension, follow these steps:
+
+   ```bash
+   python setup.py build_ext --inplace
+   ```
+
+   The `setup.py` file provided in the repository is already configured for compiling the Cython files.
+
+
+3. **Using Cython-Compiled Code:**
+
+   Once compiled, the Cython modules are used just like normal Python modules, but with significantly improved performance. The rest of the project usage remains the same.
+
+### Further Reading on Cython
+
+- [Cython Documentation](https://cython.readthedocs.io/en/latest/) – Learn more about how Cython works and how to use it.
+- [Cython Tutorials](https://cython.readthedocs.io/en/latest/src/tutorial/index.html) – Step-by-step guides to help you get started.
+- [Optimizing Python Code with Cython](https://cython.readthedocs.io/en/latest/src/tutorial/profiling_tutorial.html) – Explore ways to profile and optimize Python code with Cython.
 
 ![FT232H](./assets/img/projector_1.jpg)
 *Image: By Jürgen Pfundt & Gerald Beck - Own work - Projector with mounted camera
