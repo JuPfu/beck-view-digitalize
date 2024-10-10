@@ -169,7 +169,7 @@ take a picture. A press on the right button (end of film) terminates the program
 #### Using a Projector Simulator for Triggering Photographs
 
 A more complex way to simulate a projector is explained in [Beck-View-Projector](https://github.com/JuPfu/beck-view-projector).
-A Raspberry Pi Pico, a SPI Oled display and a potentiometer are used to generate periodic signals which are send to the computer the Ft232h Controller is connected to. On each event received the beck-view-digitalize program requests a pictures from a
+A Raspberry Pi Pico, a SPI Oled display and a potentiometer are used to generate periodic signals which are send to the computer the FT232H controller is connected to. On each event received the beck-view-digitalize program requests a pictures from a
 USB camera attached to the computer. By rotating the potentiometers knob the frequency of the periodic signals emitted can be regulated.
 
 ![Start of Simulation](./assets/img/projector_start.jpg)
