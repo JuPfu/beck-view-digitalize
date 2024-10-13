@@ -385,11 +385,11 @@ class DigitizeVideo:
 
         l = len(timing)
         for i in range(min(50, l)):
-            self.logger.info(f"first elements of {timing[i]=}")
+            self.logger.info(f"longest cycle time for {i} {timing[i]}")
 
         timing.reverse()
         for i in range(min(50, l)):
-            self.logger.info(f"last elements of {timing[i]=}")
+            self.logger.info(f"shortest cycle time for {i} {timing[i]}")
 
         self.cleanup()
 
