@@ -36,13 +36,12 @@ Logging:
     Logging capabilities to help analyse potential problems.
 """
 
+# Signal handler is called on interrupt (ctrl-c) and terminate
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 def main():
     freeze_support()
-
-    # Signal handler is called on interrupt (ctrl-c) and terminate
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
 
     # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()

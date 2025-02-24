@@ -79,7 +79,7 @@ class Ft232hConnector:
                             initial=self.LED|self.OK1|self.EOF)
 
         # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(128)
+        ftdi.set_latency_timer(32)
 
         # Set the frequency at which sequence of GPIO samples are read and written.
         ftdi.set_frequency(ftdi.frequency_max)

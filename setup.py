@@ -8,7 +8,7 @@ extensions = [
         name='*',
         sources=['*.pyx'],
         include_dirs=[np.get_include()],  # Where to find 'numpy/arrayobject.h'
-        extra_compile_args=["-O3"],
+        extra_compile_args=["/O2"],
     )
 ]
 
