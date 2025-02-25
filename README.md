@@ -61,7 +61,7 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
 *Image: By Jürgen Pfundt & Gerald Beck - Own work - 'Beck View' of projector
 
 The circuit diagram:
-![FT232H](./assets/img/FT232-Board_Optocoupler.png)
+![FT232H](./assets/img/beck-view-layout.png)
 
 The FT232H board connects via USB-C to a computer. It transmits opto-coupler signals to the computer, where OpenCV controls the USB camera and processes images.
 
