@@ -10,6 +10,8 @@ To improve the overall performance, **Cython** has been integrated into the proj
 
 The captured images can be reassembled into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
 
+![beck-view](./assets/img/beck-view-overview.jpg)
+
 ## Using Cython in This Project
 
 ### Why Cython?
