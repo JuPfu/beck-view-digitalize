@@ -55,7 +55,7 @@ def main():
     try:
         print(f"List attached FT232H devices: {ftdi.list_devices()}")
     except Exception as e:
-        print(f"Error listing FT232H chip: {e}")
+        print(f"Error listing FT232H devices: {e}")
         sys.exit(1)
 
     try:
