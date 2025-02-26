@@ -2,6 +2,7 @@
 # cython.infer_types(True)
 import cython
 import signal
+import sys
 from argparse import Namespace
 from multiprocessing import freeze_support
 
@@ -51,7 +52,12 @@ def main():
 
     # list available ftdi devices
     # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
-    print(f"List attached FT232H devices: {ftdi.list_devices()}")
+    try:
+        print(f"List attached FT232H devices: {ftdi.list_devices()}")
+    except Exception as e:
+        print(f"Error listing FT232H chip: {e}")
+        sys.exit(1)
+
     try:
         # open a dedicated ftdi device contained in the list of ftdi devices
         # URL Scheme
@@ -59,7 +65,7 @@ def main():
         ftdi.open_mpsse_from_url("ftdi:///1")
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
-        exit(1)
+        sys.exit(1)
 
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
