@@ -55,9 +55,6 @@ class Ft232hConnector:
         cdef unsigned int MSB, LED, OK1, EOF
 
         self.MSB = 8
-        # Set up the LED to indicate frame processing
-        # switch LED direction to output and set initial led value
-        self.LED = ((1 << 1) << self.MSB)  # Pin 1 of MSB aka AC1
         # Set up opto-coupler OK1 to trigger frame processing
         # switch to output and set initial trigger value to false
         self.OK1 = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
@@ -74,18 +71,22 @@ class Ft232hConnector:
             sys.exit(1)
 
         self.gpio.configure('ftdi:///1',
-                            direction=self.LED | self.OK1 | self.EOF,
+                            direction=0x0,
                             frequency=ftdi.frequency_max,
-                            initial=self.LED|self.OK1|self.EOF)
+                            initial=self.OK1|self.EOF)
+
+        # set direction to output for EOF and OK1 and set their values to low (0)
+        self.gpio.set_direction(pins=self.EOF | self.OK1, direction=self.EOF | self.OK1)
+        self.gpio.write(0x0)
 
         # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(32)
+        ftdi.set_latency_timer(128)
 
         # Set the frequency at which sequence of GPIO samples are read and written.
         ftdi.set_frequency(ftdi.frequency_max)
 
-        # Set direction to input for OK1 and EOF and lED to output
-        self.gpio.set_direction(pins=self.EOF | self.OK1 | self.LED, direction=self.LED)
+        # Set direction to input for OK1 and EOF
+        self.gpio.set_direction(pins=self.EOF | self.OK1, direction=0x0)
 
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
@@ -144,8 +145,8 @@ class Ft232hConnector:
 
         cdef double wait_time = 0.0
 
-        while (pins & self.EOF) == self.EOF and (count < self.__max_count):
-            if (pins & self.OK1) != self.OK1:
+        while (pins & self.EOF) != self.EOF and (count < self.__max_count):
+            if (pins & self.OK1) == self.OK1:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
@@ -157,9 +158,6 @@ class Ft232hConnector:
                 fps = 1.0 / delta
                 cycle_time = 1.0 / fps
 
-                # turn on led to show processing of frame has started - reset OK1
-                self.gpio.write(0x0000)
-
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 work_time_start = time.perf_counter()
                 self.signal_subject.on_next((count, start_cycle))
@@ -170,13 +168,11 @@ class Ft232hConnector:
 
                 pins = self.gpio.read()[0]
 
-                while (pins & self.OK1) != self.OK1:
+                while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read()[0]
-                    self.logger.warning(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
+                    self.logger.warning(f"Latency LOOP OK1 expected to be 1 at frame {count} {pins & self.OK1=:01b}")
 
-                # turn off led to show processing of frame has been delegated to another thread or has been finished
-                self.gpio.write(self.LED)
                 latency_time = time.perf_counter() - latency_start
 
                 if latency_time > self.LATENCY_THRESHOLD:
