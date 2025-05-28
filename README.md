@@ -42,7 +42,24 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
 
 3. **Using Cython-Compiled Code:**
 
-   Once compiled, the Cython modules are used just like normal Python modules, but with significantly improved performance. The rest of the project usage remains the same.
+   Once compiled, the Cython modules are used just like normal Python modules, but with significantly improved performance.
+
+   This is how to start the compiled program
+   ```bash
+   python main.pyx --help
+   ```
+   This should display the available command line arguments for `beck-view-digitize`
+
+4. **Building a Standalone Executable**
+
+   Building an executable on Windows can be done by calling
+   ```bash
+   install.bat
+   ```
+   The Unix or MacOS side can use
+   ```bash unix
+   install.sh
+   ```
 
 ### Further Reading on Cython
 
