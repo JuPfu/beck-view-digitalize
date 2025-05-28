@@ -171,7 +171,7 @@ class Ft232hConnector:
                 while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read()[0]
-                    self.logger.warning(f"Latency LOOP OK1 expected to be 1 at frame {count} {pins & self.OK1=:01b}")
+                    self.logger.warning(f"Latency LOOP OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 latency_time = time.perf_counter() - latency_start
 
