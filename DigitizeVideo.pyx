@@ -384,11 +384,11 @@ class DigitizeVideo:
         timing.sort(key=lambda x: x["cycle"], reverse=True)
 
         l = len(timing)
-        for i in range(min(50, l)):
+        for i in range(min(25, l)):
             self.logger.info(f"longest cycle time for {i} {timing[i]}")
 
         timing.reverse()
-        for i in range(min(50, l)):
+        for i in range(min(25, l)):
             self.logger.info(f"shortest cycle time for {i} {timing[i]}")
 
         self.cleanup()
