@@ -52,6 +52,8 @@ class DigitizeVideo:
         # Initialize instance attributes
         self.device_number: cython.int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
+        self.width: cython.int = args.width_height.split()[0]
+        self.height: cython.int = args.width_height.split()[1]
         self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: cython.bint = args.settings  # Display direct show settings menu
@@ -119,8 +121,8 @@ class DigitizeVideo:
         time.sleep(1)  # Windows needs some time to initialize the camera
 
         # Set camera resolution to HDMI
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
         # warm up camera before setting properties
         _, _ = self.cap.read()

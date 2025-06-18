@@ -29,6 +29,15 @@ class CommandLineParser:
             default=pathlib.Path(".").resolve(),
             help='Output directory for digitized png frames - default is current directory.'
         )
+        self.parser.add_argument(
+            '-wh', '--width_height',
+            dest="width_height",
+            type=int,
+            nargs=2,
+            metavar=("width", "height"),
+            default=[1920, 1080],
+            help='Width and height of image frames - default is (1920, 1080)'
+        )
         # Add arguments for emergency brake
         self.parser.add_argument(
             '-m', '--max-count',
