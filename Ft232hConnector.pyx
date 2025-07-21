@@ -38,7 +38,7 @@ class Ft232hConnector:
     # Constants
     CYCLE_SLEEP = 0.001  # Sleep time in seconds
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
-    INITIAL_COUNT =  -1
+    INITIAL_COUNT = -1
 
     def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int) -> None:
         """
@@ -73,7 +73,7 @@ class Ft232hConnector:
         self.gpio.configure('ftdi:///1',
                             direction=0x0,
                             frequency=ftdi.frequency_max,
-                            initial=self.OK1|self.EOF)
+                            initial=self.OK1 | self.EOF)
 
         # set direction to output for EOF and OK1 and set their values to low (0)
         self.gpio.set_direction(pins=self.EOF | self.OK1, direction=self.EOF | self.OK1)
@@ -90,7 +90,6 @@ class Ft232hConnector:
 
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
-
 
     def _initialize_logging(self) -> None:
         """
@@ -121,22 +120,20 @@ class Ft232hConnector:
         :returns
             None
         """
-
         cdef int count = self.INITIAL_COUNT  # Initialize frame count
 
         cdef double cycle_time = 1.0 / 5.0  # 5 frames per second
         cdef double start_time = time.perf_counter()
-
         cdef unsigned int pins = self.gpio.read()[0]
         cdef double start_cycle = start_time
-        cdef double stop_cycle  = 0.0
+        cdef double stop_cycle = 0.0
         cdef double delta = 0.0
         cdef double elapsed_time = 0.0
 
-        cdef double fps  = 0.0
+        cdef double fps = 0.0
 
         cdef double work_time_start = 0.0
-        cdef double work_time  = 0.0
+        cdef double work_time = 0.0
 
         cdef double latency_start = 0.0
         cdef double latency_time = 0.0
@@ -180,7 +177,7 @@ class Ft232hConnector:
 
                 end_cycle = time.perf_counter()
 
-                wait_time =  cycle_time - (end_cycle - start_cycle)
+                wait_time = cycle_time - (end_cycle - start_cycle)
 
                 timing.append({
                     "count": count,
