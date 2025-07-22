@@ -7,9 +7,9 @@ import cython
 from cython.view cimport array  # Import for memory views
 
 import numpy as np              # Import numpy for Python-level use
-cimport numpy as np             # Import numpy for uint8 type
+cimport numpy as cnp             # Import numpy for uint8 type
 
-np.import_array()
+cnp.import_array()
 
 import logging
 import multiprocessing

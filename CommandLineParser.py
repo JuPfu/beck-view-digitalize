@@ -9,7 +9,7 @@ class CommandLineParser:
             description='Digitize analog Super V8 films.'
         )
         # Add argument for version
-        self.parser.add_argument('--version', action='version', version='1.0.0')
+        self.parser.add_argument('--version', action='version', version='1.0.1')
         # Add argument for device selection
         self.parser.add_argument(
             '-d', '--device',
