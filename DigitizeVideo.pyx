@@ -7,9 +7,9 @@ import cython
 from cython.view cimport array  # Import for memory views
 
 import numpy as np              # Import numpy for Python-level use
-cimport numpy as cnp             # Import numpy for uint8 type
+cimport numpy as np             # Import numpy for uint8 type
 
-cnp.import_array()
+np.import_array()
 
 import logging
 import multiprocessing
@@ -145,6 +145,7 @@ class DigitizeVideo:
         #    -5                    31.3ms
         #    -6                    15.6ms
         #    -7                     7.8ms
+        #    -8                     3.9ms
         #    ...
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
