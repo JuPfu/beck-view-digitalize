@@ -60,7 +60,7 @@ def write_images(shm_name: cython.str,
 
         def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
             try:
-                filename = output_path / f"frame{frame_count:04d}{suffix}.png"
+                filename = output_path / f"frame{frame_count:05d}{suffix}.png"
                 image_data = data[start:end].reshape((img_height, img_width, 3))
                 success = cv2.imwrite(str(filename), image_data)
                 if not success:
