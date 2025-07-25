@@ -1,13 +1,11 @@
-# distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
-
 # cython: language_level=3
 # cython.infer_types(True)
+# distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
+from typing import List
 
+cimport numpy as np  # Import numpy for uint8 type
 import cython
-from cython.view cimport array  # Import for memory views
-
-import numpy as np              # Import numpy for Python-level use
-cimport numpy as np             # Import numpy for uint8 type
+import numpy as np  # Import numpy for Python-level use
 
 np.import_array()
 
@@ -30,7 +28,7 @@ from reactivex.subject import Subject
 
 from SignalHandler import signal_handler
 from Timing import timing
-from TypeDefinitions import ImgDescType, StateType, ProcessType, SubjectDescType, RGBImageArray
+from TypeDefinitions import ImgDescType, FrameDescType, ProcessType, SubjectDescType, RGBImageArray
 from WriteImages import write_images
 
 
@@ -57,6 +55,8 @@ class DigitizeVideo:
         self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: cython.bint = args.settings  # Display direct show settings menu
+        self.bracketing: cython.bint = args.bracketing  # Use exposure bracketing
+        self.frame_multiplier: cython.int = 3 if self.bracketing else 1
 
         self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
@@ -90,7 +90,7 @@ class DigitizeVideo:
         self.start_time: cython.double = time.perf_counter()
         self.new_tick: cython.double = self.start_time
 
-        self.time_read: cython.list[(cython.int, cython.double)] = []
+        self.time_read: cython.list[(cython.int, cython.double, cython.p_char)] = []
         self.time_roundtrip: cython.list[(cython.int, cython.double)] = []
 
     def initialize_logging(self) -> None:
@@ -223,39 +223,46 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(process_count)
 
-    def take_picture(self, descriptor: SubjectDescType) -> StateType:
+    def take_picture(self, descriptor: SubjectDescType) -> List[FrameDescType]:
         """
-        Capture and retrieve an image frame from the camera.
-
-        Args:
-            descriptor: Tuple containing the frame count and signal time.
-
-        Returns:
-            Tuple containing the captured image data and frame count.
+        Capture frame(s) from the camera. If bracketing is enabled, capture three exposures:
+        - standard (-7), short (-8, suffix 's'), long (-6, suffix 'l').
+        Returns a list of tuples: List[(frame_image, count, suffix)].
         """
-
-        # How to get the latest frame from camera
-        # https://www.reddit.com/r/opencv/comments/p415cc/question_how_do_i_get_a_fresh_frame_taken_after/
-        # https://stackoverflow.com/questions/453665208/how-to-get-the-latest-frame-from-camera
-
+        cdef int count
+        cdef double signal_time
         count, signal_time = descriptor
 
-        if os.name == "nt" and self.settings:
-            self.cap.retrieve()  # discard frame
+        frames = []
 
-        success, frame = self.cap.read()
-        if success:
-            self.time_read.append((count, time.perf_counter() - signal_time))
+        if os.name == "nt" and self.settings:
+            self.cap.retrieve()  # discard stale frame
+
+        # Define exposure settings
+        exposures = [(-7, "n"), (-8, "s"), (-6, "l")] if self.bracketing else [(-7, "n")]
+        for exp_val, suffix in exposures:
+            if self.bracketing:
+                self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+                time.sleep(0.05)  # brief pause to let exposure apply
+
+            success, frame = self.cap.read()
+            ts = time.perf_counter() - signal_time
+            self.time_read.append((count, ts, suffix))
+
             if not self.monitoring and count % 100 == 0:
-                self.logger.info(f"Working on Frame {count} ...")
-            return frame, count
-        else:
-            self.logger.error(f"Read error at frame {count}")
-            # Return blank image in case of read error
-            return np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8), count
+                self.logger.info(f"Working on Frame {count} exposure {exp_val} ({suffix})")
+
+            if success:
+                frames.append((frame, count, suffix))
+            else:
+                self.logger.error(f"Read error at frame {count}, exposure {exp_val}")
+                blank = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
+                frames.append((blank, count, suffix))
+
+        return frames
 
     @staticmethod
-    def monitor_picture(state: StateType) -> None:
+    def monitor_picture(state: FrameDescType) -> None:
         """
         Display image in monitor window with added tag (image count) in the upper left corner.
 
@@ -276,7 +283,7 @@ class DigitizeVideo:
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(1)
 
-    def memory_write_picture(self, state: StateType) -> StateType:
+    def memory_write_picture(self, frames: List[FrameDescType]) -> List[FrameDescType]:
         """
         Write captured image data to a buffer in memory and keep track of processed frames.
 
@@ -286,46 +293,61 @@ class DigitizeVideo:
         the accumulated chunk of frames to shared memory when the chunk size is reached.
 
         Args:
-            state: Tuple containing the captured image data and frame count.
+            frames: List[FrameDescType] containing the list of captured image data, frame count and suffix.
 
         Returns:
             None
         """
 
+        for bracket_index, (frame_data, frame_count, suffix) in enumerate(frames):
+            # Calculate the index for this frame in the pre-allocated image_data array
+            start_index: cython.int = ((
+                                               frame_count * self.frame_multiplier + bracket_index) % self.chunk_size) * self.img_bytes
 
-        frame_data, frame_count = state
+            # Use NumPy vectorized operations to flatten image data and insert it into the buffer
+            self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()
 
-        # Calculate the index for this frame in the pre-allocated image_data array
-        start_index: cython.int = (frame_count % self.chunk_size) * self.img_bytes
+            self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
 
-        # Use NumPy vectorized operations to flatten image data and insert it into the buffer
-        self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()
+            # Create a frame description tuple and append it to the list
+            frame_item: ImgDescType = (self.img_bytes, self.processed_frames, suffix)
+            self.img_desc.append(frame_item)
 
-        # Create a frame description tuple and append it to the list
-        frame_item: ImgDescType = (self.img_bytes, self.processed_frames)
-        self.img_desc.append(frame_item)
+            # Check if the chunk size has been reached
+            if (self.processed_frames * self.frame_multiplier + bracket_index + 1) % self.chunk_size == 0:
+                self.write_to_shared_memory()
 
         # Increment the processed frame count
         self.processed_frames += 1
 
-        # Check if the chunk size has been reached
-        if self.processed_frames % self.chunk_size == 0:
-            self.write_to_shared_memory()
-
-        return state
+        return frames
 
     def write_to_shared_memory(self) -> None:
         """
-        Write a chunk of images to shared memory and start a separate process to emit images to persistent storage.
+        Write a full chunk of image data and associated descriptors to shared memory.
+        This function supports exposure bracketing: multiple exposures per logical frame
+        (e.g., normal, short, long) are h   andled transparently.
+
+        Each descriptor includes (img_bytes, frame_count, suffix), allowing the downstream
+        write_images function to name files accordingly (e.g., frame1234n.png, frame1234s.png, etc.).
 
         Returns:
             None
         """
-        # Calculate total size of shared memory for the current chunk
-        shm: SharedMemory = shared_memory.SharedMemory(create=True, size=self.chunk_size * self.img_bytes)
+
+        import uuid
+
+        # Create a unique name for the shared memory block
+        shm_name = f"img_chunk_{uuid.uuid4().hex}"
+
+        shm: SharedMemory = shared_memory.SharedMemory(name=shm_name, create=True,
+                                                       size=self.chunk_size * self.img_bytes)
 
         # Use memory view to copy data into shared memory
         shm.buf[:] = self.image_data.view().reshape(-1)
+
+        # Copy descriptors so they don’t mutate during the async operation
+        descriptors = list(self.img_desc)
 
         def process_error_callback(error):
             self.logger.error(f"Error in child process: {error}")
@@ -334,7 +356,7 @@ class DigitizeVideo:
         try:
             result = self.pool.apply_async(
                 write_images,
-                args=(shm.name, self.img_desc, self.img_width, self.img_height, self.output_path),
+                args=(shm.name, descriptors, self.img_width, self.img_height, self.output_path),
                 error_callback=process_error_callback
             )
 
@@ -361,17 +383,26 @@ class DigitizeVideo:
 
         # Close and join the pool to properly manage resources
         # Due to Windows pool closing and joining can not be shifted to __del__.
+        if len(self.img_desc) > 0:
+            self.write_to_shared_memory()
+
         self.pool.close()
-        self.pool.join()
+        try:
+            self.pool.join()
+        except Exception as e:
+            self.logger.error(f"Error while joining pool: {e}")
 
         # Calculate elapsed time and log statistics
         elapsed_time: cython.double = time.perf_counter() - self.start_time
         average_fps: cython.double = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
+        total_images = self.processed_frames * self.frame_multiplier
+
         self.logger.info("------- End of Film ---------")
-        self.logger.info(f"Total processed frames: {self.processed_frames}")
+        self.logger.info(f"Total logical frames: {self.processed_frames}")
+        self.logger.info(f"Total saved images (incl. exposures): {total_images}")
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
-        self.logger.info(f"Average FPS: {average_fps:.2f}\n")
+        self.logger.info(f"Average FPS: {average_fps:.2f}")
 
         for i in range(len(timing)):
             timing[i]["read"] = self.time_read[i][1]
@@ -445,9 +476,15 @@ class DigitizeVideo:
         self.delete_monitoring_window()
 
         # Dispose of subscriptions
-        self.monitorFrameDisposable.dispose()
-        self.writeFrameDisposable.dispose()
-        self.photoCellSignalDisposable.dispose()
+        for disposable_name in [
+            "monitorFrameDisposable",
+            "writeFrameDisposable",
+            "photoCellSignalDisposable"
+        ]:
+            try:
+                getattr(self, disposable_name).dispose()
+            except Exception as e:
+                self.logger.warning(f"Failed to dispose {disposable_name}: {e}")
 
 
 class SignalObserver(Observer):

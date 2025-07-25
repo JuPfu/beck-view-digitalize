@@ -74,6 +74,14 @@ class CommandLineParser:
             default=False,
             help='Display direct show settings menu'
         )
+        # Add arguments for exposure bracketing
+        self.parser.add_argument(
+            '-b', '--bracketing',
+            dest="bracketing",
+            action="store_true",
+            default=False,
+            help='Take multiple exposures with varying exposure time - default is one exposure time'
+        )
 
     def parse_args(self) -> argparse.Namespace:
         # Parse arguments and return the namespace
