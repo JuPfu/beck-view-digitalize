@@ -62,7 +62,7 @@ def write_images(shm_name: cython.str,
             try:
                 filename = output_path / f"frame{frame_count:05d}{suffix}.png"
                 image_data = data[start:end].reshape((img_height, img_width, 3))
-                success = cv2.imwrite(str(filename), image_data)
+                success = cv2.imwrite(str(filename), image_data, compression_level = [cv2.IMWRITE_PNG_COMPRESSION, 3])
                 if not success:
                     logger.error(f"Failed to write image: {filename}")
             except Exception as e:
