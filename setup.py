@@ -20,6 +20,6 @@ setup(
     license='MIT licence',
     author='juergen pfundt',
     author_email='juergen.pfundt@gmail.com',
-    description='cython digitize super v8 films',
+    description='cython digitize 16mm films',
     ext_modules = cb.cythonize(extensions)
 )
