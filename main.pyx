@@ -1,6 +1,5 @@
 # cython: language_level=3
 # cython.infer_types(True)
-import cython
 import signal
 import sys
 from argparse import Namespace

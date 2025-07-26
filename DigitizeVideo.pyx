@@ -262,17 +262,19 @@ class DigitizeVideo:
         return frames
 
     @staticmethod
-    def monitor_picture(state: FrameDescType) -> None:
+    def monitor_picture(frames: List[FrameDescType]) -> None:
         """
-        Display image in monitor window with added tag (image count) in the upper left corner.
+        Display one frame in monitor window with added tag (image count) in the upper left corner.
 
         Args:
-            state: Current image data and image count.
+            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'n', 'h' or 's'.
 
         Returns:
             None
         """
-        frame_data, frame_count = state
+
+        # use first image of the list of frames - it should be the "standard" exposure - for monitoring
+        frame_data, frame_count = frames[0]
         # The elp camera is mounted upside down - no flipping of image required.
         # Adjust to your needs, e.g. add vertical flip
         # monitor_frame = cv2.flip(frame_data.copy(), 0)
@@ -293,7 +295,7 @@ class DigitizeVideo:
         the accumulated chunk of frames to shared memory when the chunk size is reached.
 
         Args:
-            frames: List[FrameDescType] containing the list of captured image data, frame count and suffix.
+            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'n', 'h' or 's'.
 
         Returns:
             None
@@ -301,8 +303,7 @@ class DigitizeVideo:
 
         for bracket_index, (frame_data, frame_count, suffix) in enumerate(frames):
             # Calculate the index for this frame in the pre-allocated image_data array
-            start_index: cython.int = ((
-                                               frame_count * self.frame_multiplier + bracket_index) % self.chunk_size) * self.img_bytes
+            start_index: cython.int = ((frame_count * self.frame_multiplier + bracket_index) % self.chunk_size) * self.img_bytes
 
             # Use NumPy vectorized operations to flatten image data and insert it into the buffer
             self.image_data[start_index:start_index + self.img_bytes] = frame_data.ravel()

@@ -80,7 +80,7 @@ class CommandLineParser:
             dest="bracketing",
             action="store_true",
             default=False,
-            help='Take multiple exposures with varying exposure time - default is one exposure time'
+            help='Take multiple exposures of one frame with varying exposure time - default is no bracketing, which means just one exposure per frame'
         )
 
     def parse_args(self) -> argparse.Namespace:
