@@ -273,15 +273,22 @@ class DigitizeVideo:
             None
         """
 
+        if not frames:
+            return
+
         # use first image of the list of frames - it should be the "standard" exposure - for monitoring
-        frame_data, frame_count = frames[0]
+        frame_data, frame_count, suffix = frames[0]
         # The elp camera is mounted upside down - no flipping of image required.
         # Adjust to your needs, e.g. add vertical flip
         # monitor_frame = cv2.flip(frame_data.copy(), 0)
         monitor_frame: RGBImageArray = frame_data.copy()
         # Add image count tag to the upper left corner of the image
-        cv2.putText(monitor_frame, text=f"Frame {frame_count}", org=(15, 35), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                    fontScale=1, color=(0, 255, 0), thickness=2)
+        cv2.putText(monitor_frame, text=f"Frame {frame_count:05d} [{suffix}]",
+                    org=(15, 35),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9,
+                    color=(0, 255, 0),
+                    thickness=2)
         cv2.imshow('Monitor', monitor_frame)
         cv2.waitKey(1)
 
