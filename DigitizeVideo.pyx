@@ -239,7 +239,7 @@ class DigitizeVideo:
             self.cap.retrieve()  # discard stale frame
 
         # Define exposure settings
-        exposures = [(-7, "n"), (-8, "s"), (-6, "l")] if self.bracketing else [(-7, "n")]
+        exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
         for exp_val, suffix in exposures:
             if self.bracketing:
                 self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
@@ -267,7 +267,7 @@ class DigitizeVideo:
         Display one frame in monitor window with added tag (image count) in the upper left corner.
 
         Args:
-            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'n', 'h' or 's'.
+            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'a', 'b' or 'c'.
 
         Returns:
             None
@@ -302,7 +302,7 @@ class DigitizeVideo:
         the accumulated chunk of frames to shared memory when the chunk size is reached.
 
         Args:
-            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'n', 'h' or 's'.
+            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'a', 'b' or 'c'.
 
         Returns:
             None
@@ -334,10 +334,10 @@ class DigitizeVideo:
         """
         Write a full chunk of image data and associated descriptors to shared memory.
         This function supports exposure bracketing: multiple exposures per logical frame
-        (e.g., normal, short, long) are h   andled transparently.
+        (e.g., normal, short, long) are handled transparently.
 
         Each descriptor includes (img_bytes, frame_count, suffix), allowing the downstream
-        write_images function to name files accordingly (e.g., frame1234n.png, frame1234s.png, etc.).
+        write_images function to name files accordingly (e.g., frame1234a.png, frame1234b.png, etc.).
 
         Returns:
             None
