@@ -10,7 +10,7 @@ import numpy.typing as npt
 # Define the type of RGB image array with shape (height, width, 3)
 RGBImageArray = npt.NDArray[np.uint8]
 
-# Define StateType as a tuple containing an RGB image array, an integer (frame count) and the suffix string ('n', 'h' or 's')
+# Define StateType as a tuple containing an RGB image array, an integer (frame count) and the suffix string ('a', 'b' or 'c')
 FrameDescType = tuple[RGBImageArray, int, str]
 
 # Define SubjectDescType as a tuple containing an integer and a float (frame  count, time stamp)
