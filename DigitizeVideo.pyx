@@ -66,6 +66,7 @@ class DigitizeVideo:
 
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
+        self.initialize_bracketing()
         self.initialize_camera()
         self.initialize_threads()
         self.initialize_process_pool()
@@ -101,6 +102,10 @@ class DigitizeVideo:
         self.logger = logging.getLogger(__name__)
         handler = logging.StreamHandler(sys.stdout)
         self.logger.addHandler(handler)
+
+    def initialize_bracketing(self) -> None:
+        # Define exposure settings
+        self.exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
 
     def initialize_camera(self) -> None:
         # self.logger.info(f"Build details: {cv2.getBuildInformation()}")
@@ -238,26 +243,30 @@ class DigitizeVideo:
         if os.name == "nt" and self.settings:
             self.cap.retrieve()  # discard stale frame
 
-        # Define exposure settings
-        exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
-        for exp_val, suffix in exposures:
+        for index, exp_val, suffix in enumerate(self.exposures):
             if self.bracketing:
-                self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
-                time.sleep(0.05)  # brief pause to let exposure apply
+                if index > 0:
+                    self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+                    time.sleep(0.05)  # brief pause to let exposure apply
 
             success, frame = self.cap.read()
             ts = time.perf_counter() - signal_time
             self.time_read.append((count, ts, suffix))
 
             if not self.monitoring and count % 100 == 0:
-                self.logger.info(f"Working on Frame {count} exposure {exp_val} ({suffix})")
+                self.logger.info(f"Working on Frame {count}{suffix}, exposure {exp_val}")
 
             if success:
                 frames.append((frame, count, suffix))
             else:
-                self.logger.error(f"Read error at frame {count}, exposure {exp_val}")
+                self.logger.error(f"Read error at frame {count}{suffix}, exposure {exp_val}")
                 blank = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
                 frames.append((blank, count, suffix))
+
+        # reset to standard exposure after end of loop - this avoids one time.sleep(0.05)
+        if self.bracketing:
+            (exp_val, _) = self.exposures[0]
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
 
         return frames
 
