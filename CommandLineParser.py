@@ -6,7 +6,7 @@ class CommandLineParser:
     def __init__(self) -> None:
         # Initialize the argument parser with description
         self.parser = argparse.ArgumentParser(
-            description='Digitize analog Super V8 films.'
+            description='Digitize analog 16mm films.'
         )
         # Add argument for version
         self.parser.add_argument('--version', action='version', version='1.0.1')
@@ -45,9 +45,9 @@ class CommandLineParser:
             type=int,
             nargs='?',
             choices=[3600, 7200, 14400, 21800, 43600, 60000],
-            default=7200,
+            default=21800,
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
-                 'emitted stop digitizing when specified number of images is reached - default is 7200 frames.'
+                 'emitted stop digitizing when specified number of images is reached - default is 21800 frames.'
         )
         # Add arguments for monitoring frames
         self.parser.add_argument(
@@ -55,7 +55,7 @@ class CommandLineParser:
             dest="monitor",
             action="store_true",
             default=False,
-            help='Show monitoring window'
+            help='Show monitoring window - default is False'
         )
         # Add arguments for chunk size
         self.parser.add_argument(
@@ -71,8 +71,8 @@ class CommandLineParser:
             '--show-menu',
             dest="settings",
             action="store_true",
-            default=False,
-            help='Display direct show settings menu'
+            default=True,
+            help='Display direct show settings menu - default is True'
         )
         # Add arguments for exposure bracketing
         self.parser.add_argument(
