@@ -134,7 +134,7 @@ class DigitizeVideo:
 
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
@@ -231,7 +231,7 @@ class DigitizeVideo:
     def take_picture(self, descriptor: SubjectDescType) -> List[FrameDescType]:
         """
         Capture frame(s) from the camera. If bracketing is enabled, capture three exposures:
-        - standard (-7), short (-8, suffix 's'), long (-6, suffix 'l').
+        - standard (-7, suffix 'a'), short (-8, suffix 'b'), long (-6, suffix 'c').
         Returns a list of tuples: List[(frame_image, count, suffix)].
         """
         cdef int count
@@ -240,17 +240,21 @@ class DigitizeVideo:
 
         frames = []
 
-        if os.name == "nt" and self.settings:
-            self.cap.retrieve()  # discard stale frame
+        # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
+        # Therefore, no discarding of stale frame. Clearly has to be tested !!!
+        # if os.name == "nt" and self.settings:
+        #     self.cap.retrieve()  # discard stale frame
 
         for index, exp_val, suffix in enumerate(self.exposures):
-            if self.bracketing:
-                if index > 0:
-                    self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
-                    time.sleep(0.05)  # brief pause to let exposure apply
-
             success, frame = self.cap.read()
             ts = time.perf_counter() - signal_time
+
+            if self.bracketing:
+                if index < 2:
+                    (exp_val, _) = self.exposures[index + 1]
+                    self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+                    time.sleep(0.03)  # brief pause to let exposure apply
+
             self.time_read.append((count, ts, suffix))
 
             if not self.monitoring and count % 100 == 0:
