@@ -56,7 +56,7 @@ def write_images(shm_name: cython.str,
         total_size = sum(desc[0] for desc in img_desc)
 
         # Create a NumPy array view of the shared memory buffer
-        data: npt.NDArray[np.uint8] = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
+        data: np.NDArray[np.uint8] = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
 
         def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
             try:
