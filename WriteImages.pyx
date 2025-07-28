@@ -14,6 +14,7 @@ import numpy as np
 cimport numpy as np
 
 from TypeDefinitions import ImgDescType
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -56,13 +57,16 @@ def write_images(shm_name: cython.str,
         total_size = sum(desc[0] for desc in img_desc)
 
         # Create a NumPy array view of the shared memory buffer
-        data: np.NDArray[np.uint8] = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
+        data = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
 
         def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
             try:
+                # Set the output filename for the current frame
                 filename = output_path / f"frame{frame_count:05d}{suffix}.png"
+                # Reshape the slice of data to the image shape (height, width, 3)
                 image_data = data[start:end].reshape((img_height, img_width, 3))
-                success = cv2.imwrite(str(filename), image_data, compression_level = [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                # Write the image data to persistent storage
+                success = cv2.imwrite(str(filename), image_data, compression_level=[cv2.IMWRITE_PNG_COMPRESSION, 3])
                 if not success:
                     logger.error(f"Failed to write image: {filename}")
             except Exception as e:
@@ -73,7 +77,7 @@ def write_images(shm_name: cython.str,
         with ThreadPoolExecutor(max_workers=min(8, len(img_desc))) as executor:
             for frame_bytes, frame_count, suffix in img_desc:
                 start = end
-                end += frame_bytes
+                end += frame_bytes  # Calculate the end index for the current image slice
                 futures.append(executor.submit(write_single_image, start, end, frame_bytes, frame_count, suffix))
 
             for future in as_completed(futures):
