@@ -233,6 +233,21 @@ class DigitizeVideo:
         Capture frame(s) from the camera. If bracketing is enabled, capture three exposures:
         - standard (-7, suffix 'a'), short (-8, suffix 'b'), long (-6, suffix 'c').
         Returns a list of tuples: List[(frame_image, count, suffix)].
+
+        Assuming the digitalizing process does 5 frames per second, this is 0.2 seconds per frame.
+        About 30% of this time belongs to the frame advance process. Therefore, we have about 0.14 seconds left
+        for the current frame to be at rest in front of the projector lens. This time is split up into the following
+        segments.
+
+        0.14 seconds
+                        ca. 0.008 seconds 1/128 seconds for the first exposure
+                            0.03 seconds sleep to give the camera enough time to adjust for the change in exposure time
+                        ca. 0.004 seconds 1/256 seconds for the second exposure
+                            0.03 seconds sleep to give the camera enough time to adjust for the change in exposure time
+                        ca. 0.016 seconds 1/64 seconds for the third exposure
+                        sum 0.088 seconds, this means still some spare time of about 0.05 seconds for the program to do
+                            some work, e.g. take care of the digitised frames and pass them batch-wise to the writing
+                            processes.
         """
         cdef int count
         cdef double signal_time
@@ -241,7 +256,7 @@ class DigitizeVideo:
         frames = []
 
         # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
-        # Therefore, no discarding of stale frame. Clearly has to be tested !!!
+        # Therefore, no discarding of a stale frame anymore. Clearly has to be tested !!!
         # if os.name == "nt" and self.settings:
         #     self.cap.retrieve()  # discard stale frame
 
@@ -252,7 +267,9 @@ class DigitizeVideo:
             if self.bracketing:
                 if index < 2:
                     (exp_val, _) = self.exposures[index + 1]
-                    self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+                    result = self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+                    if not result:
+                        self.logger.error(f"Could not set exposure to {exp_val} working on frame {count}{suffix}")
                     time.sleep(0.03)  # brief pause to let exposure apply
 
             self.time_read.append((count, ts, suffix))
