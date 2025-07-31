@@ -1,1 +1,10 @@
-pyinstaller --noconfirm --onefile --console --name "beck-view-digitize" --optimize "2" --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\DigitizeVideo.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\Ft232hConnector.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\SignalHandler.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\Timing.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\Timing.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\TypeDefinitions.cp313-win_amd64.pyd;." --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\WriteImages.cp313-win_amd64.pyd;." --collect-binaries "" --collect-all "" --python-option "" --add-binary "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\build\lib.win-amd64-cpython-313\SignalHandler.cp313-win_amd64.pyd;." --collect-binaries ""  "C:\Users\Peter lokal\PycharmProjects\beck-view-digitalize\main.pyx"
+pyinstaller --noconfirm --onefile --console \
+  --name "beck-view-digitize" \
+  --optimize "2" \
+  --hidden-import=multiprocessing \
+  --hidden-import=pyftdi.ftdi \
+  --hidden-import=reactivex \
+  --hidden-import=CommandLineParser \
+  --hidden-import=SignalHandler \
+  --collect-binaries beck_view_digitalize \
+  beck-view-digitize.py

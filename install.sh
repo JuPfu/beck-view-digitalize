@@ -1,1 +1,11 @@
-pyinstaller --noconfirm --onefile --console --name "beck-view-digitize" --optimize "2" --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/DigitizeVideo.o:." --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/Ft232hConnector.o:." --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/SignalHandler.o:." --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/Timing.o:." --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/TypeDefinitions.o:." --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/WriteImages.o:." --collect-binaries "" --collect-all "" --python-option "" --add-binary="/Users/jp/PycharmProjects/beck-view-digitalize/build/temp.macosx-10.13-universal2-cpython-313/SignalHandler.o:." --exclude-module pkg_resources --collect-binaries "" "/Users/jp/PycharmProjects/beck-view-digitalize/main.pyx"
+rm -rf build/
+pyinstaller --noconfirm --onefile --console \
+  --name "beck-view-digitize" \
+  --optimize "2" \
+  --hidden-import=multiprocessing \
+  --hidden-import=pyftdi.ftdi \
+  --hidden-import=reactivex \
+  --hidden-import=CommandLineParser \
+  --hidden-import=SignalHandler \
+  --collect-binaries beck_view_digitalize \
+  beck-view-digitize.py
