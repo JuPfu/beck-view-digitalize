@@ -22,14 +22,14 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
 
 ### Setting Up Cython
 
-1. **Install Cython:**
+1. **Install Cython**
 
    Ensure that Cython is installed in your environment:
    ```bash
    pip install cython
    ```
 
-2. **Compiling the Cython Code:**
+2. **Compiling the Cython Code**
 
    In this project, certain modules are implemented in Cython to enhance performance. To compile the Cython `.pyx` files into C and then build the extension, follow these steps:
 
@@ -40,17 +40,52 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
    The `setup.py` file provided in the repository is already configured for compiling the Cython files.
 
 
-3. **Using Cython-Compiled Code:**
+3. **Build Executable with Pyinstaller**
 
-   Once compiled, the Cython modules are used just like normal Python modules, but with significantly improved performance.
+   The .spec file for building an executable can be generated as shown here
+
+   ```bash
+   pyinstaller beck-view-digitize.py --name beck-view-digitize --onefile --console --specpath .
+   ```
+   Add the hidden_imports to in the Analysis section
+
+   ```bash
+   a = Analysis(
+    ['beck-view-digitize.py'],
+    pathex=[],
+    binaries=[],
+    datas=[],
+    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'reactivex', 'CommandLineParser', 'SignalHandler' ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+   )
+   ```
+
+   The executable is build in the **dist** folder with
+
+   ```bash
+   pyinstaller beck-view-digitize.spec
+   ```
+   Move the executable one level up into the project folder.
+
+
+4. **Using Beck-View-Digitize**
+
+   Once compiled with Cython and linked into an executable with Pyinstaller the program should run with significantly 
+   improved performance compared to the pure Python version.
 
    This is how to start the compiled program
    ```bash
-   python main.pyx --help
+   beck-view-digitize --help
    ```
    This should display the available command line arguments for `beck-view-digitize`
 
-4. **Building a Standalone Executable**
+
+5. **Alternative Way of Building a Standalone Executable**
 
    Building an executable on Windows can be done by calling
    ```bash
@@ -60,6 +95,7 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
    ```bash unix
    install.sh
    ```
+   The executable is generated in the **dist** folder.
 
 ### Further Reading on Cython
 
