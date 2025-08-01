@@ -1,10 +1,8 @@
-pyinstaller --noconfirm --onefile --console \
-  --name "beck-view-digitize" \
-  --optimize "2" \
-  --hidden-import=multiprocessing \
-  --hidden-import=pyftdi.ftdi \
-  --hidden-import=reactivex \
-  --hidden-import=CommandLineParser \
-  --hidden-import=SignalHandler \
-  --collect-binaries beck_view_digitalize \
-  beck-view-digitize.py
+rmdir build
+rmdir dist
+del *.c *.so
+python setup.py build_ext --inplace
+mkdir dist
+move *.so dist
+pyinstaller beck-view-digitize.spec --noconfirm
+move /y dist\beck-view-digitize.exe %~pi..
