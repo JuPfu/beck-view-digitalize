@@ -42,12 +42,12 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
 
 3. **Build Executable with Pyinstaller**
 
-   The .spec file for building an executable can be generated as shown here
+   In a do it once step the .spec file for building an executable can be generated as shown here
 
    ```bash
    pyinstaller beck-view-digitize.py --name beck-view-digitize --onefile --console --specpath .
    ```
-   Add the hidden_imports to in the Analysis section
+   Add the hidden_imports to in the 'Analysis' section
 
    ```bash
    a = Analysis(
@@ -65,7 +65,7 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
    )
    ```
 
-   The executable is build in the **dist** folder with
+   Building the executable in the **dist** folder is done by
 
    ```bash
    pyinstaller beck-view-digitize.spec
@@ -93,9 +93,8 @@ By integrating Cython into **Beck-View Digitalize**, the speed of processing fra
    ```
    The Unix or MacOS side can use
    ```bash unix
-   install.sh
+   ./install.sh
    ```
-   The executable is generated in the **dist** folder.
 
 ### Further Reading on Cython
 
