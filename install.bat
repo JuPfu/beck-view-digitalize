@@ -1,8 +1,9 @@
 rmdir build
 rmdir dist
-del *.c *.so
+del *.c
 python setup.py build_ext --inplace
 mkdir dist
-move *.so dist
+move build\lib.win-amd64-cpython-313\*.pyd dist
 pyinstaller beck-view-digitize.spec --noconfirm
-move /y dist\beck-view-digitize.exe %~pi..
+move /y dist\beck-view-digitize-bundle\beck-view-digitize.exe .
+echo "Executable `beck-view-digitize.exe` ready for use in %CD%"

@@ -4,5 +4,5 @@ set PATH="C:\Users\Peter lokal\AppData\Local\Programs\Python\Python313";%PATH%
 set PYTHONHOME="C:\Users\Peter lokal\AppData\Local\Programs\Python\Python313"
 cd "%~dp0"
 call venv\Scripts\activate.bat
-beck-view-digitize %*
+beck-view-digitize.exe %*
 deactivate

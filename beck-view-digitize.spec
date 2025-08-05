@@ -12,9 +12,9 @@ dist_dir = Path("./dist")
 
 # Collect all .so files from the dist/ directory
 cython_so_files = [
-    (str(f), '.') for f in dist_dir.glob("*.so")
+    (str(f), '.') for f in dist_dir.glob("*.pyd")
 ]
-print(f"Found following *.so files {cython_so_files}")
+print(f"Found following *.pyd files {cython_so_files}")
 
 # Optional: Include compiled shared libraries from some packages
 # e.g. numpy, if needed
@@ -25,7 +25,7 @@ a = Analysis(
     pathex=[str(project_dir)],
     binaries=cython_so_files,
     datas=[],
-    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'reactivex', 'CommandLineParser', 'SignalHandler' ],
+    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'pyftdi.gpio', 'reactivex', 'numpy', 'cv2', 'CommandLineParser', 'SignalHandler'],
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
