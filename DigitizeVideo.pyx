@@ -52,8 +52,8 @@ class DigitizeVideo:
         # Initialize instance attributes
         self.device_number: cython.int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
-        self.width: cython.int = args.width_height.split()[0]
-        self.height: cython.int = args.width_height.split()[1]
+        self.width: cython.int = args.width_height[0]
+        self.height: cython.int = args.width_height[1]
         self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: cython.bint = args.settings  # Display direct show settings menu
