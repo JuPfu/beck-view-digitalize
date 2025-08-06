@@ -30,13 +30,20 @@ class CommandLineParser:
             help='Output directory for digitized png frames - default is current directory.'
         )
         self.parser.add_argument(
-            '-wh', '--width_height',
-            dest="width_height",
+            '--width',
+            dest="width",
             type=int,
-            nargs=2,
-            metavar=("width", "height"),
-            default=[1920, 1080],
-            help='Width and height of image frames - default is (1920, 1080)'
+            nargs='?',
+            default=1920,
+            help='Width of image frames - default is 1920 pixels'
+        )
+        self.parser.add_argument(
+            '--height',
+            dest="height",
+            type=int,
+            nargs='?',
+            default=1080,
+            help='Height of image frames - default is 1080 pixels'
         )
         # Add arguments for emergency brake
         self.parser.add_argument(
@@ -73,6 +80,14 @@ class CommandLineParser:
             action="store_true",
             default=False,
             help='Display direct show settings menu'
+        )
+        # Add argument which is used to signal that the application had been started via beck-view-gui
+        self.parser.add_argument(
+            '-g', '--gui',
+            dest="gui",
+            action="store_true",
+            default=False,
+            help='beck-view-digitize started from beck-view-gui - default is false'
         )
 
     def parse_args(self) -> argparse.Namespace:

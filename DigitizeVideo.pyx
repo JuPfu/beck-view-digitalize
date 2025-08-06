@@ -52,11 +52,12 @@ class DigitizeVideo:
         # Initialize instance attributes
         self.device_number: cython.int = args.device  # device number of camera
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
-        self.width: cython.int = args.width_height[0]
-        self.height: cython.int = args.width_height[1]
+        self.width: cython.int = args.width
+        self.height: cython.int = args.height
         self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: cython.bint = args.settings  # Display direct show settings menu
+        self.gui: cython.bint = args.gui
 
         self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
@@ -66,6 +67,7 @@ class DigitizeVideo:
 
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
+
         self.initialize_camera()
         self.initialize_threads()
         self.initialize_process_pool()
@@ -99,8 +101,9 @@ class DigitizeVideo:
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        handler = logging.StreamHandler(sys.stdout)
-        self.logger.addHandler(handler)
+        if self.gui:
+            handler = logging.StreamHandler(sys.stdout)
+            self.logger.addHandler(handler)
 
     def initialize_camera(self) -> None:
         # self.logger.info(f"Build details: {cv2.getBuildInformation()}")
@@ -167,7 +170,7 @@ class DigitizeVideo:
         self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
         self.logger.info(f"   mode = {self.cap.get(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
-        self.logger.info(f"   backend = {self.cap.getBackendName()}")
+        # self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
         self.logger.info(f"   fps support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FPS)}")

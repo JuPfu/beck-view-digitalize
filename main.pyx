@@ -65,7 +65,7 @@ def main():
         ftdi.open_mpsse_from_url("ftdi:///1")
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
-        sys.exit(1)
+        # sys.exit(2)
 
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
@@ -75,7 +75,7 @@ def main():
     # create class instances
     DigitizeVideo(args, optocoupler_signal_subject)
 
-    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount)
+    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.gui, args.maxcount)
 
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()

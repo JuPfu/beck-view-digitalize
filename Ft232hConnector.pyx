@@ -40,7 +40,7 @@ class Ft232hConnector:
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int) -> None:
+    def __init__(self, ftdi: Ftdi, signal_subject: Subject, gui: cython.bint, max_count: cython.int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -49,6 +49,9 @@ class Ft232hConnector:
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
+
+        self.gui = gui
+
         self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
@@ -97,8 +100,9 @@ class Ft232hConnector:
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        handler = logging.StreamHandler(sys.stdout)
-        self.logger.addHandler(handler)
+        if self.gui:
+            handler = logging.StreamHandler(sys.stdout)
+            self.logger.addHandler(handler)
 
     def _initialize_device(self) -> None:
         """
@@ -110,7 +114,8 @@ class Ft232hConnector:
         # Find the USB device with specified Vendor and Product IDs
         self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
-            raise ValueError("USB device not found.")
+            self.logger.error(f"No USB device with 'vendor Id = 0x0403 and product id = 0x6014' found!")
+            sys.exit(3)
         self.logger.warning(f"USB device found: {self.dev}")
 
     def signal_input(self) -> None:
