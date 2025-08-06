@@ -65,7 +65,7 @@ def main():
         ftdi.open_mpsse_from_url("ftdi:///1")
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
-        # sys.exit(2)
+        sys.exit(2)
 
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
