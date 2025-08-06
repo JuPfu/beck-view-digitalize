@@ -1,6 +1,6 @@
 rmdir build
 rmdir dist
-del *.c
+del *.c *.pyd
 python setup.py build_ext --inplace
 mkdir dist
 move build\lib.win-amd64-cpython-313\*.pyd dist
