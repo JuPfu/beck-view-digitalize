@@ -83,7 +83,7 @@ class Ft232hConnector:
         self.gpio.write(0x0)
 
         # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(128)
+        ftdi.set_latency_timer(16)
 
         # Set the frequency at which sequence of GPIO samples are read and written.
         ftdi.set_frequency(ftdi.frequency_max)
@@ -133,7 +133,6 @@ class Ft232hConnector:
         cdef double start_cycle = start_time
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
-        cdef double elapsed_time = 0.0
 
         cdef double fps = 0.0
 
@@ -152,8 +151,6 @@ class Ft232hConnector:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
-
-                elapsed_time = start_cycle - start_time
 
                 count += 1
 
