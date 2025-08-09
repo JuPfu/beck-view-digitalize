@@ -49,14 +49,6 @@ class CommandLineParser:
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
                  'emitted stop digitizing when specified number of images is reached - default is 21800 frames.'
         )
-        # Add arguments for monitoring frames
-        self.parser.add_argument(
-            '-s', '--show-monitor',
-            dest="monitor",
-            action="store_true",
-            default=False,
-            help='Show monitoring window - default is False'
-        )
         # Add arguments for chunk size
         self.parser.add_argument(
             '-c', '--chunk-size',

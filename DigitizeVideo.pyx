@@ -52,7 +52,6 @@ class DigitizeVideo:
         self.output_path: Path = args.output_path  # The directory for dumping digitised frames into
         self.width: cython.int = args.width_height.split()[0]
         self.height: cython.int = args.width_height.split()[1]
-        self.monitoring: cython.bint = args.monitor  # Display monitoring window
         self.chunk_size: cython.int = args.chunk_size  # Quantity of frames (images) passed to a process
         self.settings: cython.bint = args.settings  # Display direct show settings menu
         self.bracketing: cython.bint = args.bracketing  # Use exposure bracketing
@@ -82,9 +81,6 @@ class DigitizeVideo:
 
         # Initialize list of processes
         self.processes: [ProcessType] = []
-
-        # Create monitoring window if needed
-        self.create_monitoring_window()
 
         # Initialize counters and timing
         self.processed_frames: cython.int = 0
@@ -192,17 +188,8 @@ class DigitizeVideo:
         self.thread_pool_scheduler = ThreadPoolScheduler(optimal_thread_count)
         self.logger.info(f"CPU count: {optimal_thread_count}")
 
-        # Create reactivex subjects for frame monitoring and writing
-        self.monitorFrameSubject = Subject()
+        # Create reactivex subject for frame writing
         self.writeFrameSubject = Subject()
-
-        # Determine function for monitoring frames based on the monitoring flag
-        monitor_frame_function = self.monitor_picture if self.monitoring else lambda state: None
-
-        # Subscribe to frame monitoring and writing
-        self.monitorFrameDisposable = self.monitorFrameSubject.pipe(
-            ops.map(monitor_frame_function),
-        ).subscribe(on_error=lambda e: self.logger.error(e))
 
         self.writeFrameDisposable = self.writeFrameSubject.pipe(
             ops.map(self.memory_write_picture)
@@ -214,8 +201,7 @@ class DigitizeVideo:
         # Subscribe to photo cell signals and handle emitted values
         self.photoCellSignalDisposable = self.signal_subject.pipe(
             ops.map(self.take_picture),
-            ops.do_action(self.writeFrameSubject.on_next),
-            ops.do_action(self.monitorFrameSubject.on_next),
+            ops.do_action(self.writeFrameSubject.on_next)
         ).subscribe(self.signal_observer)
 
     def initialize_process_pool(self) -> None:
@@ -274,9 +260,6 @@ class DigitizeVideo:
 
             self.time_read.append((count, ts, suffix))
 
-            if not self.monitoring and count % 100 == 0:
-                self.logger.info(f"Working on Frame {count}{suffix}, exposure {exp_val}")
-
             if success:
                 frames.append((frame, count, suffix))
             else:
@@ -290,37 +273,6 @@ class DigitizeVideo:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
 
         return frames
-
-    @staticmethod
-    def monitor_picture(frames: List[FrameDescType]) -> None:
-        """
-        Display one frame in monitor window with added tag (image count) in the upper left corner.
-
-        Args:
-            frames: List of tuples each containing an RGB image array, an integer (frame count) and one of the suffix strings 'a', 'b' or 'c'.
-
-        Returns:
-            None
-        """
-
-        if not frames:
-            return
-
-        # use first image of the list of frames - it should be the "standard" exposure - for monitoring
-        frame_data, frame_count, suffix = frames[0]
-        # The elp camera is mounted upside down - no flipping of image required.
-        # Adjust to your needs, e.g. add vertical flip
-        # monitor_frame = cv2.flip(frame_data.copy(), 0)
-        monitor_frame: RGBImageArray = frame_data.copy()
-        # Add image count tag to the upper left corner of the image
-        cv2.putText(monitor_frame, text=f"Frame {frame_count:05d} [{suffix}]",
-                    org=(15, 35),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.9,
-                    color=(0, 255, 0),
-                    thickness=2)
-        cv2.imshow('Monitor', monitor_frame)
-        cv2.waitKey(1)
 
     def memory_write_picture(self, frames: List[FrameDescType]) -> List[FrameDescType]:
         """
@@ -465,26 +417,6 @@ class DigitizeVideo:
 
         self.cleanup()
 
-    def create_monitoring_window(self) -> None:
-        """
-        Create monitoring window for displaying all digitized images.
-
-        Returns:
-            None
-        """
-        if self.monitoring:
-            cv2.namedWindow("Monitor", cv2.WINDOW_AUTOSIZE)
-
-    def delete_monitoring_window(self) -> None:
-        """
-        Destroy all monitoring windows created.
-
-        Returns:
-            None
-        """
-        if self.monitoring:
-            cv2.destroyAllWindows()
-
     def release_camera(self) -> None:
         """
         Release the camera.
@@ -510,12 +442,8 @@ class DigitizeVideo:
         if hasattr(self, 'cap'):
             self.release_camera()
 
-        # Delete monitoring window
-        self.delete_monitoring_window()
-
         # Dispose of subscriptions
         for disposable_name in [
-            "monitorFrameDisposable",
             "writeFrameDisposable",
             "photoCellSignalDisposable"
         ]:
