@@ -160,6 +160,9 @@ class Ft232hConnector:
                 self.signal_subject.on_next((count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
+                if work_time > cycle_time:
+                    self.logger.warning(f"Work time took {work_time*1000:.2f} ms")
+
                 # latency
                 latency_start = time.perf_counter()
 
