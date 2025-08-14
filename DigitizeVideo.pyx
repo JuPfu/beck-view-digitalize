@@ -4,7 +4,7 @@
 
 import cython
 
-cimport numpy as np  # Import numpy for uint8 type
+cimport numpy as np
 np.import_array()
 
 from libc.string cimport memcpy
