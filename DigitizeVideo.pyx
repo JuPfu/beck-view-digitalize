@@ -6,7 +6,6 @@
 import cython
 from cython.view cimport array  # Import for memory views
 
-import numpy as np              # Import numpy for Python-level use
 cimport numpy as np             # Import numpy for uint8 type
 
 np.import_array()
@@ -243,8 +242,8 @@ class DigitizeVideo:
 
         count, signal_time = descriptor
 
-        if os.name == "nt" and self.settings:
-            self.cap.retrieve()  # discard frame
+        # if os.name == "nt" and self.settings:
+        self.cap.retrieve()  # discard frame
 
         success, frame = self.cap.read()
         if success:
