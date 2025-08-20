@@ -40,7 +40,7 @@ class Ft232hConnector:
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int) -> None:
+    def __init__(self, ftdi: Ftdi, signal_subject: Subject, gui: cython.bint, max_count: cython.int) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -49,18 +49,18 @@ class Ft232hConnector:
             signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
             max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
         """
+
+        self.gui = gui
+
         self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
-        cdef unsigned int MSB, LED, OK1, EOF
+        cdef unsigned int OK1, EOF
 
-        self.MSB = 8
         # Set up opto-coupler OK1 to trigger frame processing
-        # switch to output and set initial trigger value to false
-        self.OK1 = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
+        self.OK1 = (1 << 0)  # Pin 0 of LSB aka AD0
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
-        # switch to output and set initial eof value
-        self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
+        self.EOF = (1 << 1)  # Pin 1 of LSB aka AD1
 
         self.gpio: GpioMpsseController = GpioMpsseController()
 
@@ -80,7 +80,7 @@ class Ft232hConnector:
         self.gpio.write(0x0)
 
         # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(128)
+        ftdi.set_latency_timer(8)
 
         # Set the frequency at which sequence of GPIO samples are read and written.
         ftdi.set_frequency(ftdi.frequency_max)
@@ -97,8 +97,9 @@ class Ft232hConnector:
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        handler = logging.StreamHandler(sys.stdout)
-        self.logger.addHandler(handler)
+        if self.gui:
+            handler = logging.StreamHandler(sys.stdout)
+            self.logger.addHandler(handler)
 
     def _initialize_device(self) -> None:
         """
@@ -110,8 +111,9 @@ class Ft232hConnector:
         # Find the USB device with specified Vendor and Product IDs
         self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
         if self.dev is None:
-            raise ValueError("USB device not found.")
-        self.logger.warning(f"USB device found: {self.dev}")
+            self.logger.error(f"No USB device with 'vendor Id = 0x0403 and product id = 0x6014' found!")
+            sys.exit(3)
+        self.logger.info(f"USB device found: {self.dev}")
 
     def signal_input(self) -> None:
         """
@@ -124,11 +126,10 @@ class Ft232hConnector:
 
         cdef double cycle_time = 1.0 / 5.0  # 5 frames per second
         cdef double start_time = time.perf_counter()
-        cdef unsigned int pins = self.gpio.read()[0]
+        cdef unsigned int pins = self.gpio.read(1, True)[0]
         cdef double start_cycle = start_time
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
-        cdef double elapsed_time = 0.0
 
         cdef double fps = 0.0
 
@@ -148,8 +149,6 @@ class Ft232hConnector:
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
 
-                elapsed_time = start_cycle - start_time
-
                 count += 1
 
                 fps = 1.0 / delta
@@ -166,11 +165,11 @@ class Ft232hConnector:
                 # latency
                 latency_start = time.perf_counter()
 
-                pins = self.gpio.read()[0]
+                pins = self.gpio.read(1, True)[0]
 
                 while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
-                    pins = self.gpio.read()[0]
+                    pins = self.gpio.read(1, True)[0]
                     self.logger.warning(f"Latency LOOP - pin OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 latency_time = time.perf_counter() - latency_start
@@ -199,7 +198,7 @@ class Ft232hConnector:
                     )
 
             # Retrieve pins
-            pins = self.gpio.read()[0]
+            pins = self.gpio.read(1, True)[0]
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
