@@ -126,7 +126,7 @@ class Ft232hConnector:
 
         cdef double cycle_time = 1.0 / 5.0  # 5 frames per second
         cdef double start_time = time.perf_counter()
-        cdef unsigned int pins = self.gpio.read(1, True)[0]
+        cdef unsigned int pins = self.gpio.read(1)[0]
         cdef double start_cycle = start_time
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
@@ -165,11 +165,11 @@ class Ft232hConnector:
                 # latency
                 latency_start = time.perf_counter()
 
-                pins = self.gpio.read(1, True)[0]
+                pins = self.gpio.read(1)[0]
 
                 while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
-                    pins = self.gpio.read(1, True)[0]
+                    pins = self.gpio.read(1)[0]
                     self.logger.warning(f"Latency LOOP - pin OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 latency_time = time.perf_counter() - latency_start
@@ -198,7 +198,7 @@ class Ft232hConnector:
                     )
 
             # Retrieve pins
-            pins = self.gpio.read(1, True)[0]
+            pins = self.gpio.read(1)[0]
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()

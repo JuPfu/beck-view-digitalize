@@ -4,7 +4,7 @@
 
 import cython
 
-cimport numpy as np
+cimport numpy as np  # Import numpy for uint8 type
 np.import_array()
 
 from libc.string cimport memcpy
@@ -157,8 +157,8 @@ class DigitizeVideo:
 
         time.sleep(1)
 
-        if os.name == "nt" and self.settings:
-            self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
+        # if os.name == "nt" and self.settings:
+        self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")

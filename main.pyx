@@ -74,7 +74,7 @@ def main():
     # create class instances
     DigitizeVideo(args, optocoupler_signal_subject)
 
-    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount)
+    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount, args.gui)
 
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()
