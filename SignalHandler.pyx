@@ -4,7 +4,6 @@ import signal
 import sys
 from types import FrameType
 
-
 def signal_handler(self, signum: int, frame: FrameType | None) -> None:
     """
     Handle interrupt signals.

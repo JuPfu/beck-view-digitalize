@@ -6,6 +6,7 @@ import cython
 import logging
 import sys
 from multiprocessing import shared_memory
+from multiprocessing.resource_tracker import unregister
 
 import cv2
 
@@ -59,6 +60,14 @@ def write_images(shm_name: cython.str,
         # Create a NumPy array view of the shared memory buffer
         data = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
 
+        # try:
+        #    print(f"vor unregister {shm.name=}")
+        #    unregister(shm.name, 'shared_memory')
+        # except Exception:
+        #    # already unregistered or not tracked — ignore
+        #    print(f"already unregistered {shm.name=}")
+        #    pass
+
         def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
             try:
                 # Set the output filename for the current frame
@@ -66,7 +75,7 @@ def write_images(shm_name: cython.str,
                 # Reshape the slice of data to the image shape (height, width, 3)
                 image_data = data[start:end].reshape((img_height, img_width, 3))
                 # Write the image data to persistent storage
-                success = cv2.imwrite(str(filename), image_data, compression_level=[cv2.IMWRITE_PNG_COMPRESSION, 3])
+                success = cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_PNG_COMPRESSION, 3])
                 if not success:
                     logger.error(f"Failed to write image: {filename}")
             except Exception as e:
@@ -91,12 +100,5 @@ def write_images(shm_name: cython.str,
             shm.close()
         except Exception as e:
             logger.warning(f"SharedMemory close failed: {e}")
-
-        try:
-            shm.unlink()
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            logger.warning(f"SharedMemory unlink failed: {e}")
 
     return img_desc

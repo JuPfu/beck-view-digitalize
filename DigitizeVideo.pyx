@@ -1,8 +1,9 @@
 # cython: language_level=3
-# cython.infer_types(True)
+# cython: infer_types=True
 # distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
 
 import cython
+from cython.view cimport array  # Import for memory views
 
 cimport numpy as np  # Import numpy for uint8 type
 np.import_array()
@@ -132,7 +133,7 @@ class DigitizeVideo:
 
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
@@ -151,6 +152,7 @@ class DigitizeVideo:
         #    -8                     3.9ms
         #    ...
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
+
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
@@ -215,16 +217,25 @@ class DigitizeVideo:
             shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes)) for _ in
             range(self.process_count)
         ]
+
+        self._shm_views = [memoryview(b.buf) for b in self.shared_buffers]
+
         # bookkeeping for round-robin buffers
         self.shared_buffers_index: cython.int = 0
         self.buffers_in_use: List[bool] = [False] * self.process_count
-
-        self._shm_views = [memoryview(b.buf) for b in self.shared_buffers]
 
         self.buffer_lock = threading.Lock()
 
         # Initialize list of processes
         self.processes: [ProcessType] = []
+
+    def _release_views(self) -> None:
+        for v in getattr(self, "_shm_views", []):
+            try:
+                v.release()
+            except Exception:
+                pass
+        self._shm_views = []
 
     def _cleanup_finished_processes(self) -> None:
         """Poll finished child processes, close their SharedMemory and mark buffer free."""
@@ -235,11 +246,7 @@ class DigitizeVideo:
                     res.get()  # propagate exceptions from child
                 except Exception as e:
                     self.logger.error(f"Child process failed: {e}")
-                # Close parent's handle to the shm
-                try:
-                    shm.close()
-                except Exception as e:
-                    self.logger.warning(f"Failed to close shm (idx={buf_idx}): {e}")
+
                 # mark buffer free
                 with self.buffer_lock:
                     self.buffers_in_use[buf_idx] = False
@@ -319,15 +326,15 @@ class DigitizeVideo:
         cdef double signal_time
 
         cdef unsigned char[:] shm_view
-        cdef unsigned char* dst
-        cdef np.uint8_t[:,:,:] fmv
+        cdef unsigned char * dst
+        cdef np.uint8_t[:, :, :] fmv
 
         frame_count, signal_time = descriptor
 
         # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
         # Therefore, no discarding of a stale frame might be necessary any more. Clearly has to be tested !!!
         # if os.name == "nt" and self.settings:
-        _ = self.cap.read()  # discard stale frame
+        _ = self.cap.retrieve()  # discard stale frame
 
         for bracket_index, (exp_val, suffix) in enumerate(self.exposures):
             ts = time.perf_counter() - signal_time
@@ -335,6 +342,10 @@ class DigitizeVideo:
 
             if self.bracketing:
                 if bracket_index < 2:
+                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
+                    time.sleep(0.03)
+                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual
+                    time.sleep(0.03)
                     (exp_val, _) = self.exposures[bracket_index + 1]
                     result = self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
                     if not result:
@@ -350,9 +361,9 @@ class DigitizeVideo:
 
             if success:
                 # Use memcpy to store frame data in shared memory
-                dst = &shm_view[start_index]
+                dst = & shm_view[start_index]
                 fmv = frame_data
-                memcpy(dst, &fmv[0,0,0], self.img_bytes)
+                memcpy(dst, & fmv[0, 0, 0], self.img_bytes)
 
                 self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
             else:
@@ -429,7 +440,7 @@ class DigitizeVideo:
             with self.buffer_lock:
                 self.buffers_in_use[current_buf] = True
 
-            descriptors = list(self.img_desc)
+            descriptors: List[ImgDescType] = list(self.img_desc)
             # schedule write
             self.write_to_disk(current_buf, descriptors)
             self.img_desc = []
@@ -456,7 +467,6 @@ class DigitizeVideo:
         average_fps: cython.double = self.processed_frames / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("------- End of Film ---------")
-        self.logger.info(f"Total logical frames: {self.frame_count}")
         self.logger.info(f"Total saved images (incl. exposures): {self.processed_frames}")
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
@@ -465,13 +475,13 @@ class DigitizeVideo:
         for i in range(limit):
             timing[i]["read"] = self.time_read[i][1]
 
-        read_time = np.asarray([[*x] for x in self.time_read])
+        read_time = np.asarray([x["read"] for x in timing])
 
-        self.logger.info(f"Average read time = {np.average(read_time[:, 1]):.5f} seconds")
-        self.logger.info(f"Variance of read time = {np.var(read_time[:, 1]):.5f}")
-        self.logger.info(f"Standard deviation of read time = {np.std(read_time[:, 1]):.5f}")
-        self.logger.info(f"Minimum read time = {np.min(read_time[:, 1]):.5f}")
-        self.logger.info(f"Maximum read time = {np.max(read_time[:, 1]):.5f}")
+        self.logger.info(f"Average read time = {np.average(read_time):.5f} seconds")
+        self.logger.info(f"Variance of read time = {np.var(read_time):.5f}")
+        self.logger.info(f"Standard deviation of read time = {np.std(read_time):.5f}")
+        self.logger.info(f"Minimum read time = {np.min(read_time):.5f}")
+        self.logger.info(f"Maximum read time = {np.max(read_time):.5f}")
 
         timing.sort(key=lambda x: x["cycle"], reverse=True)
 
@@ -519,9 +529,14 @@ class DigitizeVideo:
             except Exception as e:
                 self.logger.warning(f"Failed to dispose {disposable_name}: {e}")
 
-        for shm in self.shared_buffers:
+        self._release_views()
+
+        for shm in getattr(self, "shared_buffers", []):
             try:
                 shm.close()
+            except Exception:
+                pass
+            try:
                 shm.unlink()
             except FileNotFoundError:
                 pass

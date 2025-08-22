@@ -40,7 +40,7 @@ class Ft232hConnector:
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
-    def __init__(self, ftdi: Ftdi, signal_subject: Subject, gui: cython.bint, max_count: cython.int) -> None:
+    def __init__(self, ftdi: Ftdi, signal_subject: Subject, max_count: cython.int, gui: cython.bint) -> None:
         """
         Initialize the Ft232hConnector instance with the provided subjects and set up necessary components.
 
@@ -55,12 +55,13 @@ class Ft232hConnector:
         self._initialize_logging()
         self._initialize_device()  # Initialize USB device
 
-        cdef unsigned int OK1, EOF
+        cdef unsigned int MSB, OK1, EOF
 
+        self.MSB = 8
         # Set up opto-coupler OK1 to trigger frame processing
-        self.OK1 = (1 << 0)  # Pin 0 of LSB aka AD0
+        self.OK1 = ((1 << 2) << self.MSB)  # Pin 2 of MSB aka AC2
         # Set up opto-coupler OK2 to trigger End Of Film (EoF)
-        self.EOF = (1 << 1)  # Pin 1 of LSB aka AD1
+        self.EOF = ((1 << 3) << self.MSB)  # Pin 3 of MSB aka AC3
 
         self.gpio: GpioMpsseController = GpioMpsseController()
 
@@ -80,7 +81,7 @@ class Ft232hConnector:
         self.gpio.write(0x0)
 
         # high latency improves performance - may be due to more work getting done asynchronously
-        ftdi.set_latency_timer(8)
+        ftdi.set_latency_timer(128)
 
         # Set the frequency at which sequence of GPIO samples are read and written.
         ftdi.set_frequency(ftdi.frequency_max)
@@ -143,7 +144,7 @@ class Ft232hConnector:
 
         cdef double wait_time = 0.0
 
-        while (pins & self.EOF) != self.EOF and (count < self.__max_count):
+        while (pins & self.EOF) != self.EOF and (count < min(self.__max_count, 255)):
             if (pins & self.OK1) == self.OK1:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
@@ -170,7 +171,6 @@ class Ft232hConnector:
                 while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read(1)[0]
-                    self.logger.warning(f"Latency LOOP - pin OK1 expected to be 0 at frame {count} {pins & self.OK1=:01b}")
 
                 latency_time = time.perf_counter() - latency_start
 
