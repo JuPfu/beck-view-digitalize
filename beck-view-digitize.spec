@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
+import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
@@ -10,11 +11,13 @@ from PyInstaller.utils.hooks import collect_dynamic_libs
 project_dir = Path.cwd()
 dist_dir = Path("./dist")
 
+object_files = "*.pyd" if os.name == "nt" else "*.so"
+
 # Collect all .so files from the dist/ directory
 cython_so_files = [
-    (str(f), '.') for f in dist_dir.glob("*.so")
+    (str(f), '.') for f in dist_dir.glob(object_files)
 ]
-print(f"Found following *.so files {cython_so_files}")
+print(f"Found following {object_files} files {cython_so_files}")
 
 # Optional: Include compiled shared libraries from some packages
 # e.g. numpy, if needed
@@ -25,7 +28,7 @@ a = Analysis(
     pathex=[str(project_dir)],
     binaries=cython_so_files,
     datas=[],
-    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'reactivex', 'CommandLineParser', 'main', 'numpy', 'cv2', 'pyftdi.gpio' ],
+    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'pyftdi.gpio', 'reactivex', 'numpy', 'cv2', 'CommandLineParser' ],
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
