@@ -1,6 +1,5 @@
 # cython: language_level=3
 # cython.infer_types(True)
-import signal
 import sys
 from argparse import Namespace
 from multiprocessing import freeze_support
@@ -9,7 +8,6 @@ from pyftdi.ftdi import Ftdi
 from reactivex import Subject
 
 from CommandLineParser import CommandLineParser
-from SignalHandler import signal_handler
 
 """
 Technologies used in this project
@@ -35,10 +33,6 @@ Monitoring:
 Logging:
     Logging capabilities to help analyse potential problems.
 """
-
-# Signal handler is called on interrupt (ctrl-c) and terminate
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 def main():
     freeze_support()

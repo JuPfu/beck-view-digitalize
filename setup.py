@@ -23,9 +23,8 @@ extensions = [
 
 setup(
     name='beck-view-digitize',
-    version='1.0',
-    # packages=['example'],
-    # url='',
+    version='1.2',
+    url='https://github.com/JuPfu/beck-view-digitalize',
     license='MIT licence',
     author='juergen pfundt',
     author_email='juergen.pfundt@gmail.com',

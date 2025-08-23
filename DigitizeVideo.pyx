@@ -1,7 +1,3 @@
-# cython: language_level=3
-# cython: infer_types=True
-# distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
-
 import cython
 from cython.view cimport array  # Import for memory views
 
@@ -30,11 +26,10 @@ from reactivex import operators as ops, Observer
 from reactivex.subject import Subject
 
 from typing import List
-from SignalHandler import signal_handler
+
 from Timing import timing
 from TypeDefinitions import ImgDescType, ProcessType, SubjectDescType
 from WriteImages import write_images
-
 
 class DigitizeVideo:
     """
@@ -66,8 +61,8 @@ class DigitizeVideo:
         self.signal_subject: Subject = signal_subject  # A reactivex subject emitting photo cell signals.
 
         # Signal handler is called on interrupt (ctrl-c) and terminate
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, self._on_signal)
+        signal.signal(signal.SIGTERM, self._on_signal)
 
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
@@ -131,6 +126,8 @@ class DigitizeVideo:
         self.img_width: cython.int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height: cython.int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
 
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
@@ -154,8 +151,6 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
-
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
 
         time.sleep(1)
 
@@ -476,11 +471,10 @@ class DigitizeVideo:
 
         read_time = np.asarray([x["read"] for x in timing])
 
-        self.logger.info(f"Average read time = {np.average(read_time):.5f} seconds")
-        self.logger.info(f"Variance of read time = {np.var(read_time):.5f}")
-        self.logger.info(f"Standard deviation of read time = {np.std(read_time):.5f}")
-        self.logger.info(f"Minimum read time = {np.min(read_time):.5f}")
-        self.logger.info(f"Maximum read time = {np.max(read_time):.5f}")
+        if len(read_time) > 0:
+            self.logger.info(f"Average read time = {(np.average(read_time) * 1000.0):.5f} seconds")
+            self.logger.info(f"Minimum read time = {(np.min(read_time) * 1000.0):.5f}")
+            self.logger.info(f"Maximum read time = {(np.max(read_time) * 1000.0):.5f}")
 
         timing.sort(key=lambda x: x["cycle"], reverse=True)
 
@@ -540,6 +534,15 @@ class DigitizeVideo:
             except FileNotFoundError:
                 pass
 
+    def _on_signal(self, signum: int, frame: FrameType | None) -> None:
+        """
+        Handle interrupt signals.
+        """
+        name = signal.Signals(signum).name
+        self.logger.warning(f"Signal {name} received, stopping...")
+
+        self.final_write_to_disk()
+        sys.exit(1)
 
 class SignalObserver(Observer):
     """
