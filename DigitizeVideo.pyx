@@ -172,7 +172,7 @@ class DigitizeVideo:
         self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
         self.logger.info(f"   mode = {self.cap.get(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
-        self.logger.info(f"   backend = {self.cap.getBackendName()}")
+        # self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
         self.logger.info(f"   fps support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FPS)}")
@@ -214,11 +214,10 @@ class DigitizeVideo:
 
         # Pre-allocate shared memory buffers
         self.shared_buffers = [
-            shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes)) for _ in
-            range(self.process_count)
+            shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes)) for _ in range(self.process_count)
         ]
 
-        self._shm_views = [memoryview(b.buf) for b in self.shared_buffers]
+        self._shm_views: [memoryview] = [memoryview(b.buf) for b in self.shared_buffers]
 
         # bookkeeping for round-robin buffers
         self.shared_buffers_index: cython.int = 0

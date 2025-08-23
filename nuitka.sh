@@ -1,1 +1,2 @@
-python3 -m nuitka --onefile --macos-create-app-bundle --product-name="beck-view-digitize" --macos-app-icon="beck-view-digitize.png" -o "beck-view-digitize" --static-libpython=no main.pyx
+rm -rf main.pyx.app main.pyx.build main.pyx.onefile-build
+python3 -m nuitka --onefile --macos-create-app-bundle --product-name="beck-view-digitize" --macos-app-icon="beck-view-digitize.png" -o "beck-view-digitize" --static-libpython=no beck-view-digitize.py
