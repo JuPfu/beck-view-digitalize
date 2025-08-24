@@ -3,7 +3,6 @@ import cython
 import logging
 import sys
 from multiprocessing import shared_memory
-from multiprocessing.resource_tracker import unregister
 
 import cv2
 
@@ -56,14 +55,6 @@ def write_images(shm_name: cython.str,
 
         # Create a NumPy array view of the shared memory buffer
         data = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
-
-        # try:
-        #    print(f"vor unregister {shm.name=}")
-        #    unregister(shm.name, 'shared_memory')
-        # except Exception:
-        #    # already unregistered or not tracked — ignore
-        #    print(f"already unregistered {shm.name=}")
-        #    pass
 
         def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
             try:
