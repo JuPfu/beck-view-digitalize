@@ -36,7 +36,9 @@ setup(
             "wraparound": False,
             "initializedcheck": False,
             "cdivision": True,
+            "nonecheck": False,
             "language_level": 3,
+            "infer_types": True
         }
     )
 )
