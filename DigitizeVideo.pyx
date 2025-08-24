@@ -130,7 +130,7 @@ class DigitizeVideo:
 
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # CAP_PROP_AUTO_EXPOSURE (https://github.com/opencv/opencv/issues/9738)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
@@ -205,7 +205,7 @@ class DigitizeVideo:
         # Calculate the optimal number of processes
         self.process_count = multiprocessing.cpu_count()
         # Create a pool of worker processes
-        self.pool = multiprocessing.Pool(self.process_count)
+        self.pool = multiprocessing.Pool(max(2, self.process_count - 1))
 
         # Pre-allocate shared memory buffers
         self.shared_buffers = [
@@ -255,8 +255,7 @@ class DigitizeVideo:
         work_time_start = time.perf_counter()
         self.take_picture(event)
         capture_duration = time.perf_counter() - work_time_start
-        self.logger.info(
-            f"[Capture] of Frame {frame_count} ({self.processed_frames}) took {capture_duration * 1000:.2f} ms")
+        self.logger.debug(f"[Capture] of Frame {frame_count} ({self.processed_frames}) took {capture_duration * 1000:.2f} ms")
 
         if self.processed_frames % self.chunk_size == 0:
             # Write frames to disk in background
@@ -319,11 +318,19 @@ class DigitizeVideo:
         cdef int frame_count
         cdef double signal_time
 
+        cdef int bracket_index
+        cdef int start_index
+        cdef int frame_multiplier = self.frame_multiplier
+        cdef int chunk_size = self.chunk_size
+        cdef int img_bytes = self.img_bytes
+
         cdef unsigned char[:] shm_view
-        cdef unsigned char * dst
+        cdef unsigned char* dst
         cdef np.uint8_t[:, :, :] fmv
 
         frame_count, signal_time = descriptor
+
+        cdef bint success
 
         # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
         # Therefore, no discarding of a stale frame might be necessary any more. Clearly has to be tested !!!
@@ -336,20 +343,16 @@ class DigitizeVideo:
 
             if self.bracketing:
                 if bracket_index < 2:
-                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
-                    time.sleep(0.03)
-                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual
-                    time.sleep(0.03)
                     (exp_val, _) = self.exposures[bracket_index + 1]
                     result = self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
                     if not result:
                         self.logger.error(f"Could not set exposure to {exp_val} working on frame {frame_count}{suffix}")
-                    time.sleep(0.03)  # brief pause to let exposure apply
+                    time.sleep(0.01)  # brief pause to let exposure apply
 
             self.time_read.append((frame_count, ts, suffix))
 
             # Calculate the index for this frame in the pre-allocated shared buffer slice
-            start_index: cython.int = ((frame_count * self.frame_multiplier + bracket_index) % self.chunk_size) * self.img_bytes
+            start_index: cython.int = ((frame_count * frame_multiplier + bracket_index) % chunk_size) * img_bytes
 
             shm_view = self._shm_views[self.shared_buffers_index]
 
@@ -357,7 +360,9 @@ class DigitizeVideo:
                 # Use memcpy to store frame data in shared memory
                 dst = & shm_view[start_index]
                 fmv = frame_data
-                memcpy(dst, & fmv[0, 0, 0], self.img_bytes)
+
+                with cython.nogil:
+                    memcpy(dst, &fmv[0,0,0], img_bytes)
 
                 self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
             else:
@@ -366,7 +371,7 @@ class DigitizeVideo:
                 shm_view[start_index:start_index + self.img_bytes] = blank_data.reshape(-1)
 
             # Create a frame description tuple and append it to the list
-            frame_item: ImgDescType = (self.img_bytes, frame_count, suffix)
+            frame_item: ImgDescType = (img_bytes, frame_count, suffix)
             self.img_desc.append(frame_item)
 
             # Increment the processed frame count
