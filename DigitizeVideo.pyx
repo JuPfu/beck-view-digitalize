@@ -127,7 +127,10 @@ class DigitizeVideo:
         self.img_height: cython.int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
 
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+        # self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
+        # Format of the Mat objects (see Mat::type()) returned by VideoCapture::retrieve().
+        # Set value -1 to fetch undecoded RAW video streams (as Mat 8UC1).
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -165,6 +168,7 @@ class DigitizeVideo:
         self.logger.info(f"   auto exposure = {self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
         self.logger.info(f"   exposure = {self.cap.get(cv2.CAP_PROP_EXPOSURE)}")
         self.logger.info(f"   format = {self.cap.get(cv2.CAP_PROP_FORMAT)}")
+        self.logger.info(f"   fourcc = {self.cap.get(cv2.CAP_PROP_FOURCC)}")
         self.logger.info(f"   mode = {self.cap.get(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
         # self.logger.info(f"   backend = {self.cap.getBackendName()}")
@@ -470,16 +474,22 @@ class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        limit = min(len(timing), len(self.time_read))
-        for i in range(limit):
-            timing[i]["read"] = self.time_read[i][1]
+        work_time = np.asarray([x["work"] for x in timing])
+        latency_time = np.asarray([x["latency"] for x in timing])
+        cycle_time = np.asarray([x["cycle"] for x in timing])
 
-        read_time = np.asarray([x["read"] for x in timing])
+        if len(work_time) > 0:
+            self.logger.info(f"Average work time = {(np.average(work_time)):.5f} seconds")
+            self.logger.info(f"Minimum work time = {(np.min(work_time)):.5f}")
+            self.logger.info(f"Maximum work time = {(np.max(work_time)):.5f}")
 
-        if len(read_time) > 0:
-            self.logger.info(f"Average read time = {(np.average(read_time) * 1000.0):.5f} seconds")
-            self.logger.info(f"Minimum read time = {(np.min(read_time) * 1000.0):.5f}")
-            self.logger.info(f"Maximum read time = {(np.max(read_time) * 1000.0):.5f}")
+            self.logger.info(f"Average latency time = {(np.average(latency_time)):.5f} seconds")
+            self.logger.info(f"Minimum latency time = {(np.min(latency_time)):.5f}")
+            self.logger.info(f"Maximum latency time = {(np.max(latency_time)):.5f}")
+
+            self.logger.info(f"Average cycle time = {(np.average(cycle_time)):.5f} seconds")
+            self.logger.info(f"Minimum cycle time = {(np.min(cycle_time)):.5f}")
+            self.logger.info(f"Maximum cycle time = {(np.max(cycle_time)):.5f}")
 
         timing.sort(key=lambda x: x["cycle"], reverse=True)
 
