@@ -78,9 +78,6 @@ class DigitizeVideo:
         self.start_time: cython.double = time.perf_counter()
         self.new_tick: cython.double = self.start_time
 
-        self.time_read: cython.list[(cython.int, cython.double, cython.p_char)] = []
-        self.time_roundtrip: cython.list[(cython.int, cython.double)] = []
-
     def initialize_logging(self) -> None:
         """
         Configure logging for the application.
@@ -255,48 +252,45 @@ class DigitizeVideo:
     def handle_trigger(self, event: SubjectDescType) -> None:
         frame_count, start_cycle = event
 
-        # Capture frame immediately (blocking, but fast if camera is primed)
-        work_time_start = time.perf_counter()
+        # === FAST PATH: Capture only ===
+        read_time_start = time.perf_counter()
         self.take_picture(event)
-        capture_duration = time.perf_counter() - work_time_start
-        self.logger.debug(f"[Capture] of Frame {frame_count} ({self.processed_frames}) took {capture_duration * 1000:.2f} ms")
+        capture_duration = time.perf_counter() - read_time_start
+        self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
+        # === Slow path (chunk rollover, scheduling) in executor ===
         if self.processed_frames % self.chunk_size == 0:
-            # Write frames to disk in background
-
-            # snapshot descriptors for this chunk
             descriptors = list(self.img_desc)
-
-            # current buffer holds the just-filled chunk
             buffer_index = self.shared_buffers_index
 
-            # reserve current buffer for writer
-            with self.buffer_lock:
-                self.buffers_in_use[buffer_index] = True
-
-            next_buf = None
-            # find a free buffer to continue capturing into
-            while next_buf is None:
-                with self.buffer_lock:
-                    for i in range(self.process_count):
-                        cand = (buffer_index + 1 + i) % self.process_count
-                        if not self.buffers_in_use[cand]:
-                            next_buf = cand
-                            break
-                if next_buf is None:
-                    # try to reclaim just-finished processes before sleeping
-                    self._cleanup_finished_processes()
-                    self.logger.warning("All shared buffers busy; waiting for writer to finish...")
-                    time.sleep(0.01)
-
-            # switch capture to next buffer
-            self.shared_buffers_index = next_buf
-
-            # schedule background writer for the just-filled buffer
-            self.executor.submit(self.write_to_disk, buffer_index, descriptors)
-
-            # reset descriptors list (we took a snapshot)
+            # Schedule async housekeeping
+            self.executor.submit(self._post_capture, buffer_index, descriptors)
             self.img_desc = []
+
+
+    def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
+        """Executed in thread pool — can block without stalling next frame capture."""
+        with self.buffer_lock:
+            self.buffers_in_use[buffer_index] = True
+
+        next_buf = None
+        while next_buf is None:
+            with self.buffer_lock:
+                for i in range(self.process_count):
+                    cand = (buffer_index + 1 + i) % self.process_count
+                    if not self.buffers_in_use[cand]:
+                        next_buf = cand
+                        break
+            if next_buf is None:
+                self._cleanup_finished_processes()
+                self.logger.warning("All shared buffers busy; waiting...")
+                time.sleep(0.01)
+
+        # Switch capture target
+        self.shared_buffers_index = next_buf
+
+        # Schedule write to disk (still async to process pool)
+        self.write_to_disk(buffer_index, descriptors)
 
     def take_picture(self, descriptor: SubjectDescType) -> None:
         """
@@ -339,10 +333,9 @@ class DigitizeVideo:
         # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
         # Therefore, no discarding of a stale frame might be necessary any more. Clearly has to be tested !!!
         # if os.name == "nt" and self.settings:
-        _ = self.cap.retrieve()  # discard stale frame
+        _ = self.cap.read()  # discard stale frame
 
         for bracket_index, (exp_val, suffix) in enumerate(self.exposures):
-            ts = time.perf_counter() - signal_time
             success, frame_data = self.cap.read()
 
             if self.bracketing:
@@ -352,8 +345,6 @@ class DigitizeVideo:
                     if not result:
                         self.logger.error(f"Could not set exposure to {exp_val} working on frame {frame_count}{suffix}")
                     time.sleep(0.01)  # brief pause to let exposure apply
-
-            self.time_read.append((frame_count, ts, suffix))
 
             # Calculate the index for this frame in the pre-allocated shared buffer slice
             start_index: cython.int = ((frame_count * frame_multiplier + bracket_index) % chunk_size) * img_bytes
@@ -477,19 +468,26 @@ class DigitizeVideo:
         work_time = np.asarray([x["work"] for x in timing])
         latency_time = np.asarray([x["latency"] for x in timing])
         cycle_time = np.asarray([x["cycle"] for x in timing])
+        read_time = np.asarray([x["read"] for x in timing])
+
 
         if len(work_time) > 0:
+            self.logger.info(f"Average cycle time = {(np.average(cycle_time)):.5f} seconds")
+            self.logger.info(f"Minimum cycle time = {(np.min(cycle_time)):.5f}")
+            self.logger.info(f"Maximum cycle time = {(np.max(cycle_time)):.5f}")
+
             self.logger.info(f"Average work time = {(np.average(work_time)):.5f} seconds")
             self.logger.info(f"Minimum work time = {(np.min(work_time)):.5f}")
             self.logger.info(f"Maximum work time = {(np.max(work_time)):.5f}")
+
+            self.logger.info(f"Average read time = {(np.average(read_time)):.5f} seconds")
+            self.logger.info(f"Minimum read time = {(np.min(read_time)):.5f}")
+            self.logger.info(f"Maximum read time = {(np.max(read_time)):.5f}")
 
             self.logger.info(f"Average latency time = {(np.average(latency_time)):.5f} seconds")
             self.logger.info(f"Minimum latency time = {(np.min(latency_time)):.5f}")
             self.logger.info(f"Maximum latency time = {(np.max(latency_time)):.5f}")
 
-            self.logger.info(f"Average cycle time = {(np.average(cycle_time)):.5f} seconds")
-            self.logger.info(f"Minimum cycle time = {(np.min(cycle_time)):.5f}")
-            self.logger.info(f"Maximum cycle time = {(np.max(cycle_time)):.5f}")
 
         timing.sort(key=lambda x: x["cycle"], reverse=True)
 
