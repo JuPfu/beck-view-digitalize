@@ -6,10 +6,10 @@ class CommandLineParser:
     def __init__(self) -> None:
         # Initialize the argument parser with description
         self.parser = argparse.ArgumentParser(
-            description='Digitize analog Super V8 films.'
+            description='Digitize analog 16mm films.'
         )
         # Add argument for version
-        self.parser.add_argument('--version', action='version', version='1.0.1')
+        self.parser.add_argument('--version', action='version', version='1.0.2')
         # Add argument for device selection
         self.parser.add_argument(
             '-d', '--device',
@@ -52,7 +52,7 @@ class CommandLineParser:
             type=int,
             nargs='?',
             choices=[3600, 7200, 14400, 21800, 43600, 60000],
-            default=7200,
+            default=21800,
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
                  'emitted stop digitizing when specified number of images is reached - default is 7200 frames.'
         )
@@ -78,8 +78,24 @@ class CommandLineParser:
             '--show-menu',
             dest="settings",
             action="store_true",
+            default=True,
+            help='Display direct show settings menu - default is True'
+        )
+        # Add arguments for exposure bracketing
+        self.parser.add_argument(
+            '-b', '--bracketing',
+            dest="bracketing",
+            action="store_true",
             default=False,
-            help='Display direct show settings menu'
+            help='Take multiple exposures of one frame with varying exposure time - default is no bracketing, which means just one exposure per frame'
+        )
+        # Add argument which is used to signal that the application had been started via beck-view-gui
+        self.parser.add_argument(
+            '-g', '--gui',
+            dest="gui",
+            action="store_true",
+            default=False,
+            help='beck-view-digitize started from beck-view-gui - default is false'
         )
         # Add argument which is used to signal that the application had been started via beck-view-gui
         self.parser.add_argument(

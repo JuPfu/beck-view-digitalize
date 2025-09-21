@@ -1,5 +1,5 @@
 rm -rf build dist
-rm *.c *.so
+rm -rf *.c *.so
 python setup.py build_ext --inplace
 mkdir -p dist
 mv *.so dist/

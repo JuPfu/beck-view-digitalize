@@ -1,1 +1,1 @@
-python -m nuitka --standalone --onefile --windows-icon-from-ico=beck-view-digitize.png -o "beck-view-digitize" main.pyx
+python -m nuitka --standalone --onefile --windows-icon-from-ico=beck-view-digitize.png -o "beck-.view-digitize" main.pyx

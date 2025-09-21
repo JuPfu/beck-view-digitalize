@@ -1,3 +1,4 @@
+# from distutils.core import setup
 from setuptools import setup, Extension
 import Cython.Build as cb
 import numpy as np
@@ -22,9 +23,8 @@ extensions = [
 
 setup(
     name='beck-view-digitize',
-    version='1.0',
-    # packages=['example'],
-    # url='',
+    version='1.2',
+    url='https://github.com/JuPfu/beck-view-digitalize',
     license='MIT licence',
     author='juergen pfundt',
     author_email='juergen.pfundt@gmail.com',
@@ -36,7 +36,9 @@ setup(
             "wraparound": False,
             "initializedcheck": False,
             "cdivision": True,
+            "nonecheck": False,
             "language_level": 3,
+            "infer_types": True
         }
     )
 )

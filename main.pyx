@@ -1,7 +1,5 @@
 # cython: language_level=3
 # cython.infer_types(True)
-import cython
-import signal
 import sys
 from argparse import Namespace
 from multiprocessing import freeze_support
@@ -10,7 +8,6 @@ from pyftdi.ftdi import Ftdi
 from reactivex import Subject
 
 from CommandLineParser import CommandLineParser
-from SignalHandler import signal_handler
 
 """
 Technologies used in this project
@@ -37,10 +34,6 @@ Logging:
     Logging capabilities to help analyse potential problems.
 """
 
-# Signal handler is called on interrupt (ctrl-c) and terminate
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
 def main():
     freeze_support()
 
@@ -65,7 +58,7 @@ def main():
         ftdi.open_mpsse_from_url("ftdi:///1")
     except Exception as e:
         print(f"Error accessing FT232H chip: {e}")
-        sys.exit(2)
+        sys.exit(1)
 
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
@@ -75,7 +68,7 @@ def main():
     # create class instances
     DigitizeVideo(args, optocoupler_signal_subject)
 
-    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.gui, args.maxcount)
+    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount, args.gui)
 
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()
