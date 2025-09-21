@@ -256,7 +256,8 @@ class DigitizeVideo:
         read_time_start = time.perf_counter()
         self.take_picture(event)
         capture_duration = time.perf_counter() - read_time_start
-        self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
+        if self.gui and self.processed_frames % 100 == 0:
+            self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
         # === Slow path (chunk rollover, scheduling) in executor ===
         if self.processed_frames % self.chunk_size == 0:
@@ -465,39 +466,39 @@ class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
+        wait_time = np.asarray([x["wait_time"] for x in timing])
         work_time = np.asarray([x["work"] for x in timing])
+        total_work_time = np.asarray([x["total_work"] for x in timing])
         latency_time = np.asarray([x["latency"] for x in timing])
-        cycle_time = np.asarray([x["cycle"] for x in timing])
-        read_time = np.asarray([x["read"] for x in timing])
+
 
 
         if len(work_time) > 0:
-            self.logger.info(f"Average cycle time = {(np.average(cycle_time)):.5f} seconds")
-            self.logger.info(f"Minimum cycle time = {(np.min(cycle_time)):.5f}")
-            self.logger.info(f"Maximum cycle time = {(np.max(cycle_time)):.5f}")
+            self.logger.info(f"Average wait time = {(np.average(wait_time)):.5f} seconds")
+            self.logger.info(f"Minimum wait time = {(np.min(wait_time)):.5f}")
+            self.logger.info(f"Maximum wait time = {(np.max(wait_time)):.5f}")
 
             self.logger.info(f"Average work time = {(np.average(work_time)):.5f} seconds")
             self.logger.info(f"Minimum work time = {(np.min(work_time)):.5f}")
             self.logger.info(f"Maximum work time = {(np.max(work_time)):.5f}")
 
-            self.logger.info(f"Average read time = {(np.average(read_time)):.5f} seconds")
-            self.logger.info(f"Minimum read time = {(np.min(read_time)):.5f}")
-            self.logger.info(f"Maximum read time = {(np.max(read_time)):.5f}")
+            self.logger.info(f"Average Total work time = {(np.average(total_work_time)):.5f} seconds")
+            self.logger.info(f"Minimum Total work time = {(np.min(total_work_time)):.5f}")
+            self.logger.info(f"Maximum Total work time = {(np.max(total_work_time)):.5f}")
 
             self.logger.info(f"Average latency time = {(np.average(latency_time)):.5f} seconds")
             self.logger.info(f"Minimum latency time = {(np.min(latency_time)):.5f}")
             self.logger.info(f"Maximum latency time = {(np.max(latency_time)):.5f}")
 
-
-        timing.sort(key=lambda x: x["cycle"], reverse=True)
+        timing.sort(key=lambda x: x["total_work"], reverse=True)
 
         l = len(timing)
         for i in range(min(25, l)):
-            self.logger.info(f"longest cycle time for {i} {timing[i]}")
+            self.logger.info(f"longest total work time for {i} {timing[i]}")
 
         timing.reverse()
         for i in range(min(25, l)):
-            self.logger.info(f"shortest cycle time for {i} {timing[i]}")
+            self.logger.info(f"shortest total work time for {i} {timing[i]}")
 
         self.cleanup()
 

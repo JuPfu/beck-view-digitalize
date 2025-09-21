@@ -142,7 +142,7 @@ class Ft232hConnector:
 
         cdef double wait_time = 0.0
 
-        while (pins & self.EOF) != self.EOF and (count < min(self.__max_count, 255)):
+        while (pins & self.EOF) != self.EOF and count < self.__max_count:
             if (pins & self.OK1) == self.OK1:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
@@ -151,7 +151,7 @@ class Ft232hConnector:
                 count += 1
 
                 fps = 1.0 / delta
-                cycle_time = 1.0 / fps
+                cycle_time = delta
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 work_time_start = time.perf_counter()
@@ -165,13 +165,11 @@ class Ft232hConnector:
                 latency_start = time.perf_counter()
 
                 pins = self.gpio.read(1)[0]
-
                 while (pins & self.OK1) == self.OK1:
                     time.sleep(self.CYCLE_SLEEP)
                     pins = self.gpio.read(1)[0]
 
                 latency_time = time.perf_counter() - latency_start
-
                 if latency_time > self.LATENCY_THRESHOLD:
                     self.logger.warning(f"Suspicious high latency {latency_time} for frame {count} !")
 
@@ -196,6 +194,7 @@ class Ft232hConnector:
                     )
 
             # Retrieve pins
+            time.sleep(self.CYCLE_SLEEP)
             pins = self.gpio.read(1)[0]
 
         # Signal the completion of frame processing and EoF detection
