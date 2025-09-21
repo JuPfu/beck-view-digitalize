@@ -97,14 +97,6 @@ class CommandLineParser:
             default=False,
             help='beck-view-digitize started from beck-view-gui - default is false'
         )
-        # Add argument which is used to signal that the application had been started via beck-view-gui
-        self.parser.add_argument(
-            '-g', '--gui',
-            dest="gui",
-            action="store_true",
-            default=False,
-            help='beck-view-digitize started from beck-view-gui - default is false'
-        )
 
     def parse_args(self) -> argparse.Namespace:
         # Parse arguments and return the namespace
