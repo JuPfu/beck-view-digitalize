@@ -105,6 +105,8 @@ class DigitizeVideo:
                 api = cv2.CAP_DSHOW
             else:
                 api = cv2.CAP_MSMF
+        elif os.name == "posix":
+            api = cv2.CAP_V4L2
 
         self.cap = cv2.VideoCapture(self.device_number,
                                     api,
@@ -154,8 +156,8 @@ class DigitizeVideo:
 
         time.sleep(1)
 
-        # if os.name == "nt" and self.settings:
-        self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
+        if os.name == "nt" and self.settings:
+            self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
         self.logger.info(f"   frame width = {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
