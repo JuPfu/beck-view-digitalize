@@ -563,6 +563,8 @@ class DigitizeVideo:
         """
         name = signal.Signals(signum).name
         self.logger.warning(f"Signal {name} received, stopping...")
+        if frame != None:
+            self.logger.warning(f"{frame}")
 
         self.final_write_to_disk()
         sys.exit(1)
