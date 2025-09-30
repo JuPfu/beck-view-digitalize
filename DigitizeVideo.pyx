@@ -12,7 +12,7 @@ from multiprocessing import shared_memory
 import concurrent.futures
 import threading
 
-import os
+import platform
 import signal
 import sys
 import time
@@ -92,7 +92,10 @@ class DigitizeVideo:
 
     def initialize_bracketing(self) -> None:
         # Define exposure settings
-        self.exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
+        if platform.system() == "Linux":
+            self.exposures = [(1.0 / (1u << 7), "a"), (1.0 / (1u << 8), "b"), (1.0 / (1u << 6), "c")] if self.bracketing else [(1.0 / (1u << 7), "a")]
+        else:
+            self.exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
 
     def initialize_camera(self) -> None:
         # self.logger.info(f"Build details: {cv2.getBuildInformation()}")
@@ -100,12 +103,12 @@ class DigitizeVideo:
         Initialize the camera for video capturing based on the device number.
         """
         api: cython.int = cv2.CAP_ANY
-        if os.name == "nt":
+        if platform.system() == "Windows":
             if self.settings:
                 api = cv2.CAP_DSHOW
             else:
                 api = cv2.CAP_MSMF
-        elif os.name == "posix":
+        elif platform.system() == "Linux":
             api = cv2.CAP_V4L2
 
         self.cap = cv2.VideoCapture(self.device_number,
@@ -138,25 +141,29 @@ class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # automode
         time.sleep(1)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # manual
-        # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
-        # CAP_PROP_EXPOSURE  Actual exposure time
-        #     0                    1s
-        #    -1                    500ms
-        #    -2                    250ms
-        #    -3                    125ms
-        #    -4                    62.5ms
-        #    -5                    31.3ms
-        #    -6                    15.6ms
-        #    -7                     7.8ms
-        #    -8                     3.9ms
-        #    ...
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
+
+        if platform.system() == "Windows":
+            # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
+            # CAP_PROP_EXPOSURE  Actual exposure time
+            #     0                    1s
+            #    -1                    500ms
+            #    -2                    250ms
+            #    -3                    125ms
+            #    -4                    62.5ms
+            #    -5                    31.3ms
+            #    -6                    15.6ms
+            #    -7                     7.8ms
+            #    -8                     3.9ms
+            #    ...
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
+        else:
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1u << 7))
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
         time.sleep(1)
 
-        if os.name == "nt" and self.settings:
+        if platform.system() == "Windows" and self.settings:
             self.cap.set(cv2.CAP_PROP_SETTINGS, 0)  # launches DirectShow menu for ELP camera
 
         self.logger.info(f"Camera properties:")
