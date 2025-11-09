@@ -263,7 +263,7 @@ class DigitizeVideo:
         frame_count, start_cycle = event
 
         # Capture frame immediately (blocking, but fast if camera is primed)
-        work_time_start = time.perf_counter()
+        read_time_start = time.perf_counter()
         self.take_picture(event)
         capture_duration = time.perf_counter() - read_time_start
         if self.gui and self.processed_frames % 100 == 0:
