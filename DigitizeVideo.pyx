@@ -195,7 +195,8 @@ class DigitizeVideo:
 
         cpu_count = multiprocessing.cpu_count()
         self.logger.info(f"CPU count: {cpu_count}")
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=cpu_count)
+        # Default value of max_workers is changed to min(32, (os.process_cpu_count() or 1) + 4)
+        self.executor = concurrent.futures.ThreadPoolExecutor()
 
         # Create an observer for processing photo cell signals
         self.signal_observer = SignalObserver(self.final_write_to_disk)
@@ -213,9 +214,9 @@ class DigitizeVideo:
         self.img_bytes: cython.int = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
 
         # Calculate the optimal number of processes
-        self.process_count = multiprocessing.cpu_count()
+        self.process_count = max(2, multiprocessing.cpu_count() - 1)
         # Create a pool of worker processes
-        self.pool = multiprocessing.Pool(max(2, self.process_count - 1))
+        self.pool = multiprocessing.Pool(self.process_count)
 
         # Pre-allocate shared memory buffers
         self.shared_buffers = [
@@ -261,20 +262,25 @@ class DigitizeVideo:
     def handle_trigger(self, event: SubjectDescType) -> None:
         frame_count, start_cycle = event
 
-        # === FAST PATH: Capture only ===
-        read_time_start = time.perf_counter()
+        # Capture frame immediately (blocking, but fast if camera is primed)
+        work_time_start = time.perf_counter()
         self.take_picture(event)
         capture_duration = time.perf_counter() - read_time_start
         if self.gui and self.processed_frames % 100 == 0:
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
-        # === Slow path (chunk rollover, scheduling) in executor ===
+        # Slow path (chunk rollover, scheduling) in executor
         if self.processed_frames % self.chunk_size == 0:
+            # Write frames to disk in background
+
+            # snapshot descriptors for this chunk
             descriptors = list(self.img_desc)
+            # current buffer holds the just-filled chunk
             buffer_index = self.shared_buffers_index
 
             # Schedule async housekeeping
-            self.executor.submit(self._post_capture, buffer_index, descriptors)
+            future = self.executor.submit(self._post_capture, buffer_index, descriptors)
+            print("submit {future.result()}")
             self.img_desc = []
 
 
@@ -343,7 +349,9 @@ class DigitizeVideo:
         # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
         # Therefore, no discarding of a stale frame might be necessary any more. Clearly has to be tested !!!
         # if os.name == "nt" and self.settings:
-        _ = self.cap.read()  # discard stale frame
+        #
+        # Gerald added delay to the triggering of the optocoupler. Due to this adjustment we do not have to take a dummy picture and throw it away!
+        # _ = self.cap.read()  # discard stale frame
 
         for bracket_index, (exp_val, suffix) in enumerate(self.exposures):
             success, frame_data = self.cap.read()
@@ -365,9 +373,7 @@ class DigitizeVideo:
                 # Use memcpy to store frame data in shared memory
                 dst = & shm_view[start_index]
                 fmv = frame_data
-
-                with cython.nogil:
-                    memcpy(dst, &fmv[0,0,0], img_bytes)
+                memcpy(dst, &fmv[0,0,0], self.img_bytes)
 
                 self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
             else:
