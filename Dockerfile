@@ -1,27 +1,54 @@
 # https://stackoverflow.com/questions/72305901/how-to-mount-an-ftdi-usb-device-to-a-docker-container
 # Use a slim version of the python base image
-# FROM python:3.12.2-bookworm
+FROM python:3.13-bookworm
 
-FROM alpine:latest
+ENV UDEV="on"
+ENV BLINKA_FT232H="1"
+ENV BLINKA_FORCEBOARD="FTDI_FT232H"
+ENV BLINKA_FORCECHIP="FT232H"
+ENV FT232H="FT232H"
+ENV FTDI_FT232H="FTDI_FT232H"
 
-RUN apt-get update && apt-get install -y libusb-1.0 udev
-RUN apt-get install -y python3 py3-pip
-#RUN apk add --no-cache python-3.12.2 py3-pip # && ln -sf python3 /usr/bin/python
+ENV VIRTUAL_ENV=/venv
+ENV PATH=/venv/bin:$PATH
 
 # Set working directory
 WORKDIR /app
 
-#COPY 11-ftdi.rules /etc/udev/rules.d/11-ftdi.rules
+# Copy Python source code
+COPY . .
 COPY 11-ftdi.rules /usr/local/lib/udev/rules.d/11-ftdi.rules
+
+RUN apt-get update && apt-get install -y libusb-1.0 udev usbutils && /lib/systemd/systemd-udevd --daemon
+# RUN udevadm control --reload-rules
+# RUN sudo udevadm control -R
+
+# Install package dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        software-properties-common \
+        autoconf \
+        automake \
+        libtool \
+        pkg-config \
+        ca-certificates \
+        locales \
+        locales-all \
+        wget \
+        git &&\
+    apt-get clean \
+    python3 -m venv /venv
+
+#COPY 11-ftdi.rules /etc/udev/rules.d/11-ftdi.rules
 #COPY 99-ftdi.rules /etc/udev/rules.d/99-ftdi.rules
 #COPY ftdi.rules /etc/udev/rules.d/ftdi.rules
 
 #RUN apt-get add libusb-dev
-#RUN apt-get install -y libusb-1.0-0-dev usbutils
+# RUN apt-get install -y libusb-1.0-0-dev usbutils udev
 # ARG DEBIAN_FRONTEND=noninteractive
 # RUN apt-get update && apt-get install -y libusb-1.0 udev sudo # usbutils
-#RUN /lib/systemd/systemd-udevd --daemon
-#RUN udevadm control --reload-rules && udevadm trigger
+# RUN /lib/systemd/systemd-udevd --daemon
+# RUN udevadm control --reload-rules
 # RUN udevadm trigger
 # COPY libftd2xx.so.1.4.27 /usr/local/lib/libftd2xx.so
 #RUN chmod 0755 /usr/local/lib/libftd2xx.so
@@ -30,26 +57,17 @@ COPY 11-ftdi.rules /usr/local/lib/udev/rules.d/11-ftdi.rules
 
 # ENV PIP_BREAK_SYSTEM_PACKAGES 1
 
-ENV export UDEV=on
-ENV export BLINKA_FT232H="1"
-ENV export BLINKA_FORCEBOARD="FTDI_FT232H"
-ENV export BLINKA_FORCECHIP="FT232H"
-ENV export FT232H="FT232H"
-ENV export FTDI_FT232H="FTDI_FT232H"
 
+# Source - https://stackoverflow.com/a
+# Posted by KamilCuk, modified by community. See post 'Timeline' for change history
+# Retrieved 2025-11-12, License - CC BY-SA 4.0
 
+ENV VIRTUAL_ENV=/venv
+ENV PATH=/venv/bin:$PATH
 
-# Copy Python source code
-COPY . .
-
-# Install dependencies using pip
-# RUN pip install -r requirements.txt
-# RUN pip install --no-cache-dir --break-system-packages --upgrade pip
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt && ./install.sh
 
 # Set the main entrypoint command
-CMD [ "python", "main.py", "--help"]
+CMD [ "./beck-view-digitize", "--help"]
 
 
