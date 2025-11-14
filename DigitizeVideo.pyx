@@ -1,19 +1,25 @@
 import cython
 from cython.view cimport array  # Import for memory views
 
-cimport numpy as np  # Import numpy for uint8 type
-np.import_array()
+import numpy as np
+
+# "cimport" is used to import special compile-time information
+# about the numpy module (this is stored in a file numpy.pxd which is distributed with Numpy).
+# Here we've used the name "cnp" to make it easier to understand what comes from the cimported module and
+# what comes from the imported module, however you can use the same name for both if you wish.
+cimport numpy as np # Import numpy for uint8 type
 
 from libc.string cimport memcpy
 
 import logging
 import multiprocessing
-from multiprocessing import shared_memory
+from multiprocessing import shared_memory, set_start_method
 import concurrent.futures
 import threading
 
 import platform
 import signal
+import types
 import sys
 import time
 from argparse import Namespace
@@ -64,6 +70,11 @@ class DigitizeVideo:
         signal.signal(signal.SIGINT, self._on_signal)
         signal.signal(signal.SIGTERM, self._on_signal)
 
+        # It's necessary to call "import_array" as we use part of the numpy PyArray_* API.
+        # From Cython 3, accessing attributes like ".shape" on a typed Numpy array use this API.
+        # Therefore it is recommend to always calling "import_array" whenever "cimport numpy" is used.
+        np.import_array()
+
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_bracketing()
@@ -72,6 +83,7 @@ class DigitizeVideo:
         self.initialize_process_pool()
 
         self.img_desc: [ImgDescType] = []  # kind of meta data
+        self.img_desc_lock = threading.Lock() # for thread safety
 
         # Initialize counters and timing
         self.processed_frames: cython.int = 0
@@ -93,9 +105,15 @@ class DigitizeVideo:
     def initialize_bracketing(self) -> None:
         # Define exposure settings
         if platform.system() == "Linux":
-            self.exposures = [(1.0 / (1u << 7), "a"), (1.0 / (1u << 8), "b"), (1.0 / (1u << 6), "c")] if self.bracketing else [(1.0 / (1u << 7), "a")]
+            if self.bracketing:
+                self.exposures = [(1.0 / (1 << 7), "a"), (1.0 / (1 << 8), "b"), (1.0 / (1 << 6), "c")]
+            else:
+                self.exposures = [(1.0 / (1 << 7), "a")]
         else:
-            self.exposures = [(-7, "a"), (-8, "b"), (-6, "c")] if self.bracketing else [(-7, "a")]
+            if self.bracketing:
+                self.exposures = [(-7, "a"), (-8, "b"), (-6, "c")]
+            else:
+                self.exposures = [(-7, "a")]
 
     def initialize_camera(self) -> None:
         # self.logger.info(f"Build details: {cv2.getBuildInformation()}")
@@ -157,7 +175,7 @@ class DigitizeVideo:
             #    ...
             self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
         else:
-            self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1u << 7))
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1 << 7))
 
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
 
@@ -207,6 +225,18 @@ class DigitizeVideo:
             ops.map(lambda event: self.handle_trigger(event))
         ).subscribe(self.signal_observer)
 
+    def shm_to_uint8_1d(buf, Py_ssize_t total):
+        """
+        Convert a shared memory buffer (or any buffer) to a 1D uint8 image:
+        """
+
+        # interpret buffer as a 1D uint8 numpy array
+        cdef np.ndarray[np.uint8_t, ndim=1] arr1d
+        arr1d = np.frombuffer(buf, dtype=np.uint8, count=total)
+
+        cdef unsigned char[:] mv = arr1d
+        return mv
+
     def initialize_process_pool(self) -> None:
         """
         Create a pool of worker processes for parallel processing.
@@ -218,12 +248,21 @@ class DigitizeVideo:
         # Create a pool of worker processes
         self.pool = multiprocessing.Pool(self.process_count)
 
+        try:
+            if multiprocessing.get_start_method(allow_none=True) != "forkserver":
+                set_start_method("forkserver")
+        except RuntimeError:
+            # already set; ignore
+            pass
+
         # Pre-allocate shared memory buffers
         self.shared_buffers = [
             shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes)) for _ in range(self.process_count)
         ]
 
-        self._shm_views: [memoryview] = [memoryview(b.buf) for b in self.shared_buffers]
+        self._shm_views = []
+        for shm in self.shared_buffers:
+            self._shm_views.append(self.shm_to_uint8_1d(shm.buf, self.chunk_size * self.img_bytes))
 
         # bookkeeping for round-robin buffers
         self.shared_buffers_index: cython.int = 0
@@ -235,11 +274,6 @@ class DigitizeVideo:
         self.processes: [ProcessType] = []
 
     def _release_views(self) -> None:
-        for v in getattr(self, "_shm_views", []):
-            try:
-                v.release()
-            except Exception:
-                pass
         self._shm_views = []
 
     def _cleanup_finished_processes(self) -> None:
@@ -274,20 +308,22 @@ class DigitizeVideo:
             # Write frames to disk in background
 
             # snapshot descriptors for this chunk
-            descriptors = list(self.img_desc)
+            with self.img_desc_lock:
+                descriptors = list(self.img_desc)
+                self.img_desc = []
+
+            with self.buffer_lock:
+                self.buffers_in_use[self.shared_buffers_index] = True
+
             # current buffer holds the just-filled chunk
             buffer_index = self.shared_buffers_index
 
             # Schedule async housekeeping
             future = self.executor.submit(self._post_capture, buffer_index, descriptors)
-            print("submit {future.result()}")
-            self.img_desc = []
 
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
         """Executed in thread pool — can block without stalling next frame capture."""
-        with self.buffer_lock:
-            self.buffers_in_use[buffer_index] = True
 
         next_buf = None
         while next_buf is None:
@@ -341,6 +377,7 @@ class DigitizeVideo:
         cdef unsigned char[:] shm_view
         cdef unsigned char* dst
         cdef np.uint8_t[:, :, :] fmv
+        cdef np.uint8_t[:] blank
 
         frame_count, signal_time = descriptor
 
@@ -372,18 +409,25 @@ class DigitizeVideo:
             if success:
                 # Use memcpy to store frame data in shared memory
                 dst = & shm_view[start_index]
+                if not frame_data.flags.c_contiguous or frame_data.dtype != np.uint8:
+                    frame_data = np.ascontiguousarray(frame_data, dtype=np.uint8)
                 fmv = frame_data
-                memcpy(dst, &fmv[0,0,0], self.img_bytes)
+                # fmv ist np.uint8_t[:, :, :] (memoryview / ndarray view)
+                # dst ist unsigned char* (Pointer in shared memory)
+                memcpy(dst, &fmv[0, 0, 0], self.img_bytes)
 
                 self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
             else:
                 self.logger.error(f"Read error at frame {frame_count}{suffix}, exposure {exp_val}")
                 blank_data = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
-                shm_view[start_index:start_index + self.img_bytes] = blank_data.reshape(-1)
+                blank = blank_data.ravel()
+                shm_view[start_index : start_index + img_bytes] = blank
 
             # Create a frame description tuple and append it to the list
             frame_item: ImgDescType = (img_bytes, frame_count, suffix)
-            self.img_desc.append(frame_item)
+
+            with self.img_desc_lock:
+                self.img_desc.append(frame_item)
 
             # Increment the processed frame count
             self.processed_frames += 1
@@ -454,10 +498,6 @@ class DigitizeVideo:
             # schedule write
             self.write_to_disk(current_buf, descriptors)
             self.img_desc = []
-
-        # shutdown executor threads (they schedule tasks synchronously to pool)
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=True)
 
         # wait for all pool jobs to finish; cleanup shared memory handles
         while self.processes:
@@ -536,6 +576,7 @@ class DigitizeVideo:
 
         self.logger.info("Cleaning up ...")
 
+        # shutdown executor threads (they schedule tasks synchronously to pool)
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=True)
 
