@@ -1,7 +1,7 @@
 rm -rf dist
 rm -rf *.c *.so
-python setup.py clean --all
-python setup.py build_ext --inplace
+python setup.py clean -a
+python setup.py build_ext -i
 mkdir -p dist
 mv *.so dist/
 pyinstaller beck-view-digitize.spec --noconfirm
