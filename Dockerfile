@@ -22,6 +22,7 @@ COPY 11-ftdi.rules /usr/local/lib/udev/rules.d/11-ftdi.rules
 RUN apt-get update && apt-get install -y libusb-1.0 udev usbutils && /lib/systemd/systemd-udevd --daemon
 # RUN udevadm control --reload-rules
 # RUN sudo udevadm control -R
+RUN apt-get install -y libftdi1
 
 # Install package dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -66,8 +67,9 @@ ENV VIRTUAL_ENV=/venv
 ENV PATH=/venv/bin:$PATH
 
 RUN pip install -r requirements.txt && ./install.sh
+ENV ARGS="--help"
 
 # Set the main entrypoint command
-CMD [ "./beck-view-digitize", "--help"]
+CMD ./beck-view-digitize ${ARGS}
 
 
