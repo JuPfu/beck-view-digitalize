@@ -225,7 +225,7 @@ class DigitizeVideo:
             ops.map(lambda event: self.handle_trigger(event))
         ).subscribe(self.signal_observer)
 
-    def shm_to_uint8_1d(buf, Py_ssize_t total):
+    def shm_to_uint8_1d(self, buf, Py_ssize_t total):
         """
         Convert a shared memory buffer (or any buffer) to a 1D uint8 image:
         """
