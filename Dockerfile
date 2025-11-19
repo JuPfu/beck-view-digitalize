@@ -38,8 +38,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean \
     python3 -m venv /venv
 
-# RUN /lib/systemd/systemd-udevd --daemon
-# RUN udevadm control --reload-rules
 # RUN udevadm trigger
 # COPY libftd2xx.so.1.4.27 /usr/local/lib/libftd2xx.so
 #RUN chmod 0755 /usr/local/lib/libftd2xx.so
@@ -49,7 +47,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Source - https://stackoverflow.com/a
 # Posted by KamilCuk, modified by community. See post 'Timeline' for change history
 # Retrieved 2025-11-12, License - CC BY-SA 4.0
-
 
 RUN pip install -r requirements.txt && ./install.sh
 
