@@ -130,8 +130,6 @@ class Ft232hConnector:
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
 
-        cdef double fps = 0.0
-
         cdef double work_time_start = 0.0
         cdef double work_time = 0.0
 
@@ -150,7 +148,6 @@ class Ft232hConnector:
 
                 count += 1
 
-                fps = 1.0 / delta
                 cycle_time = delta
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
@@ -189,7 +186,7 @@ class Ft232hConnector:
 
                 if wait_time <= 0.0:
                     self.logger.warning(
-                        f"Negative wait time {wait_time:.5f} s for frame {count} at fps={fps}."
+                        f"Negative wait time {wait_time:.5f} s for frame {count} at fps={1.0 / delta}."
                         f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
 
