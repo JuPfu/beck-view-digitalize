@@ -37,12 +37,21 @@ from Timing import timing
 from TypeDefinitions import ImgDescType, ProcessType, SubjectDescType
 from WriteImages import write_images
 
-class DigitizeVideo:
+cdef class DigitizeVideo:
     """
     Class for digitizing analog super 8 film frames.
 
     This class initializes a video capturing process and provides methods to process frames using reactive programming.
     """
+
+    cpdef bint set_exposure(self, double exp_val):
+        """Set exposure on the underlying VideoCapture; return True/False."""
+        return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
+
+    # It's necessary to call "import_array" as we use part of the numpy PyArray_* API.
+    # From Cython 3, accessing attributes like ".shape" on a typed Numpy array use this API.
+    # Therefore it is recommend to always calling "import_array" whenever "cimport numpy" is used.
+    np.import_array()
 
     def __init__(self, args: Namespace, signal_subject: Subject) -> None:
         """
@@ -70,11 +79,6 @@ class DigitizeVideo:
         signal.signal(signal.SIGINT, self._on_signal)
         signal.signal(signal.SIGTERM, self._on_signal)
 
-        # It's necessary to call "import_array" as we use part of the numpy PyArray_* API.
-        # From Cython 3, accessing attributes like ".shape" on a typed Numpy array use this API.
-        # Therefore it is recommend to always calling "import_array" whenever "cimport numpy" is used.
-        np.import_array()
-
         # Set up logging, camera, threading and process pool
         self.initialize_logging()
         self.initialize_bracketing()
@@ -84,6 +88,8 @@ class DigitizeVideo:
 
         self.img_desc: [ImgDescType] = []  # kind of meta data
         self.img_desc_lock = threading.Lock() # for thread safety
+
+        self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
 
         # Initialize counters and timing
         self.processed_frames: cython.int = 0
@@ -225,17 +231,16 @@ class DigitizeVideo:
             ops.map(lambda event: self.handle_trigger(event))
         ).subscribe(self.signal_observer)
 
-    def shm_to_uint8_1d(self, buf, Py_ssize_t total):
+    cdef np.ndarray shm_to_uint8_4d(self, buf, Py_ssize_t frames, int h, int w):
         """
-        Convert a shared memory buffer (or any buffer) to a 1D uint8 image:
+        Return a numpy ndarray shaped (frames, h, w, 3) backed by shm.buf.
+        Caller must keep returned ndarray alive (we store references in self._shm_arrays).
         """
-
-        # interpret buffer as a 1D uint8 numpy array
         cdef np.ndarray[np.uint8_t, ndim=1] arr1d
-        arr1d = np.frombuffer(buf, dtype=np.uint8, count=total)
-
-        cdef unsigned char[:] mv = arr1d
-        return mv
+        # create 1D view
+        arr1d = np.frombuffer(buf, dtype=np.uint8, count=frames * h * w * 3)
+        # reshape (this is still an ndarray; efficient & zero-copy)
+        return arr1d.reshape(frames, h, w, 3)
 
     def initialize_process_pool(self) -> None:
         """
@@ -260,9 +265,12 @@ class DigitizeVideo:
             shared_memory.SharedMemory(create=True, size=(self.chunk_size * self.img_bytes)) for _ in range(self.process_count)
         ]
 
-        self._shm_views = []
-        for shm in self.shared_buffers:
-            self._shm_views.append(self.shm_to_uint8_1d(shm.buf, self.chunk_size * self.img_bytes))
+        frames_total = self.chunk_size  # number of frames in a buffer
+
+        self._shm_arrays = [
+            self.shm_to_uint8_4d(shm.buf, frames_total, self.img_height, self.img_width)
+            for shm in self.shared_buffers
+        ]
 
         # bookkeeping for round-robin buffers
         self.shared_buffers_index: cython.int = 0
@@ -274,7 +282,7 @@ class DigitizeVideo:
         self.processes: [ProcessType] = []
 
     def _release_views(self) -> None:
-        self._shm_views = []
+        self._shm_arrays = []
 
     def _cleanup_finished_processes(self) -> None:
         """Poll finished child processes, close their SharedMemory and mark buffer free."""
@@ -299,9 +307,6 @@ class DigitizeVideo:
         # Capture frame immediately (blocking, but fast if camera is primed)
         read_time_start = time.perf_counter()
         self.take_picture(event)
-        capture_duration = time.perf_counter() - read_time_start
-        if self.gui and self.processed_frames % 100 == 0:
-            self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
         # Slow path (chunk rollover, scheduling) in executor
         if self.processed_frames % self.chunk_size == 0:
@@ -321,6 +326,9 @@ class DigitizeVideo:
             # Schedule async housekeeping
             future = self.executor.submit(self._post_capture, buffer_index, descriptors)
 
+        if self.gui and self.processed_frames % 100 == 0:
+            capture_duration = time.perf_counter() - read_time_start
+            self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
         """Executed in thread pool — can block without stalling next frame capture."""
@@ -344,98 +352,77 @@ class DigitizeVideo:
         # Schedule write to disk (still async to process pool)
         self.write_to_disk(buffer_index, descriptors)
 
-    def take_picture(self, descriptor: SubjectDescType) -> None:
+    cdef void take_picture(self, descriptor):
         """
         Capture frame(s) from the camera. If bracketing is enabled, capture three exposures:
         - standard (-7, suffix 'a'), short (-8, suffix 'b'), long (-6, suffix 'c').
         Returns None.
-
-        Assuming the digitalizing process does 5 frames per second, this is 0.2 seconds per frame.
-        About 30% of this time belongs to the frame advance process. Therefore, we have about 0.14 seconds left
-        for the current frame to be at rest in front of the projector lens. This time is split up into the following
-        segments.
-
-        0.14 seconds
-                        ca. 0.008 seconds 1/128 seconds for the first exposure
-                            0.03 seconds sleep to give the camera enough time to adjust for the change in exposure time
-                        ca. 0.004 seconds 1/256 seconds for the second exposure
-                            0.03 seconds sleep to give the camera enough time to adjust for the change in exposure time
-                        ca. 0.016 seconds 1/64 seconds for the third exposure
-                        sum 0.088 seconds, this means still some spare time of about 0.05 seconds for the program to do
-                            some work, e.g. take care of the digitised frames and pass them batch-wise to the writing
-                            processes.
         """
         cdef int frame_count
         cdef double signal_time
-
         cdef int bracket_index
-        cdef int start_index
         cdef int frame_multiplier = self.frame_multiplier
         cdef int chunk_size = self.chunk_size
         cdef int img_bytes = self.img_bytes
+        cdef list exposures = self.exposures
+        cdef int buffers_index = self.shared_buffers_index
 
-        cdef unsigned char[:] shm_view
-        cdef unsigned char* dst
-        cdef np.uint8_t[:, :, :] fmv
-        cdef np.uint8_t[:] blank
+        cdef int logical_index
+        cdef int frame_index
+
+        cdef np.ndarray[np.uint8_t, ndim=4] shm_view
+        cdef np.ndarray[np.uint8_t, ndim=3] shm_frame
+        cdef np.ndarray[np.uint8_t, ndim=3] fmv
+        cdef np.ndarray[np.uint8_t, ndim=3] blank
+
+        cdef unsigned char *src_ptr
+        cdef unsigned char *dst_ptr
 
         frame_count, signal_time = descriptor
 
-        cdef bint success
-
-        # ChatGPT points out that self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) ensures that the latest frame is read.
-        # Therefore, no discarding of a stale frame might be necessary any more. Clearly has to be tested !!!
-        # if os.name == "nt" and self.settings:
-        #
-        # Gerald added delay to the triggering of the optocoupler. Due to this adjustment we do not have to take a dummy picture and throw it away!
-        # _ = self.cap.read()  # discard stale frame
-
-        for bracket_index, (exp_val, suffix) in enumerate(self.exposures):
+        for bracket_index, (exp_val, suffix) in enumerate(exposures):
+            # Acquire image from camera (Python-level call; returns (success, ndarray))
             success, frame_data = self.cap.read()
 
-            if self.bracketing:
-                if bracket_index < 2:
-                    (exp_val, _) = self.exposures[bracket_index + 1]
-                    result = self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
-                    if not result:
-                        self.logger.error(f"Could not set exposure to {exp_val} working on frame {frame_count}{suffix}")
-                    time.sleep(0.01)  # brief pause to let exposure apply
+            if self.bracketing and bracket_index < 2:
+                (exp_val, _) = exposures[bracket_index + 1]
+                if not self.set_exposure(exp_val):
+                    self.logger.error(f"Could not set exposure to {exp_val} for frame {frame_count}{suffix}")
+                time.sleep(0.01)
 
-            # Calculate the index for this frame in the pre-allocated shared buffer slice
-            start_index: cython.int = ((frame_count * frame_multiplier + bracket_index) % chunk_size) * img_bytes
+            logical_index = frame_count * frame_multiplier
+            frame_index = (logical_index + bracket_index) % chunk_size
 
-            shm_view = self._shm_views[self.shared_buffers_index]
+            shm_view = self._shm_arrays[buffers_index]   # ndarray (frames, h, w, 3)
+            shm_frame = shm_view[frame_index]            # ndarray (h, w, 3)
 
             if success:
-                # Use memcpy to store frame data in shared memory
-                dst = & shm_view[start_index]
+                # ensure contiguous uint8 ndarray
                 if not frame_data.flags.c_contiguous or frame_data.dtype != np.uint8:
                     frame_data = np.ascontiguousarray(frame_data, dtype=np.uint8)
                 fmv = frame_data
-                # fmv ist np.uint8_t[:, :, :] (memoryview / ndarray view)
-                # dst ist unsigned char* (Pointer in shared memory)
-                memcpy(dst, &fmv[0, 0, 0], self.img_bytes)
-
-                self.logger.debug(f"Frame {frame_count} exposure {suffix} stored at index {start_index}")
+                # pointers to memcpy
+                src_ptr = <unsigned char*> &fmv[0, 0, 0]
+                dst_ptr = <unsigned char*> &shm_frame[0, 0, 0]
+                memcpy(dst_ptr, src_ptr, img_bytes)
             else:
-                self.logger.error(f"Read error at frame {frame_count}{suffix}, exposure {exp_val}")
-                blank_data = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
-                blank = blank_data.ravel()
-                shm_view[start_index : start_index + img_bytes] = blank
+                blank = self.blank_frame
+                src_ptr = <unsigned char*> &blank[0, 0, 0]
+                dst_ptr = <unsigned char*> &shm_frame[0, 0, 0]
+                memcpy(dst_ptr, src_ptr, img_bytes)
 
-            # Create a frame description tuple and append it to the list
-            frame_item: ImgDescType = (img_bytes, frame_count, suffix)
-
+            # descriptor bookkeeping (Python objects)
+            frame_item = (img_bytes, frame_count, suffix)
             with self.img_desc_lock:
                 self.img_desc.append(frame_item)
 
-            # Increment the processed frame count
             self.processed_frames += 1
 
-        # reset to standard exposure after end of loop - this avoids one time.sleep(0.05)
+        # reset exposure to default after bracketing run
         if self.bracketing:
-            (exp_val, _) = self.exposures[0]
-            self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val)
+            (exp_val, _) = exposures[0]
+            self.set_exposure(exp_val)
+
 
     def write_to_disk(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
         """
@@ -525,8 +512,6 @@ class DigitizeVideo:
         work_time = np.asarray([x["work"] for x in timing])
         total_work_time = np.asarray([x["total_work"] for x in timing])
         latency_time = np.asarray([x["latency"] for x in timing])
-
-
 
         if len(work_time) > 0:
             self.logger.info(f"Average wait time = {(np.average(wait_time)):.5f} seconds")
