@@ -1,17 +1,16 @@
-import cython
+# WriteImages.pyx
+# cython: boundscheck=False, wraparound=False, cdivision=True
+# distutils: language = c
 
-import logging
-import sys
 from multiprocessing import shared_memory
+from pathlib import Path
 
+cimport numpy as cnp
+import numpy as np
 import cv2
 
-# Use memory views for better performance than NumPy arrays
-import numpy as np
-cimport numpy as np
-
-from TypeDefinitions import ImgDescType
-from pathlib import Path
+import sys
+import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -19,74 +18,135 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
-def write_images(shm_name: cython.str,
-                 img_desc: cython.list[ImgDescType],
-                 img_width: cython.int,
-                 img_height: cython.int,
-                 output_path: Path) -> cython.list[ImgDescType]:
+
+# typed signature — usable from apply_async in the process pool
+cpdef void write_images(
+        str shm_name,
+        str desc_name,
+        int frames_total,
+        int img_width,
+        int img_height,
+        object output_path):
     """
-    Write batch of images to persistent storage from shared memory.
+    Read frames and per-frame descriptors from shared memory and write PNG files.
 
-    Args:
-        shm_name: str -- Reference to shared memory.
-        img_desc: list[ImgDescType] -- The size of the image data and frame number for each image in the chunk.
-        img_width: int -- Width of images.
-        img_height: int -- Height of images.
-        output_path: Path -- Directory path to save images.
-
-    Returns:
-        list[ImgDescType]: The image descriptions array.
+    Expected SHM layout (per-DigitizeVideo.pyx):
+      - pixel SHM: flat uint8 array sized frames_total * img_bytes
+      - desc SHM:  uint32 array shaped (frames_total, 3) with columns:
+            [0] = img_bytes (uint32)
+            [1] = frame_count (uint32)
+            [2] = bracket_index (uint32)  # 0->'a',1->'b',2->'c'
     """
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    cdef:
+        cnp.ndarray[cnp.uint8_t, ndim=1] pixel_np
+        cnp.ndarray[cnp.uint32_t, ndim=2] desc_np
+        int i
+        int img_bytes = img_width * img_height * 3
+        int offset
+        int start, end
+        int stored_bytes
+        int frame_count
+        int bracket_index
+        object out_path_obj
+        object fname
+        tuple suffix_map = ('a', 'b', 'c')
 
-    cdef int total_size, start, end, frame_bytes, frame_count, success
+    # normalize output path (accepts str or Path)
+    try:
+        out_path_obj = Path(output_path)
+    except Exception:
+        out_path_obj = Path(str(output_path))
 
-    # Initialize shared memory
+    # attach SHM objects (python-level)
     try:
         shm = shared_memory.SharedMemory(name=shm_name, create=False)
     except Exception as e:
-        logger.error(f"Failed to initialize SharedMemory: {e}")
-        return img_desc
+        # can't attach pixel SHM
+        logger.error(f"[write_images] failed to attach pixel SHM '{shm_name}': {e}")
+        return
 
     try:
-        # Calculate total size of the image data
-        total_size = sum(desc[0] for desc in img_desc)
-
-        # Create a NumPy array view of the shared memory buffer
-        data = np.ndarray((total_size,), dtype=np.uint8, buffer=shm.buf)
-
-        def write_single_image(start: int, end: int, frame_bytes: int, frame_count: int, suffix: str):
-            try:
-                # Set the output filename for the current frame
-                filename = output_path / f"frame{frame_count:05d}{suffix}.png"
-                # Reshape the slice of data to the image shape (height, width, 3)
-                image_data = data[start:end].reshape((img_height, img_width, 3))
-                # Write the image data to persistent storage
-                success = cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_PNG_COMPRESSION, 3])
-                if not success:
-                    logger.error(f"Failed to write image: {filename}")
-            except Exception as e:
-                logger.error(f"Error writing image frame {frame_count}: {e}")
-
-        futures = []
-        end = 0
-        with ThreadPoolExecutor(max_workers=min(8, len(img_desc))) as executor:
-            for frame_bytes, frame_count, suffix in img_desc:
-                start = end
-                end += frame_bytes  # Calculate the end index for the current image slice
-                futures.append(executor.submit(write_single_image, start, end, frame_bytes, frame_count, suffix))
-
-            for future in as_completed(futures):
-                future.result()
-
+        desc_shm = shared_memory.SharedMemory(name=desc_name, create=False)
     except Exception as e:
-        logger.error(f"Error in child process: {e}")
-
-    finally:
+        logger.error(f"[write_images] failed to attach desc SHM '{desc_name}': {e}")
         try:
             shm.close()
-        except Exception as e:
-            logger.warning(f"SharedMemory close failed: {e}")
+        except Exception:
+            pass
+        return
 
-    return img_desc
+    try:
+        # Map pixel SHM -> 1D uint8 ndarray
+        pixel_np = np.ndarray((frames_total * img_bytes,), dtype=np.uint8, buffer=shm.buf)
+
+        # Map descriptor SHM -> (frames_total, 3) uint32 ndarray
+        desc_np = np.ndarray((frames_total, 3), dtype=np.uint32, buffer=desc_shm.buf)
+    except Exception as e:
+        logger.error(f"[write_images] failed to map SHM into numpy arrays: {e}")
+        try:
+            shm.close()
+        except Exception:
+            pass
+        try:
+            desc_shm.close()
+        except Exception:
+            pass
+        return
+
+    # iterate frames (frames_total slots). For each slot compute offset = i * img_bytes
+    for i in range(frames_total):
+        # read per-frame descriptor (as integers)
+        # desc_np[i,0] is the stored img_bytes (uint32)
+        stored_bytes = int(desc_np[i, 0])
+        frame_count = int(desc_np[i, 1])
+        bracket_index = int(desc_np[i, 2])
+
+        # if stored_bytes is zero or mismatches expected size, skip
+        if stored_bytes == 0:
+            # nothing stored in this slot
+            continue
+
+        if stored_bytes != img_bytes:
+            # mismatch: warn and continue
+            logger.error(f"[write_images] size mismatch slot={i} stored={stored_bytes} expected={img_bytes}")
+            # still attempt to read min(stored_bytes, img_bytes)
+            # but to keep simple, we'll skip
+            continue
+
+        offset = i * img_bytes
+        start = offset
+        end = offset + img_bytes
+
+        try:
+            # zero-copy slice view into shared memory
+            frame_flat = pixel_np[start:end]
+            # reshape to (h, w, 3)
+            frame_arr = frame_flat.reshape((img_height, img_width, 3))
+
+            # suffix from bracket_index (fallback to 'a'.. if out of range)
+            if 0 <= bracket_index < len(suffix_map):
+                suffix = suffix_map[bracket_index]
+            else:
+                suffix = 'a'
+
+            fname = out_path_obj / f"frame{frame_count:05d}{suffix}.png"
+
+            # write with OpenCV (cv2.imwrite returns True/False)
+            success = cv2.imwrite(str(fname), frame_arr, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+            if not success:
+                logger.error(f"[write_images] failed to write {fname}")
+        except Exception as e:
+            logger.error(f"[write_images] error writing frame slot={i} frame={frame_count}: {e}")
+
+    # cleanup
+    try:
+        shm.close()
+    except Exception:
+        pass
+    try:
+        desc_shm.close()
+    except Exception:
+        pass
+
+    return

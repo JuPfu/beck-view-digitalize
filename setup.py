@@ -15,7 +15,7 @@ extensions = [
         name=splitext(basename(pyx_file))[0],
         sources=[pyx_file],
         include_dirs=[np.get_include()],
-        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"), ("CYTHON_PROFILE","0")],
         extra_compile_args=compile_args
     )
     for pyx_file in pyx_files
