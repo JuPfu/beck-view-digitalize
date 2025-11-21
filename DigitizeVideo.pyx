@@ -365,6 +365,10 @@ cdef class DigitizeVideo:
 
             with self.buffer_lock:
                 self.processes.append((result, shm, buffer_index))
+
+            # clear descriptor shm for next use
+            desc_arr = self._desc_arrays[buffer_index]
+            desc_arr.fill(0)
         except Exception as e:
             self.logger.error(f"Error during apply_async: {e}")
             with self.buffer_lock:
@@ -492,6 +496,9 @@ cdef class DigitizeVideo:
                 with self.buffer_lock:
                     self.processes.append((result, shm, current_buf))
 
+                # clear descriptor shm for next use
+                desc_arr = self._desc_arrays[current_buf]
+                desc_arr.fill(0)
             except Exception as e:
                 self.logger.error(f"Error during final apply_async: {e}")
                 with self.buffer_lock:
