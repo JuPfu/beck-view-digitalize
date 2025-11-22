@@ -136,7 +136,8 @@ cdef class DigitizeVideo:
         self.img_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
 
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+        # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+        self.compression_level = 3
 
         # Format of the Mat objects (see Mat::type()) returned by VideoCapture::retrieve().
         # Set value -1 to fetch undecoded RAW video streams (as Mat 8UC1).
@@ -359,7 +360,7 @@ cdef class DigitizeVideo:
 
             result = self.pool.apply_async(
                 write_images,
-                args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path),
+                args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path, self.compression_level),
                 error_callback=process_error_callback
             )
 

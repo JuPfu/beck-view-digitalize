@@ -1,5 +1,6 @@
 rm -rf dist
 rm -rf *.c *.so
+python -m pip install --upgrade pip setuptools wheel cython
 python setup.py clean -a
 python setup.py build_ext -i
 mkdir -p dist
