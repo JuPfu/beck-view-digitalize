@@ -488,9 +488,15 @@ cdef class DigitizeVideo:
 
                 result = self.pool.apply_async(
                     write_images,
-                    args=(shm_name, desc_name, frames_total,
-                          self.img_width, self.img_height,
-                          self.output_path),
+                    args=(
+                        shm_name,
+                        desc_name,
+                        frames_total,
+                        self.img_width,
+                        self.img_height,
+                        self.output_path,
+                        self.compression_level
+                    ),
                     error_callback=process_error_callback
                 )
 
