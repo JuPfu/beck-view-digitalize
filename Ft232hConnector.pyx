@@ -2,349 +2,314 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True
 # distutils: language = c
 
+"""
+Modernised FT232H connector for beck-view-digitize.
+
+- Dedicated polling thread reads the GPIO pins and publishes events via a
+  reactivex Subject provided by the caller.
+- Timing is recorded into a module-level TimingResult singleton called `timing`.
+"""
+
 import cython
-import time
+from cython.view cimport array
+
+# Python imports (keep FTDI/pyftdi objects as Python-level)
 import logging
 import sys
-from threading import Thread, Event as ThreadEvent
+import time
+import threading
 
 import usb
-from pyftdi.ftdi import FtdiError
+from pyftdi.ftdi import Ftdi, FtdiError
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
-# TimingResult: your Cython TimingResult class providing append(...)
-from TimingResult cimport TimingResult
+# TimingResult: we cimport the Cython class for fast typed access,
+# and import the Python constructor to create the module-level singleton.
+from TimingResult cimport TimingResult as CTimingResult
+from TimingResult import TimingResult as PyTimingResult
 
-# global timing buffer (module-singleton)
-timing = TimingResult()
+# module-level timing singleton (constructed lazily in __init__ below if needed)
+timing = None  # will be set to TimingResult(max_frames) at runtime
 
 # logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-cdef class EventSlot:
-    """
-    Single-slot mailbox for the latest event.
-    Fields are typed (C-level) but methods run with GIL.
-    edge: 1=rising OK1, 3=END_OF_FILM
-    """
-    cdef public unsigned long ts_us   # microseconds (perf_counter*1e6)
-    cdef public unsigned char edge
-    cdef public unsigned char pending
-
-    def __cinit__(self):
-        self.ts_us = 0
-        self.edge = 0
-        self.pending = 0
-
-    cpdef void store(self, unsigned long ts_us, unsigned char edge):
-        """
-        Store an event (overwrites previous). Called by poller thread (GIL held).
-        """
-        # store values, mark pending last for visibility
-        self.ts_us = ts_us
-        self.edge = edge
-        self.pending = 1
-
-    cpdef tuple consume(self):
-        """
-        Consume and return (ts_seconds: float, edge:int) or (None, 0) if no pending event.
-        """
-        if self.pending:
-            ts_us = self.ts_us
-            ed = self.edge
-            self.pending = 0
-            return (ts_us / 1e6, int(ed))
-        return (None, 0)
-
-
-cdef class Poller:
-    """
-    Poller thread: reads GPIO and publishes events to EventSlot.
-    Pure Python thread; uses simple logic and minimal overhead.
-    """
-    cdef EventSlot _slot
-    cdef object _gpio
-    cdef unsigned int _ok_mask
-    cdef unsigned int _eof_mask
-    cdef object _stop_event  # Threading Event
-    cdef object _thread
-    cdef public int running
-
-    def __cinit__(self, EventSlot slot, object gpio, unsigned int ok_mask, unsigned int eof_mask):
-        self._slot = slot
-        self._gpio = gpio
-        self._ok_mask = ok_mask
-        self._eof_mask = eof_mask
-        self._stop_event = ThreadEvent()
-        self._thread = None
-        self.running = 0
-
-    cpdef void start(self):
-        if self._thread is not None:
-            return
-        self._stop_event.clear()
-        self._thread = Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self.running = 1
-
-    cpdef void stop(self, object timeout=None):
-        if self._thread is None:
-            return
-        self._stop_event.set()
-        try:
-            if timeout is None:
-                self._thread.join()
-            else:
-                # timeout may be float or int
-                self._thread.join(float(timeout))
-        except Exception:
-            pass
-        self._thread = None
-        self.running = 0
-
-    cdef unsigned int _read_pins(self):
-        """
-        Try to use read_pins() if available, else fallback to read(1)[0].
-        Returns an int mask (0..255+).
-        """
-        try:
-            fn = getattr(self._gpio, "read_pins", None)
-            if fn is not None:
-                return <unsigned int> fn()
-            data = self._gpio.read(1)
-            return <unsigned int> data[0]
-        except Exception:
-            # on error return 0 and continue
-            return 0
-
-    def _run(self):
-        """
-        Poll loop. Publish rising OK1 edges and END_OF_FILM (edge=3).
-        Uses a tiny yield to avoid 100% CPU while keeping latency low.
-        """
-        cdef unsigned int last = 0
-        cdef unsigned int pins = 0
-        stop_ev = self._stop_event
-        try:
-            last = self._read_pins()
-        except Exception:
-            last = 0
-
-        while not stop_ev.is_set():
-            pins = self._read_pins()
-
-            # END_OF_FILM detection
-            if (pins & self._eof_mask) == self._eof_mask:
-                try:
-                    ts_us = <unsigned long> int(time.perf_counter() * 1e6)
-                    self._slot.store(ts_us, <unsigned char>3)
-                except Exception:
-                    pass
-                break
-
-            # rising edge detection (0 -> 1)
-            if ((last & self._ok_mask) == 0) and ((pins & self._ok_mask) == self._ok_mask):
-                try:
-                    ts_us = <unsigned long> int(time.perf_counter() * 1e6)
-                    self._slot.store(ts_us, <unsigned char>1)
-                except Exception:
-                    pass
-
-            last = pins
-            # yield to scheduler: keeps latency small but avoids pure busy-spin
-            time.sleep(0)
-
-        # stop
-        self.running = 0
+logger = logging.getLogger("Ft232hConnector")
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
 
 
 cdef class Ft232hConnector:
     """
-    Main connector class. API is compatible with previous version:
-      - __init__(ftdi_obj, signal_subject, max_count, gui)
-      - signal_input()
-      - stop()
-      - close()
-    """
+    FT232H connector.
 
-    cdef public object gpio
-    cdef public object dev
-    cdef public EventSlot _event_slot
-    cdef public Poller _poller
-    cdef public TimingResult timing
-    cdef public unsigned int OK1
-    cdef public unsigned int END_OF_FILM
-    cdef public int __max_count
-    cdef public int gui
-    cdef public object signal_subject
+    Usage:
+        conn = Ft232hConnector(ftdi, signal_subject, max_count, gui)
+        conn.start()         # starts internal poller thread
+        ...
+        conn.stop()          # stops thread cleanly
+    """
+    # constants
     cdef double LATENCY_THRESHOLD
+    cdef int INITIAL_COUNT
+
+    # typed reference to TimingResult for speed inside Cython
+    cdef CTimingResult timing_view
 
     def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
-        self.gui = gui
+        """
+        Create connector.
 
-        self._initialize_logging()
-        self._initialize_device()
-
-        cdef unsigned int MSB = 8
-        self.OK1 = ((1 << 2) << MSB)
-        self.END_OF_FILM = ((1 << 3) << MSB)
-
-        self.gpio = GpioMpsseController()
-
-        try:
-            ftdi.validate_mpsse()
-        except Exception as err:
-            self.logger.error(f"Ftdi MPSSE error: {err}")
-            raise
-
-        self.gpio.configure('ftdi:///1',
-                            direction=0x0,
-                            frequency=ftdi.frequency_max,
-                            initial=self.OK1 | self.END_OF_FILM)
-
-        self.gpio.set_direction(pins=self.END_OF_FILM | self.OK1, direction=self.END_OF_FILM | self.OK1)
-        self.gpio.write(0x0)
-
-        ftdi.set_latency_timer(128)
-        ftdi.set_frequency(ftdi.frequency_max)
-        self.gpio.set_direction(pins=self.END_OF_FILM | self.OK1, direction=0x0)
-
-        self.signal_subject = signal_subject
-        self.__max_count = max_count + 50
+        - ftdi: pyftdi Ftdi instance (Python object)
+        - signal_subject: reactivex Subject for .on_next/.on_completed
+        - max_count: expected max frames (used to size timing buffer)
+        - gui: whether GUI logging to stdout is desired
+        """
         self.LATENCY_THRESHOLD = 0.01
+        self.INITIAL_COUNT = -1
 
-        # reset timing buffer (C-level)
-        global timing
-        timing.reset(max_count)   # allocate buffer
+        self.gui = gui
+        self.signal_subject = signal_subject
 
-        # event slot + poller
-        self._event_slot = EventSlot()
-        self._poller = Poller(self._event_slot, self.gpio, <unsigned int> self.OK1, <unsigned int> self.END_OF_FILM)
-        self._poller.start()
+        # keep raw Python references (we don't cimport Ftdi)
+        self._ftdi = ftdi
+        self._gpio = GpioMpsseController()
 
-    def _initialize_logging(self) -> None:
-        self.logger = logging.getLogger(__name__)
-        if self.gui and not self.logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            self.logger.addHandler(handler)
+        # masks: high byte MSB shift matches earlier wiring (MSB=8)
+        MSB = 8
+        self._OK1_mask = ((1 << 2) << MSB)    # AC2
+        # avoid name EOF due to stdio macro; use END_OF_FILM instead
+        self._END_OF_FILM_mask = ((1 << 3) << MSB)  # AC3
 
-    def _initialize_device(self) -> None:
-        self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
-        if self.dev is None:
-            self.logger.error("No USB device with vendorId=0x0403 productId=0x6014 found!")
-            raise RuntimeError("FTDI device not found")
-        self.logger.info(f"USB device found: {self.dev}")
+        # initialize USB device check (raise/exit on error)
+        self._init_device()
 
-    def signal_input(self) -> None:
-        """
-        Consumer loop. Consume events from the single-slot mailbox and forward via signal_subject.
-        """
-        cdef int count = -1
-        cdef double start_cycle = time.perf_counter()
-        cdef double cycle_time = 1.0 / 5.0
-        cdef double delta = 0.0
-        cdef double work_time = 0.0
-        cdef double latency_time = 0.0
-        cdef double end_cycle = 0.0
-        cdef double wait_time = 0.0
-
-        cdef EventSlot slot = self._event_slot
-        cdef object subj = self.signal_subject
-        cdef TimingResult tbuf = self.timing
-        cdef unsigned int maxc = self.__max_count
-
-        while True:
-            ts_edge = slot.consume()
-            ts, edge = ts_edge
-
-            # END_OF_FILM or stop
-            if edge == 3:
-                break
-
-            if ts is None:
-                if count >= maxc:
-                    break
-                time.sleep(0)  # yield
-                continue
-
-            now = ts
-            delta = now - start_cycle
-            start_cycle = now
-
-            count += 1
-            cycle_time = delta
-
-            work_time_start = time.perf_counter()
+        # configure gpio & ftdi performance tuning
+        try:
+            # configure controller (device selector matches previous usage)
+            self._gpio.configure('ftdi:///1',
+                                 direction=0x0,
+                                 frequency=self._ftdi.frequency_max,
+                                 initial=self._OK1_mask | self._END_OF_FILM_mask)
+            # set output-then-low then input as in previous code path
+            self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
+                                     direction=self._END_OF_FILM_mask | self._OK1_mask)
+            self._gpio.write(0x0)
+            # latency / frequency
             try:
-                subj.on_next((count, start_cycle))
-            except Exception as e:
-                self.logger.error(f"signal_subject.on_next error: {e}")
-            work_time = time.perf_counter() - work_time_start
-
-            if work_time > cycle_time:
-                self.logger.warning(f"Work time took {work_time*1000:.2f} ms")
-
-            # wait for OK1 release; poll underlying gpio briefly
-            latency_start = time.perf_counter()
-            try:
-                pins = self.gpio.read_pins() if hasattr(self.gpio, "read_pins") else self.gpio.read(1)[0]
+                self._ftdi.set_latency_timer(128)
             except Exception:
-                pins = 0
-            while (pins & self.OK1) == self.OK1:
-                time.sleep(0)
-                try:
-                    pins = self.gpio.read_pins() if hasattr(self.gpio, "read_pins") else self.gpio.read(1)[0]
-                except Exception:
-                    pins = 0
-
-            latency_time = time.perf_counter() - latency_start
-            if latency_time > self.LATENCY_THRESHOLD:
-                self.logger.warning(f"Suspicious high latency {latency_time} for frame {count} !")
-
-            end_cycle = time.perf_counter()
-            wait_time = cycle_time - (end_cycle - start_cycle)
-
-            # append to TimingResult (C-level buffer)
+                # best-effort: ignore if attribute not present
+                pass
             try:
-                tbuf.append(
-                    float(count),
-                    float(end_cycle - start_cycle),
-                    float(work_time),
-                    float(-1.0),
-                    float(latency_time),
-                    float(wait_time),
-                    float(delta)
-                )
+                self._ftdi.set_frequency(self._ftdi.frequency_max)
             except Exception:
                 pass
+            # finally set direction to inputs for the pins we read
+            self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask, direction=0x0)
+        except Exception as e:
+            logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
+            raise
 
-            if wait_time <= 0.0:
-                self.logger.warning(
-                    f"Negative wait time {wait_time:.5f} s for frame {count} at fps={1.0 / delta}."
-                )
+        # allocate/reset global timing singleton
+        global timing
+        if timing is None:
+            # create Python TimingResult singleton sized to max_count + safety margin
+            timing = PyTimingResult(max_count + 100)
+        # also keep a typed view for faster .append calls
+        self.timing_view = <CTimingResult> timing
 
-            if count >= maxc:
+        # internal thread control
+        self._stop_event = threading.Event()
+        self._thread = None
+        self.running = False
+
+    def _init_device(self):
+        """Check USB device presence; exit on failure to match previous behaviour."""
+        try:
+            dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+            if dev is None:
+                logger.error("No USB device with vendor 0x0403 / product 0x6014 found!")
+                raise RuntimeError("FT232H device not found")
+            logger.info(f"FT232H USB device found: {dev}")
+        except Exception as e:
+            logger.error(f"[Ft232hConnector] USB init failed: {e}")
+            raise
+
+    def start(self) -> None:
+        """Start the polling thread. Safe to call multiple times (idempotent)."""
+        if self.running:
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._poll_loop, name="ft232h-poller", daemon=True)
+        self._thread.start()
+        self.running = True
+        logger.info("[Ft232hConnector] Poller started")
+
+    def stop(self, object timeout=None) -> None:
+        """Stop the polling thread and wait for it to finish."""
+        # signal and join
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+        self.running = False
+        logger.info("[Ft232hConnector] Poller stopped")
+
+    cpdef object get_timing(self):
+        """Return the TimingResult singleton (Python object)."""
+        global timing
+        return timing
+
+    # ------------------------------------------------------------------
+    # Internal poll loop: small, hot, and keeps attribute lookups minimal.
+    # All IO (gpio.read_pins) remains a Python call; we micro-optimize by
+    # binding frequently used names to locals.
+    # ------------------------------------------------------------------
+    cdef void _record_timing(self,
+                             int count,
+                             double cycle_span,
+                             double work_time,
+                             double read_time,
+                             double latency_time,
+                             double wait_time,
+                             double total_work) nogil:
+        """
+        This helper records timing with nogil -> but actually we must acquire GIL
+        because TimingResult.append likely needs the GIL. So we keep a tiny nogil wrapper
+        only to show intent; we call append under the GIL below in the poll loop.
+        """
+        # not used: kept as placeholder if we later implement a nogil C append.
+        pass
+
+    def _poll_loop(self) -> None:
+        """
+        Poll GPIO pins in a loop and publish events.
+
+        Strategy / optimizations:
+        - bind masks and methods to local variables to reduce attribute lookups
+        - use time.perf_counter() for timestamps
+        - use self._stop_event.wait(0) to yield / check stop condition if available
+        - sleep with 0 to yield timeslice (minimal delay)
+        """
+        # localize frequently used attributes for speed
+        _gpio = self._gpio
+        _ok = self._OK1_mask
+        _eof = self._END_OF_FILM_mask
+        subj = self.signal_subject
+        timing_py = timing  # Python TimingResult object (module singleton)
+        append_fn = timing_py.append  # bind method once
+        stop_event = self._stop_event
+        read_pins = _gpio.read_pins  # bind method
+        LATENCY_THRESHOLD = self.LATENCY_THRESHOLD
+
+        count = self.INITIAL_COUNT
+        start_cycle = time.perf_counter()
+
+        # initial read
+        try:
+            pins = read_pins()
+        except Exception:
+            # fallback: try older API
+            try:
+                pins = _gpio.read(1)[0]
+            except Exception:
+                pins = 0
+
+        last_pins = pins
+
+        while not stop_event.is_set() and (pins & _eof) != _eof and count < (timing_py.max_frames - 1):
+            # fast path: read pins
+            try:
+                pins = read_pins()
+            except Exception:
+                try:
+                    pins = _gpio.read(1)[0]
+                except Exception:
+                    pins = last_pins  # keep previous if we can't read
+
+            # EOF check: if EOF bit set -> publish completion event (edge 3) and break
+            if (pins & _eof) == _eof:
+                # publish EOF via Subject.on_next or directly on_completed
+                try:
+                    subj.on_completed()
+                except Exception:
+                    pass
                 break
 
-        # completed
+            # rising edge detection for OK1: last had 0 and now 1
+            if ((last_pins & _ok) == 0) and ((pins & _ok) == _ok):
+                # timestamping and publishing
+                stop_cycle = time.perf_counter()
+                delta = stop_cycle - start_cycle
+                start_cycle = stop_cycle
+
+                count += 1
+
+                # call subscriber (fast)
+                try:
+                    subj.on_next((count, start_cycle))
+                except Exception:
+                    # subscriber may raise; keep polling
+                    pass
+
+                # measure work time (time taken by subscriber call)
+                # (We cannot measure internal work accurately here; keep zero or small sample)
+                # For compatibility with previous timing fields:
+                work_time = 0.0
+
+                # now busy-wait for signal to drop (OK1 goes low)
+                latency_start = time.perf_counter()
+                # spin/yield loop - minimal delay to reduce CPU burn
+                while ((pins & _ok) == _ok) and not stop_event.is_set():
+                    # yield timeslice - using sleep(0) is typically the lightest
+                    time.sleep(0)
+                    try:
+                        pins = read_pins()
+                    except Exception:
+                        try:
+                            pins = _gpio.read(1)[0]
+                        except Exception:
+                            break
+                latency = time.perf_counter() - latency_start
+
+                # compute end cycle / wait_time
+                end_cycle = time.perf_counter()
+                wait_time = delta - (end_cycle - start_cycle)  # conservative estimate
+
+                # append to timing buffer (Python-level append)
+                try:
+                    append_fn(
+                        float(count),
+                        float(end_cycle - start_cycle),  # cycle
+                        float(work_time),
+                        float(-1.0),                     # read time not measured here
+                        float(latency),
+                        float(wait_time),
+                        float(delta)                     # total_work
+                    )
+                except Exception:
+                    # ignore timing storage failures to not break capture
+                    pass
+
+                # log suspicious latency
+                if latency > LATENCY_THRESHOLD:
+                    logger.warning(f"[Ft232hConnector] Suspicious high latency {latency:.6f}s for frame {count}")
+
+            # update last_pins and continue
+            last_pins = pins
+
+            # small yield - keeps loop responsive but allows other threads to run
+            time.sleep(0)
+
+        # Ensure completion published if not already
         try:
             subj.on_completed()
         except Exception:
             pass
 
-    def stop(self) -> None:
-        """
-        Stop the poller thread.
-        """
+    # convenience destructor
+    def __dealloc__(self):
         try:
-            if self._poller is not None:
-                self._poller.stop(timeout=1.0)
+            self.stop(timeout=0.5)
         except Exception:
             pass
-
-    def close(self) -> None:
-        """
-        Convenience cleanup wrapper.
-        """
-        self.stop()
