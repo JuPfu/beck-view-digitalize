@@ -25,9 +25,9 @@ from reactivex.subject import Subject
 
 from typing import List
 
-from Timing import timing
 from TypeDefinitions import ImgDescType, ProcessType, SubjectDescType
 from WriteImages import write_images
+from Ft232hConnector import timing
 
 cdef class DigitizeVideo:
     """
@@ -533,41 +533,51 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        # logging timings (unchanged)
+        # ---- TIMING ANALYSIS (new array-based version) ----
         try:
-            wait_time = np.asarray([x["wait_time"] for x in timing])
-            work_time = np.asarray([x["work"] for x in timing])
-            total_work_time = np.asarray([x["total_work"] for x in timing])
-            latency_time = np.asarray([x["latency"] for x in timing])
+            valid_rows = timing[:self.processed_frames, :]
+            wait_time        = valid_rows[:, 5]
+            work_time        = valid_rows[:, 2]
+            total_work_time  = valid_rows[:, 6]
+            latency_time     = valid_rows[:, 4]
         except Exception:
-            wait_time = work_time = total_work_time = latency_time = []
+            wait_time = work_time = total_work_time = latency_time = np.array([])
 
-        if len(work_time) > 0:
-            self.logger.info(f"Average wait time = {(np.average(wait_time)):.5f} seconds")
-            self.logger.info(f"Minimum wait time = {(np.min(wait_time)):.5f}")
-            self.logger.info(f"Maximum wait time = {(np.max(wait_time)):.5f}")
+        if work_time.size > 0:
+            self.logger.info(f"Average wait time = {wait_time.mean():.5f} seconds")
+            self.logger.info(f"Minimum wait time = {wait_time.min():.5f}")
+            self.logger.info(f"Maximum wait time = {wait_time.max():.5f}")
 
-            self.logger.info(f"Average work time = {(np.average(work_time)):.5f} seconds")
-            self.logger.info(f"Minimum work time = {(np.min(work_time)):.5f}")
-            self.logger.info(f"Maximum work time = {(np.max(work_time)):.5f}")
+            self.logger.info(f"Average work time = {work_time.mean():.5f} seconds")
+            self.logger.info(f"Minimum work time = {work_time.min():.5f}")
+            self.logger.info(f"Maximum work time = {work_time.max():.5f}")
 
-            self.logger.info(f"Average Total work time = {(np.average(total_work_time)):.5f} seconds")
-            self.logger.info(f"Minimum Total work time = {(np.min(total_work_time)):.5f}")
-            self.logger.info(f"Maximum Total work time = {(np.max(total_work_time)):.5f}")
+            self.logger.info(f"Average total work time = {total_work_time.mean():.5f} seconds")
+            self.logger.info(f"Minimum total work time = {total_work_time.min():.5f}")
+            self.logger.info(f"Maximum total work time = {total_work_time.max():.5f}")
 
-            self.logger.info(f"Average latency time = {(np.average(latency_time)):.5f} seconds")
-            self.logger.info(f"Minimum latency time = {(np.min(latency_time)):.5f}")
-            self.logger.info(f"Maximum latency time = {(np.max(latency_time)):.5f}")
+            self.logger.info(f"Average latency time = {latency_time.mean():.5f} seconds")
+            self.logger.info(f"Minimum latency time = {latency_time.min():.5f}")
+            self.logger.info(f"Maximum latency time = {latency_time.max():.5f}")
 
-        timing.sort(key=lambda x: x["total_work"], reverse=True)
+            # sorting by total work time
+            order_desc = np.argsort(total_work_time)[::-1]
+            for rank, idx in enumerate(order_desc[:25]):
+                row = valid_rows[idx]
+                self.logger.info(
+                    f"longest total work time #{rank}: "
+                    f"frame={int(row[0])}, total_work={row[6]:.6f}, "
+                    f"work={row[2]:.6f}, latency={row[4]:.6f}, wait={row[5]:.6f}"
+                )
 
-        l = len(timing)
-        for i in range(min(25, l)):
-            self.logger.info(f"longest total work time for {i} {timing[i]}")
-
-        timing.reverse()
-        for i in range(min(25, l)):
-            self.logger.info(f"shortest total work time for {i} {timing[i]}")
+            order_asc = order_desc[::-1]
+            for rank, idx in enumerate(order_asc[:25]):
+                row = valid_rows[idx]
+                self.logger.info(
+                    f"shortest total work time #{rank}: "
+                    f"frame={int(row[0])}, total_work={row[6]:.6f}, "
+                    f"work={row[2]:.6f}, latency={row[4]:.6f}, wait={row[5]:.6f}"
+                )
 
         self.cleanup()
 

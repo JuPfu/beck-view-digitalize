@@ -262,9 +262,9 @@ cpdef void write_images_libpng_threaded(str shm_name,
                                            compression_level))
 
         # wait for completion and log exceptions
-        for fut in as_completed(futures):
+        for future in as_completed(futures):
             try:
-                fut.result()
+                future.result()
             except Exception as e:
                 logger.error(f"[write_images_libpng_threaded] thread exception: {e}")
 

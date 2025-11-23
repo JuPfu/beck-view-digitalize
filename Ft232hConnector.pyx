@@ -8,8 +8,14 @@ from pyftdi.ftdi import Ftdi, FtdiError
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
-from Timing import timing
+import numpy as np
+cimport numpy as cnp
 
+# Global timing buffer (will be overwritten each run)
+timing = None
+
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # see circuit diagram in README.md
 
@@ -34,7 +40,6 @@ class Ft232hConnector:
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
     # Constants
-    CYCLE_SLEEP = 0.001  # Sleep time in seconds
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
@@ -90,11 +95,18 @@ class Ft232hConnector:
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
+        # Preallocate timing buffer: rows = max frames, columns = 7 metrics
+        global timing
+        timing = np.zeros((self.__max_count, 7), dtype=np.float64)
+
+        # Cython memoryview for fast writes
+        self._timing_view = timing
+
+
     def _initialize_logging(self) -> None:
         """
         Configure logging for the application.
         """
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
         if self.gui and not self.logger.handlers:
             handler = logging.StreamHandler(sys.stdout)
@@ -137,8 +149,9 @@ class Ft232hConnector:
         cdef double latency_time = 0.0
 
         cdef double end_cycle = 0.0
-
         cdef double wait_time = 0.0
+
+        cdef cnp.double_t[:, :] tview
 
         while (pins & self.EOF) != self.EOF and count < self.__max_count:
             if (pins & self.OK1) == self.OK1:
@@ -171,18 +184,17 @@ class Ft232hConnector:
                     self.logger.warning(f"Suspicious high latency {latency_time} for frame {count} !")
 
                 end_cycle = time.perf_counter()
-
                 wait_time = cycle_time - (end_cycle - start_cycle)
 
-                timing.append({
-                    "count": count,
-                    "cycle": end_cycle - start_cycle,
-                    "work": work_time,
-                    "read": -1.0,
-                    "latency": latency_time,
-                    "wait_time": wait_time,
-                    "total_work": delta,
-                })
+                tview = self._timing_view
+
+                tview[count, 0] = count
+                tview[count, 1] = end_cycle - start_cycle
+                tview[count, 2] = work_time
+                tview[count, 3] = -1.0
+                tview[count, 4] = latency_time
+                tview[count, 5] = wait_time
+                tview[count, 6] = delta
 
                 if wait_time <= 0.0:
                     self.logger.warning(
@@ -196,3 +208,7 @@ class Ft232hConnector:
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
+
+        np.savetxt("timing.csv", timing[:count+1], delimiter=",")
+
+
