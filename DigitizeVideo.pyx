@@ -533,7 +533,14 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        # ---- TIMING ANALYSIS (new array-based version) ----
+        # timing columns:
+        # 0 count
+        # 1 cycle
+        # 2 work
+        # 3 read
+        # 4 latency
+        # 5 wait_time
+        # 6 total_work
         try:
             valid_rows = timing[:self.processed_frames, :]
             wait_time        = valid_rows[:, 5]
