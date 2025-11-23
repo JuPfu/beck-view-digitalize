@@ -8,9 +8,6 @@ from pyftdi.ftdi import Ftdi, FtdiError
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
-import numpy as np
-cimport numpy as cnp
-
 from TimingResult cimport TimingResult
 
 
@@ -39,6 +36,7 @@ class Ft232hConnector:
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
     # Constants
+    CYCLE_SLEEP = 0.0005  # Sleep time in seconds
     LATENCY_THRESHOLD = 0.01  # Suspicious latency threshold in seconds
     INITIAL_COUNT = -1
 
@@ -131,77 +129,92 @@ class Ft232hConnector:
 
         cdef double cycle_time = 1.0 / 5.0  # 5 frames per second
         cdef double start_time = time.perf_counter()
-        cdef unsigned int pins = self.gpio.read_pins()
         cdef double start_cycle = start_time
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
-
         cdef double work_time_start = 0.0
         cdef double work_time = 0.0
-
         cdef double latency_start = 0.0
         cdef double latency_time = 0.0
-
         cdef double end_cycle = 0.0
         cdef double wait_time = 0.0
 
-        cdef TimingResult timing
+        # Local cached references (cheap to call)
+        cdef unsigned int OK1 = self.OK1
+        cdef unsigned int EOF = self.EOF
+        cdef int max_count = self.__max_count
 
-        while (pins & self.EOF) != self.EOF and count < self.__max_count:
-            if (pins & self.OK1) == self.OK1:
+        # Cache bound methods/attributes to avoid attribute lookup overhead in the loop
+        cdef object gpio_read = self.gpio.read_pins    # callable: no args
+        cdef object signal_on_next = self.signal_subject.on_next
+        cdef TimingResult timing = self.timing         # C-level timing accumulator
+
+        spin_sleep = float(self.CYCLE_SLEEP)
+
+        # initial pin read (single Python call)
+        cdef unsigned int pins = <unsigned int> gpio_read()
+
+        # main loop: minimize Python work inside
+        while (pins & EOF) != EOF and count < max_count:
+            if (pins & OK1) == OK1:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
 
                 count += 1
-
                 cycle_time = delta
 
                 # Emit the tuple of frame count and time stamp through the opto_coupler_signal_subject
                 work_time_start = time.perf_counter()
-                self.signal_subject.on_next((count, start_cycle))
+                signal_on_next((count, start_cycle))
                 work_time = time.perf_counter() - work_time_start
 
                 if work_time > cycle_time:
+                    # logging call remains (infrequent compared to the loop)
                     self.logger.warning(f"Work time took {work_time*1000:.2f} ms")
 
-                # latency
+                # measure how long we wait until edge clears (latency)
                 latency_start = time.perf_counter()
 
-                pins = self.gpio.read_pins()
-                while (pins & self.OK1) == self.OK1:
-                    time.sleep(0) # yield - USB FTDI latency is around 0.125–1ms even with 128 latency timer
-                    pins = self.gpio.read_pins()
+                # busy-wait until OK1 clears - minimal overhead loop
+                pins = <unsigned int> gpio_read()
+                while (pins & OK1) == OK1:
+                    # yield tiny slice of time to the scheduler, or spin
+                    time.sleep(spin_sleep)  # small sleep to reduce CPU usage
+                    pins = <unsigned int> gpio_read()
 
                 latency_time = time.perf_counter() - latency_start
                 if latency_time > self.LATENCY_THRESHOLD:
-                    self.logger.warning(f"Suspicious high latency {latency_time} for frame {count} !")
+                    self.logger.warning(f"Suspicious high latency {latency_time:.6f}s for frame {count} !")
 
                 end_cycle = time.perf_counter()
                 wait_time = cycle_time - (end_cycle - start_cycle)
 
-                self.timing.append(
-                    count,
-                    end_cycle - start_cycle,   # cycle time
-                    work_time,
-                    -1.0,                      # read time
-                    latency_time,
-                    wait_time,
-                    delta                      # total_work
+                # append timings using C-level TimingResult.append (no Python dicts)
+                timing.append(
+                    <double>count,
+                    <double>(end_cycle - start_cycle),  # cycle time
+                    <double>work_time,
+                    <double>-1.0,                       # read time
+                    <double>latency_time,
+                    <double>wait_time,
+                    <double>delta                       # total_work
                 )
 
                 if wait_time <= 0.0:
                     self.logger.warning(
-                        f"Negative wait time {wait_time:.5f} s for frame {count} at fps={1.0 / delta}."
-                        f" Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
+                        f"Negative wait time {wait_time:.5f} s for frame {count} at fps={1.0 / delta}. "
+                        f"Next {int(((end_cycle - start_cycle) / cycle_time) + 0.5)} frame(s) might be skipped"
                     )
 
-            # Retrieve pins
-            time.sleep(0)
-            pins = self.gpio.read_pins()
+            # small sleep / yield between polls
+            time.sleep(spin_sleep)
+            # update pins for next iteration
+            pins = <unsigned int> gpio_read()
 
-        # Signal the completion of frame processing and EoF detection
+        # signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
+
 
 
 
