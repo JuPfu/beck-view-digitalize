@@ -2,11 +2,6 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True
 # distutils: language = c
 
-"""
-Drop-in FT232H connector with dedicated poller thread + single-slot mailbox.
-Designed to be robust and easy to compile in Cython.
-"""
-
 import cython
 import time
 import logging
@@ -208,7 +203,6 @@ cdef class Ft232hConnector:
                             frequency=ftdi.frequency_max,
                             initial=self.OK1 | self.END_OF_FILM)
 
-        # same init sequence you used previously
         self.gpio.set_direction(pins=self.END_OF_FILM | self.OK1, direction=self.END_OF_FILM | self.OK1)
         self.gpio.write(0x0)
 
