@@ -96,7 +96,7 @@ class Ft232hConnector:
         """
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        if self.gui:
+        if self.gui and not self.logger.handlers:
             handler = logging.StreamHandler(sys.stdout)
             self.logger.addHandler(handler)
 
@@ -125,7 +125,7 @@ class Ft232hConnector:
 
         cdef double cycle_time = 1.0 / 5.0  # 5 frames per second
         cdef double start_time = time.perf_counter()
-        cdef unsigned int pins = self.gpio.read(1)[0]
+        cdef unsigned int pins = self.gpio.read_pins()
         cdef double start_cycle = start_time
         cdef double stop_cycle = 0.0
         cdef double delta = 0.0
@@ -161,10 +161,10 @@ class Ft232hConnector:
                 # latency
                 latency_start = time.perf_counter()
 
-                pins = self.gpio.read(1)[0]
+                pins = self.gpio.read_pins()
                 while (pins & self.OK1) == self.OK1:
-                    time.sleep(self.CYCLE_SLEEP)
-                    pins = self.gpio.read(1)[0]
+                    time.sleep(0) # yield - USB FTDI latency is around 0.125–1ms even with 128 latency timer
+                    pins = self.gpio.read_pins()
 
                 latency_time = time.perf_counter() - latency_start
                 if latency_time > self.LATENCY_THRESHOLD:
@@ -191,8 +191,8 @@ class Ft232hConnector:
                     )
 
             # Retrieve pins
-            time.sleep(self.CYCLE_SLEEP)
-            pins = self.gpio.read(1)[0]
+            time.sleep(0)
+            pins = self.gpio.read_pins()
 
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
