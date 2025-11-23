@@ -11,8 +11,7 @@ from reactivex import Subject
 import numpy as np
 cimport numpy as cnp
 
-# Global timing buffer (will be overwritten each run)
-timing = None
+from TimingResult cimport TimingResult
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -95,12 +94,7 @@ class Ft232hConnector:
         self.signal_subject: Subject = signal_subject
         self.__max_count = max_count + 50  # emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
 
-        # Preallocate timing buffer: rows = max frames, columns = 7 metrics
-        global timing
-        timing = np.zeros((self.__max_count, 7), dtype=np.float64)
-
-        # Cython memoryview for fast writes
-        self._timing_view = timing
+        self.timing = TimingResult(max_count)
 
 
     def _initialize_logging(self) -> None:
@@ -151,7 +145,7 @@ class Ft232hConnector:
         cdef double end_cycle = 0.0
         cdef double wait_time = 0.0
 
-        cdef cnp.double_t[:, :] tview
+        cdef TimingResult timing
 
         while (pins & self.EOF) != self.EOF and count < self.__max_count:
             if (pins & self.OK1) == self.OK1:
@@ -186,15 +180,15 @@ class Ft232hConnector:
                 end_cycle = time.perf_counter()
                 wait_time = cycle_time - (end_cycle - start_cycle)
 
-                tview = self._timing_view
-
-                tview[count, 0] = count
-                tview[count, 1] = end_cycle - start_cycle
-                tview[count, 2] = work_time
-                tview[count, 3] = -1.0
-                tview[count, 4] = latency_time
-                tview[count, 5] = wait_time
-                tview[count, 6] = delta
+                self.timing.append(
+                    count,
+                    end_cycle - start_cycle,   # cycle time
+                    work_time,
+                    -1.0,                      # read time
+                    latency_time,
+                    wait_time,
+                    delta                      # total_work
+                )
 
                 if wait_time <= 0.0:
                     self.logger.warning(

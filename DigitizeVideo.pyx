@@ -533,57 +533,42 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        # timing columns:
-        # 0 count
-        # 1 cycle
-        # 2 work
-        # 3 read
-        # 4 latency
-        # 5 wait_time
-        # 6 total_work
-        try:
-            valid_rows = timing[:self.processed_frames, :]
-            wait_time        = valid_rows[:, 5]
-            work_time        = valid_rows[:, 2]
-            total_work_time  = valid_rows[:, 6]
-            latency_time     = valid_rows[:, 4]
-        except Exception:
-            wait_time = work_time = total_work_time = latency_time = np.array([])
+        # get timing array as numpy (copy)
+        timing = self.connector.timing.to_numpy()
 
-        if work_time.size > 0:
-            self.logger.info(f"Average wait time = {wait_time.mean():.5f} seconds")
-            self.logger.info(f"Minimum wait time = {wait_time.min():.5f}")
-            self.logger.info(f"Maximum wait time = {wait_time.max():.5f}")
+        if timing.size > 0:
+            wait_time        = timing[:, 5]
+            work_time        = timing[:, 2]
+            total_work_time  = timing[:, 6]
+            latency_time     = timing[:, 4]
 
-            self.logger.info(f"Average work time = {work_time.mean():.5f} seconds")
-            self.logger.info(f"Minimum work time = {work_time.min():.5f}")
-            self.logger.info(f"Maximum work time = {work_time.max():.5f}")
+            self.logger.info(f"Average wait time = {wait_time.mean():.5f}")
+            self.logger.info(f"Min wait time     = {wait_time.min():.5f}")
+            self.logger.info(f"Max wait time     = {wait_time.max():.5f}")
 
-            self.logger.info(f"Average total work time = {total_work_time.mean():.5f} seconds")
-            self.logger.info(f"Minimum total work time = {total_work_time.min():.5f}")
-            self.logger.info(f"Maximum total work time = {total_work_time.max():.5f}")
+            self.logger.info(f"Average work time = {work_time.mean():.5f}")
+            self.logger.info(f"Min work time     = {work_time.min():.5f}")
+            self.logger.info(f"Max work time     = {work_time.max():.5f}")
 
-            self.logger.info(f"Average latency time = {latency_time.mean():.5f} seconds")
-            self.logger.info(f"Minimum latency time = {latency_time.min():.5f}")
-            self.logger.info(f"Maximum latency time = {latency_time.max():.5f}")
+            self.logger.info(f"Average total     = {total_work_time.mean():.5f}")
+            self.logger.info(f"Min total         = {total_work_time.min():.5f}")
+            self.logger.info(f"Max total         = {total_work_time.max():.5f}")
 
-            # sorting by total work time
-            order_desc = np.argsort(total_work_time)[::-1]
-            for rank, idx in enumerate(order_desc[:25]):
-                row = valid_rows[idx]
+            # sort by total_work descending
+            order = total_work_time.argsort()[::-1]
+
+            for rank in range(min(25, len(order))):
+                idx = order[rank]
                 self.logger.info(
-                    f"longest total work time #{rank}: "
-                    f"frame={int(row[0])}, total_work={row[6]:.6f}, "
-                    f"work={row[2]:.6f}, latency={row[4]:.6f}, wait={row[5]:.6f}"
+                    f"Longest {rank}: frame={int(timing[idx,0])} total={timing[idx,6]:.6f}"
                 )
 
-            order_asc = order_desc[::-1]
-            for rank, idx in enumerate(order_asc[:25]):
-                row = valid_rows[idx]
+            # reverse for shortest
+            order = order[::-1]
+            for rank in range(min(25, len(order))):
+                idx = order[rank]
                 self.logger.info(
-                    f"shortest total work time #{rank}: "
-                    f"frame={int(row[0])}, total_work={row[6]:.6f}, "
-                    f"work={row[2]:.6f}, latency={row[4]:.6f}, wait={row[5]:.6f}"
+                    f"Shortest {rank}: frame={int(timing[idx,0])} total={timing[idx,6]:.6f}"
                 )
 
             timing_log = str(self.output_path / f"timing_{self.processed_frames:05d}.csv").encode('utf-8')
