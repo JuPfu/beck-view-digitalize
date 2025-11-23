@@ -209,6 +209,5 @@ class Ft232hConnector:
         # Signal the completion of frame processing and EoF detection
         self.signal_subject.on_completed()
 
-        np.savetxt("timing.csv", timing[:count+1], delimiter=",")
 
 
