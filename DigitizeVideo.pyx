@@ -535,14 +535,14 @@ cdef class DigitizeVideo:
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
         # get timing array as numpy (copy)
-        timing = self.connector.timing.to_numpy()
+        tim = timing.to_numpy()
 
         if timing.size > 0:
-            wait_time        = timing[:, 5]
-            work_time        = timing[:, 2]
-            read_time        = timing[:, 3]
-            total_work_time  = timing[:, 6]
-            latency_time     = timing[:, 4]
+            wait_time        = tim[:, 5]
+            work_time        = tim[:, 2]
+            read_time        = tim[:, 3]
+            total_work_time  = tim[:, 6]
+            latency_time     = tim[:, 4]
 
             self.logger.info(f"Average wait time = {wait_time.mean():.5f}")
             self.logger.info(f"Min wait time     = {wait_time.min():.5f}")
@@ -566,7 +566,7 @@ cdef class DigitizeVideo:
             for rank in range(min(25, len(order))):
                 idx = order[rank]
                 self.logger.info(
-                    f"Longest {rank}: frame={int(timing[idx,0])} total={timing[idx,6]:.6f}"
+                    f"Longest {rank}: frame={int(tim[idx,0])} total={tim[idx,6]:.6f}"
                 )
 
             # reverse for shortest
@@ -574,7 +574,7 @@ cdef class DigitizeVideo:
             for rank in range(min(25, len(order))):
                 idx = order[rank]
                 self.logger.info(
-                    f"Shortest {rank}: frame={int(timing[idx,0])} total={timing[idx,6]:.6f}"
+                    f"Shortest {rank}: frame={int(tim[idx,0])} total={tim[idx,6]:.6f}"
                 )
 
             timing_log = str(self.output_path / f"timing_{self.processed_frames:05d}.csv").encode('utf-8')
