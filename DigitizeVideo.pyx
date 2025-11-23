@@ -586,8 +586,8 @@ cdef class DigitizeVideo:
                     f"work={row[2]:.6f}, latency={row[4]:.6f}, wait={row[5]:.6f}"
                 )
 
-            timing_log = str(self.output_path / f"timing_{frame_count:05d}{suffix}.csv").encode('utf-8')
-            np.savetxt(timing_log, timing[:count+1], delimiter=",")
+            timing_log = str(self.output_path / f"timing_{self.processed_frames:05d}.csv").encode('utf-8')
+            np.savetxt(timing_log, timing[:self.processed_frames+1], delimiter=",")
 
         self.cleanup()
 
