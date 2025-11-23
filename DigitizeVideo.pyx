@@ -326,6 +326,7 @@ cdef class DigitizeVideo:
 
         if self.gui and self.processed_frames % 100 == 0:
             capture_duration = time.perf_counter() - read_time_start
+            timing[self.processed_frames:3] = capture_duration
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
@@ -539,6 +540,7 @@ cdef class DigitizeVideo:
         if timing.size > 0:
             wait_time        = timing[:, 5]
             work_time        = timing[:, 2]
+            read_time        = timing[:, 3]
             total_work_time  = timing[:, 6]
             latency_time     = timing[:, 4]
 
@@ -549,6 +551,10 @@ cdef class DigitizeVideo:
             self.logger.info(f"Average work time = {work_time.mean():.5f}")
             self.logger.info(f"Min work time     = {work_time.min():.5f}")
             self.logger.info(f"Max work time     = {work_time.max():.5f}")
+
+            self.logger.info(f"Average read time = {read_time.mean():.5f}")
+            self.logger.info(f"Min read time     = {read_time.min():.5f}")
+            self.logger.info(f"Max read time     = {read_time.max():.5f}")
 
             self.logger.info(f"Average total     = {total_work_time.mean():.5f}")
             self.logger.info(f"Min total         = {total_work_time.min():.5f}")
