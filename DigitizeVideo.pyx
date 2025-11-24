@@ -27,7 +27,7 @@ from typing import List
 
 from TypeDefinitions import ImgDescType, ProcessType, SubjectDescType
 from WriteImages import write_images
-from Ft232hConnector import timing
+from Ft232hConnector import get_timing, to_numpy
 
 cdef class DigitizeVideo:
     """
@@ -81,6 +81,8 @@ cdef class DigitizeVideo:
 
         # prebuilt blank frame (numpy) to memcpy on errors
         self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
+
+        self.timing = get_timing()
 
         self.processed_frames = 0
         self.start_time = time.perf_counter()
@@ -326,7 +328,7 @@ cdef class DigitizeVideo:
 
         if self.gui and self.processed_frames % 100 == 0:
             capture_duration = time.perf_counter() - read_time_start
-            timing[self.processed_frames:3] = capture_duration
+            self.timing[self.processed_frames:3] = capture_duration
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
@@ -535,9 +537,9 @@ cdef class DigitizeVideo:
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
         # get timing array as numpy (copy)
-        tim = timing.to_numpy()
+        tim = to_numpy()
 
-        if timing.size > 0:
+        if self.timing.size > 0:
             wait_time        = tim[:, 5]
             work_time        = tim[:, 2]
             read_time        = tim[:, 3]
@@ -578,7 +580,7 @@ cdef class DigitizeVideo:
                 )
 
             timing_log = str(self.output_path / f"timing_{self.processed_frames:05d}.csv").encode('utf-8')
-            np.savetxt(timing_log, timing[:self.processed_frames+1], delimiter=",")
+            np.savetxt(timing_log, self.timing[:self.processed_frames+1], delimiter=",")
 
         self.cleanup()
 
