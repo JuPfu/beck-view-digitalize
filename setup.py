@@ -4,80 +4,160 @@ import numpy as np
 import platform
 import subprocess
 import sys
+import os
 from glob import glob
 from os.path import splitext, basename
 
-# compile flags
-compile_args = ["-O3"] if platform.system() != "Windows" else ["/O2"]
-# link_args for additional libs not detected by pkg-config
-link_args = ["-ldeflate"]
 
-# find all pyx files
+SYSTEM = platform.system()
+
 pyx_files = glob("*.pyx")
 
-def pkg_config(pkg):
-    """Return dict with include_dirs, library_dirs, libraries, extra_compile_args, extra_link_args"""
+
+# --------------------------------------------------------
+# Helper: pkg-config wrapper (macOS + Linux)
+# --------------------------------------------------------
+def try_pkg_config(pkg):
     try:
-        out = subprocess.check_output(["pkg-config", "--cflags", "--libs", pkg], text=True)
+        out = subprocess.check_output(
+            ["pkg-config", "--cflags", "--libs", pkg],
+            text=True
+        )
         parts = out.strip().split()
-        include_dirs = []
-        library_dirs = []
-        libraries = []
-        extra_compile_args = []
-        extra_link_args = []
+        inc, libdirs, libs = [], [], []
+        extra_c, extra_l = [], []
+
         for p in parts:
             if p.startswith("-I"):
-                include_dirs.append(p[2:])
+                inc.append(p[2:])
             elif p.startswith("-L"):
-                library_dirs.append(p[2:])
+                libdirs.append(p[2:])
             elif p.startswith("-l"):
-                libraries.append(p[2:])
+                libs.append(p[2:])
             elif p.startswith("-Wl,") or p.startswith("-pthread"):
-                extra_link_args.append(p)
+                extra_l.append(p)
             else:
-                extra_compile_args.append(p)
+                extra_c.append(p)
+
         return {
-            "include_dirs": include_dirs,
-            "library_dirs": library_dirs,
-            "libraries": libraries,
-            "extra_compile_args": extra_compile_args,
-            "extra_link_args": extra_link_args,
+            "include_dirs": inc,
+            "library_dirs": libdirs,
+            "libraries": libs,
+            "extra_compile_args": extra_c,
+            "extra_link_args": extra_l,
         }
-    except subprocess.CalledProcessError:
-        print(f"pkg-config failed for {pkg}. Make sure it is installed and pkg-config knows about it.")
-        sys.exit(1)
-    except FileNotFoundError:
-        print("pkg-config not found. Please install pkg-config.")
-        sys.exit(1)
+    except Exception:
+        return None
 
-# get libpng build info
-cfg = pkg_config("libpng")
 
+
+# ========================================================
+# PLATFORM: WINDOWS
+# ========================================================
+if SYSTEM == "Windows":
+
+    # Paths created by your batch script:
+    WIN_PREFIX = os.path.join(os.getcwd(), "build", "install")
+
+    include_dirs = [
+        np.get_include(),
+        os.path.join(WIN_PREFIX, "include"),
+    ]
+
+    library_dirs = [
+        os.path.join(WIN_PREFIX, "lib")
+    ]
+
+    libraries = [
+        "spng",
+        "libdeflate",
+    ]
+
+    extra_compile_args = ["/O2", "/Ot", "/GL"]
+    extra_link_args    = ["/LTCG"]
+
+    define_macros = [
+        ("_CRT_SECURE_NO_WARNINGS", None),
+        ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
+    ]
+
+
+# ========================================================
+# PLATFORM: macOS or Linux
+# ========================================================
+else:
+    cfg = try_pkg_config("spng")
+
+    if cfg is None:
+        print("⚠ pkg-config failed; applying fallback paths")
+
+        # Linux fallback: typical install locations
+        include_dirs = [
+            np.get_include(),
+            "/usr/include",
+            "/usr/local/include",
+        ]
+        library_dirs = [
+            "/usr/lib",
+            "/usr/local/lib"
+        ]
+        libraries = ["spng", "deflate"]  # best guess
+
+        extra_compile_args = ["-O3"]
+        extra_link_args    = []
+    else:
+        include_dirs = cfg["include_dirs"] + [np.get_include()]
+        library_dirs = cfg["library_dirs"]
+        libraries    = cfg["libraries"]
+
+        # ensure libdeflate is present
+        if "deflate" not in libraries and "libdeflate" not in libraries:
+            libraries.append("deflate")
+
+        extra_compile_args = cfg["extra_compile_args"] + ["-O3"]
+        extra_link_args    = cfg["extra_link_args"]
+
+    # macOS: include Homebrew
+    if SYSTEM == "Darwin":
+        include_dirs.append("/opt/homebrew/include")
+        library_dirs.append("/opt/homebrew/lib")
+
+    define_macros = [
+        ("CYTHON_PROFILE", "0"),
+        ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
+    ]
+
+
+
+# ========================================================
+# EXTENSIONS
+# ========================================================
 extensions = [
     Extension(
-        name=splitext(basename(pyx_file))[0],
-        sources=[pyx_file],
-        include_dirs=cfg["include_dirs"] + [np.get_include()],
-        library_dirs=cfg["library_dirs"],
-        libraries=cfg["libraries"] + ["deflate"],  # add deflate explicitly
-        define_macros=[
-            ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
-            ("CYTHON_PROFILE", "0"),
-        ],
-        extra_compile_args=cfg["extra_compile_args"] + compile_args,
-        extra_link_args=cfg["extra_link_args"] + link_args
+        name=splitext(basename(f))[0],
+        sources=[f],
+        include_dirs=include_dirs,
+        library_dirs=library_dirs,
+        libraries=libraries,
+        extra_compile_args=extra_compile_args,
+        extra_link_args=extra_link_args,
+        define_macros=define_macros,
     )
-    for pyx_file in pyx_files
+    for f in pyx_files
 ]
 
+
+# ========================================================
+# SETUP
+# ========================================================
 setup(
-    name='beck-view-digitize',
-    version='1.2',
-    url='https://github.com/JuPfu/beck-view-digitalize',
-    license='MIT licence',
-    author='juergen pfundt',
-    author_email='juergen.pfundt@gmail.com',
-    description='cython digitize 16mm films',
+    name="beck-view-digitize",
+    version="1.2",
+    description="cython digitize 16mm films",
+    url="https://github.com/JuPfu/beck-view-digitalize",
+    author="juergen pfundt",
+    author_email="juergen.pfundt@gmail.com",
+    license="MIT",
     ext_modules=cb.cythonize(
         extensions,
         annotate=False,
@@ -88,8 +168,7 @@ setup(
             "initializedcheck": False,
             "cdivision": True,
             "nonecheck": False,
-            "language_level": 3,
-            "infer_types": True
-        }
-    )
+            "infer_types": True,
+        },
+    ),
 )
