@@ -1,18 +1,32 @@
-# Thread-local storage
+# Thread-local storage for per-thread encoder reuse
 import threading
 _thread_state = threading.local()
+
+import os
+import numpy as np
+from multiprocessing import shared_memory
 
 from libc.stdio cimport FILE, fopen, fclose
 from libc.stdint cimport uint8_t
 from libc.stddef cimport size_t
-import numpy as np
-import os
-from multiprocessing import shared_memory
+
+from WriteImages cimport (
+    spng_ctx_new, spng_ctx_free, spng_set_option, spng_encode_image,
+    SpngCtxWrapper, _unwrap_ctx, _spng_encode,
+)
+
+# ----------------------------------------------------------
+# Constants (must match libspng)
+# ----------------------------------------------------------
+cdef int SPNG_FMT_RGB8 = 1
+cdef int SPNG_ENCODE_FINALIZE = 1
 
 
-# ----------------------------------------------------
-# Wrapper class
-# ----------------------------------------------------
+
+
+# ----------------------------------------------------------
+# SpngCtxWrapper implementation
+# ----------------------------------------------------------
 cdef class SpngCtxWrapper:
 
     def __cinit__(self):
@@ -23,50 +37,64 @@ cdef class SpngCtxWrapper:
             spng_ctx_free(self.ptr)
             self.ptr = NULL
 
-# ----------------------------------------------------
-# Nogil-safe C helper
-# ----------------------------------------------------
-cdef spng_ctx* _unwrap_ctx(SpngCtxWrapper wrap) nogil except NULL:
-    if wrap is not None:
-        return wrap.ptr
-    return NULL
 
-# ----------------------------------------------------
-# Thread-local context management
-# ----------------------------------------------------
+cdef spng_ctx* _unwrap_ctx(SpngCtxWrapper wrap) except NULL nogil:
+    return wrap.ptr
+
+# ----------------------------------------------------------
+# TLS-based lazy context initialization
+# ----------------------------------------------------------
 def _get_thread_ctx_py(int compression_level):
-    cdef SpngCtxWrapper wrap
-    wrap = getattr(_thread_state, "ctx", None)
+    """
+    Returns or creates a thread-local SpngCtxWrapper instance.
+    """
+    cdef SpngCtxWrapper wrap = getattr(_thread_state, "ctx", None)
 
     if wrap is not None:
         return wrap
 
-    # create wrapper and underlying ctx
     wrap = SpngCtxWrapper()
     wrap.ptr = spng_ctx_new(0)
     if wrap.ptr == NULL:
         raise MemoryError("spng_ctx_new failed")
 
-    # Set compression while holding GIL
-    spng_set_option(wrap.ptr, 3, compression_level)
+    # configure compression (GIL held)
+    if spng_set_option(wrap.ptr, 3, compression_level) != 0:
+        spng_ctx_free(wrap.ptr)
+        wrap.ptr = NULL
+        raise RuntimeError("spng_set_option failed")
 
-    # Store in TLS
     _thread_state.ctx = wrap
     return wrap
 
-# ----------------------------------------------------
-# Python-visible PNG encoder
-# ----------------------------------------------------
+
+# ----------------------------------------------------------
+# GIL-free pure C PNG encoder helper
+# ----------------------------------------------------------
+cdef int _spng_encode(
+    spng_ctx* ctx,
+    uint8_t* img_ptr,
+    size_t img_len,
+    int fmt,
+    int flags
+) except -1 nogil:
+    return spng_encode_image(ctx, <const void*>img_ptr, img_len, fmt, flags)
+
+
+# ----------------------------------------------------------
+# PNG encode wrapper (manages FILE* but uses ctx under GIL)
+# ----------------------------------------------------------
 def encode_png_spng(bytes filename,
                     uint8_t* img_ptr,
                     int width, int height, int stride,
                     int compression_level):
     """
-    Encode single PNG using thread-local spng_ctx
+    Calls libspng to encode one frame via thread-local ctx.
     """
+    cdef FILE* fp
     cdef SpngCtxWrapper wrap
     cdef spng_ctx* ctx
-    cdef FILE* fp
+    cdef int ret
 
     fp = fopen(filename, b"wb")
     if fp == NULL:
@@ -83,16 +111,18 @@ def encode_png_spng(bytes filename,
         fclose(fp)
         raise RuntimeError("Invalid spng_ctx pointer")
 
-    # encoding call
-    cdef int rc = spng_encode_image(ctx, img_ptr, <size_t>(stride * height), SPNG_FMT_RGB8, SPNG_ENCODE_FINALIZE)
-    if rc != 0:
-        raise RuntimeError(f"spng_encode_image failed with code {rc}")
+    with nogil:
+        ret = _spng_encode(ctx, img_ptr, stride * height, SPNG_FMT_RGB8, SPNG_ENCODE_FINALIZE)
 
     fclose(fp)
 
-# ----------------------------------------------------
-# Python-visible entry point for process pool
-# ----------------------------------------------------
+    if ret != 0:
+        raise RuntimeError(f"spng_encode_image failed with code {ret}")
+
+
+# ----------------------------------------------------------
+# Entry point used by multiprocessing.Process / apply_async
+# ----------------------------------------------------------
 def write_images(bytes shm_name,
                  bytes desc_name,
                  int frames_total,
@@ -101,22 +131,28 @@ def write_images(bytes shm_name,
                  bytes output_path,
                  int compression_level):
     """
-    Maps shared memory and writes frames as PNG using thread-local ctx
+    Worker entrypoint: maps shared memory, writes each frame as PNG.
     """
-    cdef SpngCtxWrapper wrap
-    cdef spng_ctx* ctx
-    cdef uint8_t* frame_ptr
     cdef int i
-    import numpy as np
+    cdef uint8_t* frame_ptr
 
-    # Attach to existing shared memory
+    # Attach shared memory
     shm = shared_memory.SharedMemory(name=shm_name.decode())
-    buf = np.ndarray((frames_total, height, width, 3), dtype=np.uint8, buffer=shm.buf)
+    buf = np.ndarray((frames_total, height, width, 3),
+                     dtype=np.uint8,
+                     buffer=shm.buf)
+
+    base = output_path.decode()
+    desc = desc_name.decode()
 
     for i in range(frames_total):
-        filename = os.path.join(output_path.decode(), f"{desc_name.decode()}_{i:05d}.png")
+        filename = os.path.join(base, f"{desc}_{i:05d}.png")
         frame_ptr = <uint8_t*>buf[i].ctypes.data
-        encode_png_spng(filename.encode(), frame_ptr, width, height, width*3, compression_level)
+
+        encode_png_spng(filename.encode(),
+                        frame_ptr,
+                        width, height,
+                        width * 3,
+                        compression_level)
 
     shm.close()
-    shm.unlink()
