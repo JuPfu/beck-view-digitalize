@@ -1,187 +1,200 @@
+# WriteImages.pyx
+# cython: boundscheck=False, wraparound=False, cdivision=True
 # distutils: language = c
-# cython: boundscheck=False, wraparound=False, initializedcheck=False
-# cython: nonecheck=False, cdivision=True, infer_types=True
 
-from libc.stdint cimport uint8_t, uint32_t, uint64_t
-from libc.stdlib cimport malloc, free
-from libc.stdio cimport FILE, fopen, fclose
-
-cimport numpy as cnp
+from multiprocessing import shared_memory
+from pathlib import Path
+import logging, sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
+cimport numpy as cnp
+
+# C imports
+from libc.stdlib cimport malloc, free
+from libc.stdio cimport FILE, fopen, fclose, fflush
+from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libc.stddef cimport size_t
+
+# Import our structs and API from pxd
+from WriteImages cimport (
+    spng_ctx,
+    spng_ihdr,
+    spng_ctx_new,
+    spng_ctx_free,
+    spng_set_png_file,
+    spng_set_option,
+    spng_set_ihdr,
+    spng_encode_image,
+    spng_strerror,
+    spng_version_string
+)
+
+# constants (from spng.h)
+cdef int SPNG_OK = 0
+cdef int SPNG_FMT_RGB8 = 4
+cdef int SPNG_ENCODE_FINALIZE = 2
+cdef int SPNG_IMG_COMPRESSION_LEVEL = 2
+
+# logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("WriteImages_spng")
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
 
 
-# ============================================================
-# C libspng API
-# ============================================================
+# ---------------------------------------------------------------------
+# encode_png_spng — called inside threads
+# ---------------------------------------------------------------------
+def encode_png_spng(bytes filename,
+                    unsigned char* img_ptr,
+                    int width, int height, int stride,
+                    int compression_level):
+    cdef spng_ctx* ctx = NULL
+    cdef spng_ihdr ihdr
+    cdef int rc
+    cdef size_t img_len
+    cdef FILE* fp = NULL
 
-cdef extern from "spng.h":
+    img_len = <size_t> height * <size_t> stride
 
-    ctypedef struct spng_ctx:
-        pass
+    fp = fopen(filename, "wb")
+    if fp == NULL:
+        logger.error(f"[encode_png_spng] fopen failed for {filename!r}")
+        return
 
-    cdef struct spng_ihdr:
-        uint32_t width
-        uint32_t height
-        uint8_t  bit_depth
-        uint8_t  color_type
-        uint8_t  compression_method
-        uint8_t  filter_method
-        uint8_t  interlace_method
-
-    # error → message
-    const char *spng_strerror(int err)
-
-    # context
-    spng_ctx *spng_ctx_new(int flags)
-    void spng_ctx_free(spng_ctx *ctx)
-
-    # set IHDR
-    int spng_set_ihdr(spng_ctx *ctx, spng_ihdr *ihdr)
-
-    # set output file
-    int spng_set_png_file(spng_ctx *ctx, FILE *fp)
-
-    # encode from raw RGB buffer
-    int spng_encode_image(
-        spng_ctx *ctx,
-        const void *src,
-        size_t src_len,
-        int fmt,
-        int flags
-    )
-
-    # encoder options
-    int spng_set_option(spng_ctx *ctx, int option, int value)
-
-    # constants
-    int SPNG_CTX_ENCODER
-    int SPNG_FMT_RAW
-    int SPNG_ENCODE_FINALIZE
-
-    int SPNG_ENCODE_TO_FILE
-
-    # pixel formats
-    int SPNG_COLOR_TYPE_TRUECOLOR
-
-
-# ============================================================
-# Python-level wrapper
-# ============================================================
-
-cdef inline void _raise_spng_error(int err):
-    """Raise Python RuntimeError with libspng message."""
-    if err != 0:
-        raise RuntimeError(f"libspng error {err}: {spng_strerror(err).decode()}")
-
-
-cpdef write_images(
-    list frames,
-    list filenames,
-    int compression_level = 6
-):
-    """
-    Write a batch of RGB images (frames) to disk using libspng.
-
-    Parameters
-    ----------
-    frames : list of numpy arrays (uint8, H×W×3)
-    filenames : list of output PNG filenames
-    compression_level : 0–12 (recommended: 3–9)
-
-    The function is intentionally Python-level only at the outer loop;
-    libspng handles the heavy work inside C code.
-    """
-
-    cdef:
-        int i, height, width, err
-        uint8_t *buf_ptr
-        size_t buf_len
-        cnp.uint8_t[:, :, :] view
-        spng_ctx *ctx
-        spng_ihdr ihdr
-        FILE *fp
-
-    if len(frames) != len(filenames):
-        raise ValueError("frames and filenames lists must be of equal length")
-
-    for i in range(len(frames)):
-        frame = frames[i]
-        fn = filenames[i]
-
-        # ------ Validate & obtain memoryview ------
-        if frame.ndim != 3 or frame.shape[2] != 3:
-            raise ValueError("Frame must be H×W×3 RGB uint8")
-
-        if frame.dtype != np.uint8:
-            frame = frame.astype(np.uint8, copy=False)
-
-        view = frame
-
-        height = view.shape[0]
-        width = view.shape[1]
-
-        buf_ptr = &view[0, 0, 0]
-        buf_len = <size_t>(width * height * 3)
-
-        # ====================================================
-        # Create encoder
-        # ====================================================
-        ctx = spng_ctx_new(SPNG_CTX_ENCODER)
-        if ctx == NULL:
-            raise MemoryError("Failed to create spng_ctx")
-
-        # ====================================================
-        # Build IHDR chunk
-        # ====================================================
-        ihdr.width = width
-        ihdr.height = height
-        ihdr.bit_depth = 8
-        ihdr.color_type = SPNG_COLOR_TYPE_TRUECOLOR
-        ihdr.compression_method = 0
-        ihdr.filter_method = 0
-        ihdr.interlace_method = 0
-
-        err = spng_set_ihdr(ctx, &ihdr)
-        _raise_spng_error(err)
-
-        # ====================================================
-        # Configure compression
-        # ====================================================
-        # libspng option 1 = compression level
-        err = spng_set_option(ctx, 1, compression_level)
-        _raise_spng_error(err)
-
-        # ====================================================
-        # Open output file
-        # ====================================================
-        fp = fopen(fn.encode("utf-8"), "wb")
-        if fp == NULL:
-            spng_ctx_free(ctx)
-            raise IOError(f"Could not open {fn}")
-
-        err = spng_set_png_file(ctx, fp)
-        if err != 0:
-            fclose(fp)
-            spng_ctx_free(ctx)
-            _raise_spng_error(err)
-
-        # ====================================================
-        # Encode PNG
-        # ====================================================
-        err = spng_encode_image(
-            ctx,
-            <const void *>buf_ptr,
-            buf_len,
-            SPNG_FMT_RAW,
-            SPNG_ENCODE_FINALIZE
-        )
-
-        # cleanup before raising
+    ctx = spng_ctx_new(0)
+    if ctx == NULL:
+        logger.error("[encode_png_spng] spng_ctx_new failed")
         fclose(fp)
-        if err != 0:
-            spng_ctx_free(ctx)
-            _raise_spng_error(err)
+        return
 
+    rc = spng_set_png_file(ctx, fp)
+    if rc != SPNG_OK:
+        logger.error(f"[encode_png_spng] spng_set_png_file failed: {spng_strerror(rc).decode('utf-8')}")
         spng_ctx_free(ctx)
+        fclose(fp)
+        return
 
-    return None
+    # Fill IHDR
+    ihdr.width  = <uint32_t> width
+    ihdr.height = <uint32_t> height
+    ihdr.bit_depth = <uint8_t> 8
+    ihdr.color_type = <uint8_t> 2
+    ihdr.compression_method = <uint8_t> 0
+    ihdr.filter_method = <uint8_t> 0
+    ihdr.interlace_method = <uint8_t> 0
+
+    rc = spng_set_ihdr(ctx, &ihdr)
+    if rc != SPNG_OK:
+        logger.error(f"[encode_png_spng] spng_set_ihdr failed: {spng_strerror(rc).decode('utf-8')}")
+        spng_ctx_free(ctx)
+        fclose(fp)
+        return
+
+    rc = spng_set_option(ctx, SPNG_IMG_COMPRESSION_LEVEL, compression_level)
+    # non-fatal: log only in debug mode
+
+    rc = spng_encode_image(ctx, <const void*> img_ptr, img_len,
+                           SPNG_FMT_RGB8, SPNG_ENCODE_FINALIZE)
+    if rc != SPNG_OK:
+        logger.error(f"[encode_png_spng] encode failed: {spng_strerror(rc).decode('utf-8')}")
+
+    spng_ctx_free(ctx)
+    try:
+        fflush(fp)
+    except Exception:
+        pass
+    fclose(fp)
+
+
+# ---------------------------------------------------------------------
+# write_images_spng_threaded — main entrypoint
+# ---------------------------------------------------------------------
+cpdef void write_images_spng_threaded(str shm_name,
+                                      str desc_name,
+                                      int frames_total,
+                                      int img_width,
+                                      int img_height,
+                                      object output_path,
+                                      int compression_level=6,
+                                      int max_workers=4):
+    cdef:
+        object shm = None
+        object dshm = None
+        object out_path_obj
+        object pixel_obj = None
+        object desc_obj = None
+        unsigned char* base_ptr = NULL
+        int img_bytes = img_width * img_height * 3
+        int i, stored_bytes, frame_count, bracket_index
+        int offset, stride
+        list futures = []
+        bytes filename_bytes
+        unsigned char* img_ptr
+
+    try:
+        out_path_obj = Path(output_path)
+    except Exception:
+        out_path_obj = Path(str(output_path))
+
+    try:
+        shm = shared_memory.SharedMemory(name=shm_name, create=False)
+        dshm = shared_memory.SharedMemory(name=desc_name, create=False)
+    except Exception as e:
+        logger.error(f"[write_images_spng_threaded] failed to attach SHM: {e}")
+        return
+
+    try:
+        pixel_obj = np.frombuffer(shm.buf, dtype=np.uint8, count=frames_total * img_bytes)
+        desc_obj = np.frombuffer(dshm.buf, dtype=np.uint32, count=frames_total * 3).reshape((frames_total, 3))
+    except Exception as e:
+        logger.error(f"[write_images_spng_threaded] numpy mapping failed: {e}")
+        try: shm.close()
+        except: pass
+        try: dshm.close()
+        except: pass
+        return
+
+    if not pixel_obj.flags.c_contiguous:
+        pixel_obj = np.ascontiguousarray(pixel_obj)
+
+    base_ptr = <unsigned char*> pixel_obj.ctypes.data
+    stride = img_width * 3
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for i in range(frames_total):
+            stored_bytes = int(desc_obj[i, 0])
+            if stored_bytes != img_bytes:
+                continue
+
+            frame_count = int(desc_obj[i, 1])
+            bracket_index = int(desc_obj[i, 2])
+
+            offset = i * img_bytes
+            img_ptr = base_ptr + offset
+
+            suffix = ('a','b','c')[bracket_index] if 0 <= bracket_index <= 2 else 'a'
+            filename_bytes = str(out_path_obj / f"frame{frame_count:05d}{suffix}.png").encode("utf-8")
+
+            futures.append(
+                executor.submit(
+                    encode_png_spng,
+                    filename_bytes,
+                    img_ptr,
+                    img_width,
+                    img_height,
+                    stride,
+                    compression_level
+                )
+            )
+
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as e:
+                logger.error(f"[write_images_spng_threaded] thread error: {e}")
+
+    try: shm.close()
+    except: pass
+    try: dshm.close()
+    except: pass
