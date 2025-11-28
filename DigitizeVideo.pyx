@@ -35,8 +35,8 @@ import numpy as np
 
 from libc.string cimport memcpy
 
-import logging
 import platform
+import logging
 import multiprocessing
 from multiprocessing import shared_memory
 import concurrent.futures
@@ -333,30 +333,19 @@ cdef class DigitizeVideo:
     # ---------------------------
     def _create_and_start_connector(self, int maxcount) -> None:
         """
-        Create the Ft232hConnector and start its poller.
+        Create the Ft232hConnector (strict signature):
+            Ft232hConnector(signal_subject, maxcount, gui)
 
-        This function prefers the new Option B signature:
-            Ft232hConnector(signal_subject, max_count, gui)
-        but will fall back to the older API that expects a pre-opened Ftdi instance:
-            Ft232hConnector(ftdi, signal_subject, max_count, gui)
+        All legacy support has been removed intentionally.
         """
         try:
-            # Try Option B first (connector creates/owns FTDI internally)
             self.ft232h = Ft232hConnector(self.signal_subject, maxcount, self.gui)
-            self.logger.info("Ft232hConnector: instantiated with Option B signature.")
-        except TypeError:
-            # Fallback for older connector signature: create Ftdi and pass it
-            from pyftdi.ftdi import Ftdi
-            ftdi = Ftdi()
-            try:
-                ftdi.open_mpsse_from_url("ftdi:///1")
-            except Exception as e:
-                self.logger.error(f"Could not open FTDI for fallback connector: {e}")
-                raise
-            self.ft232h = Ft232hConnector(ftdi, self.signal_subject, maxcount, self.gui)
-            self.logger.info("Ft232hConnector: instantiated with legacy signature (ftdi passed).")
+            self.logger.info("Ft232hConnector: instantiated with strict signature.")
+        except Exception as e:
+            self.logger.error(f"Failed to instantiate Ft232hConnector: {e}")
+            raise
 
-        # obtain timing singleton (connector provides module-level function)
+        # obtain timing singleton (provided by connector module)
         try:
             self.timing = get_timing()
         except Exception:
