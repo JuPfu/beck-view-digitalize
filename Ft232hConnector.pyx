@@ -3,34 +3,32 @@
 # distutils: language = c
 
 """
-Modernised FT232H connector for beck-view-digitize with thread safety and resilience.
+Modernized Option B FT232H connector for beck-view-digitize.
 
-- Dedicated polling thread reads GPIO pins and publishes events via a reactivex Subject.
-- Timing is recorded into a module-level TimingResult singleton called `timing`.
-- Thread-safe access ensures no segfaults from multithreaded NumPy memoryview usage.
+- Connector owns the FTDI device internally (no Ftdi instance passed).
+- Polls GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
+- Thread-safe timing collection in TimingResult singleton.
+- Provides close() method for clean shutdown.
 """
 
 import cython
 from cython.view cimport array
-
-# Python imports (Python objects)
 import logging
 import sys
 import time
 import threading
 
 import usb
-from pyftdi.ftdi import Ftdi, FtdiError
+from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioMpsseController
 from reactivex import Subject
 
-# TimingResult
 from TimingResult cimport TimingResult as CTimingResult
 from TimingResult import TimingResult as PyTimingResult
 
-# Module-level singleton for timing storage
+# module-level singleton for timing
 from Ft232hConnector cimport get_timing
-timing = None  # will be set at runtime
+timing = None
 
 # logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -41,74 +39,57 @@ logger.addHandler(handler)
 
 cdef class Ft232hConnector:
     """
-    FT232H connector.
-
-    Usage:
-        conn = Ft232hConnector(ftdi, signal_subject, max_count, gui)
-        conn.start()         # starts internal poller thread
-        ...
-        conn.stop()          # stops thread cleanly
+    FT232H connector (Option B) — owns the FTDI device internally.
     """
 
-    # constants
     cdef double LATENCY_THRESHOLD
     cdef int INITIAL_COUNT
-
-    # user-requested flag
     cdef bint gui
-
-    # typed reference to TimingResult
     cdef CTimingResult timing_view
 
-    # Python-level references (ftdi, gpio)
     cdef object _ftdi
     cdef object _gpio
-
     cdef object signal_subject
 
-    # masks
     cdef int _OK1_mask
     cdef int _END_OF_FILM_mask
 
-    # thread state
     cdef object _stop_event
     cdef object _thread
     cdef bint running
 
-    # max count
     cdef int max_count
-
-    # lock for thread-safe TimingResult access
     cdef object _timing_lock
 
-    def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
+    def __init__(self, object signal_subject, int max_count, bint gui):
         """
-        Initialize connector.
+        Option B constructor.
 
-        - ftdi: pyftdi Ftdi instance (Python object)
-        - signal_subject: reactivex Subject for .on_next/.on_completed
-        - max_count: expected max frames (used to size timing buffer)
-        - gui: whether GUI logging to stdout is desired
+        - signal_subject: reactivex Subject for on_next/on_completed
+        - max_count: maximum expected frames
+        - gui: log to stdout
         """
-
         self.LATENCY_THRESHOLD = 0.01
         self.INITIAL_COUNT = -1
         self.gui = gui
         self.signal_subject = signal_subject
         self.max_count = max_count + 100
-        self._ftdi = ftdi
-        self._gpio = GpioMpsseController()
         self._timing_lock = threading.Lock()
 
-        # bit masks
+        # open FTDI device internally
+        self._ftdi = Ftdi()
+        try:
+            self._ftdi.open_mpsse_from_url("ftdi:///1")
+        except Exception as e:
+            logger.error(f"Could not open FTDI device: {e}")
+            raise
+
+        # configure GPIO
+        self._gpio = GpioMpsseController()
         MSB = 8
         self._OK1_mask = ((1 << 2) << MSB)
         self._END_OF_FILM_mask = ((1 << 3) << MSB)
 
-        # initialize USB device check
-        self._init_device()
-
-        # configure GPIO & FTDI
         try:
             self._gpio.configure(
                 'ftdi:///1',
@@ -132,7 +113,7 @@ cdef class Ft232hConnector:
             logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
             raise
 
-        # initialize global TimingResult singleton
+        # timing singleton
         global timing
         if timing is None:
             timing = PyTimingResult(self.max_count)
@@ -143,20 +124,11 @@ cdef class Ft232hConnector:
         self._thread = None
         self.running = False
 
-    def _init_device(self):
-        """Check USB device presence; exit on failure."""
-        try:
-            dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
-            if dev is None:
-                logger.error("No USB device with vendor 0x0403 / product 0x6014 found!")
-                raise RuntimeError("FT232H device not found")
-            logger.info(f"FT232H USB device found: {dev}")
-        except Exception as e:
-            logger.error(f"[Ft232hConnector] USB init failed: {e}")
-            raise
+        # start poller automatically
+        self.start()
 
     def start(self) -> None:
-        """Start polling thread safely."""
+        """Start the polling thread."""
         if self.running:
             return
         self._stop_event.clear()
@@ -166,18 +138,30 @@ cdef class Ft232hConnector:
         logger.info("[Ft232hConnector] Poller started")
 
     def stop(self, object timeout=None) -> None:
-        """Stop polling thread and wait for it."""
+        """Stop polling thread safely."""
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout)
         self.running = False
         logger.info("[Ft232hConnector] Poller stopped")
 
+    def close(self) -> None:
+        """Stop poller and release FTDI/GPIO safely."""
+        try:
+            self.stop()
+        except Exception:
+            pass
+        try:
+            self._gpio.close()
+        except Exception:
+            pass
+        try:
+            self._ftdi.close()
+        except Exception:
+            pass
+
     def _read_pins_safe(self):
-        """
-        Read GPIO pins robustly.
-        Returns an int representing pin state.
-        """
+        """Robust GPIO read."""
         try:
             rv = self._gpio.read(1)
         except Exception:
@@ -190,10 +174,7 @@ cdef class Ft232hConnector:
             return 0
 
     def _poll_loop(self) -> None:
-        """
-        Poll GPIO pins and publish events safely.
-        Thread-safe TimingResult access and robust GPIO read.
-        """
+        """Poll GPIO and publish events to the Subject."""
         cdef int pins, last_pins, count
         _ok = self._OK1_mask
         _eof = self._END_OF_FILM_mask
@@ -232,8 +213,6 @@ cdef class Ft232hConnector:
                 except Exception:
                     pass
 
-                work_time = 0.0
-
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
                 while ((pins & _ok) == _ok) and not stop_event.is_set():
@@ -241,19 +220,15 @@ cdef class Ft232hConnector:
                     pins = self._read_pins_safe()
                 latency = time.perf_counter() - latency_start
 
-                end_cycle = time.perf_counter()
-                wait_time = delta - (end_cycle - start_cycle)
-
-                # thread-safe append
                 with self._timing_lock:
                     try:
                         timing_view.append(
                             count,
-                            float(end_cycle - start_cycle),
-                            float(work_time),
-                            float(-1.0),
+                            float(time.perf_counter() - start_cycle),
+                            0.0,
+                            -1.0,
                             float(latency),
-                            float(wait_time),
+                            0.0,
                             float(delta)
                         )
                     except Exception:
@@ -265,38 +240,15 @@ cdef class Ft232hConnector:
             last_pins = pins
             time.sleep(0)
 
-        # Ensure completion published
+        # ensure completion
         try:
             if not stop_event.is_set():
                 subj.on_completed()
         except Exception:
             pass
 
-    def close(self):
-        """
-        Cleanly stop the polling thread and close FTDI/GPIO resources.
-        Safe to call multiple times.
-        """
-        # Ensure poller stops before closing hardware handles
-        try:
-            self.stop()
-        except Exception:
-            pass
-
-        try:
-            self._gpio.close()
-        except Exception:
-            pass
-
-        try:
-            self._ftdi.close()
-        except Exception:
-            pass
-
-        logger.info("[Ft232hConnector] Closed FTDI/GPIO resources")
-
-
 
 cpdef object get_timing():
+    """Return the TimingResult singleton."""
     global timing
     return timing
