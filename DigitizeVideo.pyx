@@ -1,3 +1,7 @@
+# DigitizeVideo.pyx
+# Cython module for digitizing Super8 frames (capture + background writer)
+# Focus: cooperative, clean shutdown that integrates with an external shutdown Event.
+
 import cython
 from cython.view cimport array  # Import for memory views
 
@@ -27,46 +31,128 @@ from typing import List
 
 from TypeDefinitions import ImgDescType, ProcessType, SubjectDescType
 from WriteImages import write_images
-from Ft232hConnector import get_timing, to_numpy
+
+from Ft232hConnector import get_timing
 
 cdef class DigitizeVideo:
     """
     Cython extension class for digitizing Super8 frames.
 
-    This class initializes a video capturing process and provides methods to process frames using reactive programming.
+    Changes for clean shutdown:
+    - Accept an externally provided threading.Event (`shutdown_event`) to coordinate shutdown
+      between main and this class (safe in signal handlers in main).
+    - Expose `request_shutdown()` to programmatically request shutdown.
+    - Provide `run_main_loop()` which blocks until shutdown is requested and then performs
+      finalization (final_write_to_disk + cleanup).
     """
+
+    cdef:
+        # basic configuration & command-line values
+        int device_number
+        object output_path          # pathlib.Path at runtime (store as object)
+        object exposures            # list of (exposure, suffix)
+        object timing               # TimingResult singleton (Python object)
+
+        # camera and capture geometry
+        int width
+        int height
+        bint bracketing
+        int frame_multiplier
+        int chunk_size
+        bint settings
+        bint gui
+
+        # subject / logging / sync
+        object signal_subject       # reactivex Subject (Python)
+        object logger               # Python logger
+
+        # camera runtime parameters (after open)
+        int img_width
+        int img_height
+        int img_bytes               # bytes per frame (w*h*3)
+
+        # small per-frame bookkeeping
+        list img_desc               # light-weight Python descriptors for logging (list of tuples)
+        object img_desc_lock        # threading.Lock
+
+        # prebuilt blank frame to use on read errors
+        np.ndarray blank_frame      # numpy ndarray
+
+        # timing / stats
+        long processed_frames
+        double start_time
+        double new_tick
+
+        # thread/process pools and related objects
+        object executor                 # ThreadPoolExecutor (python object)
+        object signal_observer          # SignalObserver instance
+        object photoCellSignalDisposable  # subscription disposable
+
+        # multiprocessing shared buffers
+        list shared_buffers            # list of shared_memory.SharedMemory objects
+        list _shm_arrays               # numpy views (per shared buffer)
+        list _desc_shms                # descriptor shared_memory objects
+        list _desc_arrays              # numpy descriptor arrays (per buffer)
+
+        int shared_buffers_index
+        list buffers_in_use
+        object buffer_lock             # threading.Lock
+        list processes                 # list of (AsyncResult, shm, buf_idx)
+        int process_count
+        int _frames_per_buffer
+
+        # camera handle and settings
+        object cap
+        int compression_level
+        object pool                    # multiprocessing.Pool (worker processes)
+
+        # external shutdown coordination (threading.Event)
+        object _shutdown_event
 
     def __cinit__(self):
         # ensure numpy C-API initialized for typed arrays if needed
         # (np.import_array must be called from Python init path; we also call it in __init__ to be safe)
         pass
 
-    def __init__(self, args: Namespace, signal_subject: Subject) -> None:
+    def __init__(self, args: Namespace, signal_subject: Subject, object shutdown_event=None) -> None:
         """
-        Initialize the DigitizeVideo instance with provided arguments and a signal subject.
+        Initialize the DigitizeVideo instance.
 
-        Args:
-            args: Namespace containing command line arguments.
-            signal_subject: Subject emitting photo cell signals.
+        Parameters:
+            args: parsed CLI Namespace
+            signal_subject: reactivex Subject used to receive frame triggers
+            shutdown_event: optional threading.Event used to coordinate shutdown
+                            (If omitted DigitizeVideo creates its own Event)
         """
+        # Ensure NumPy C-API available for typed memoryviews/ndarrays used later
         np.import_array()
 
         # basic fields from args
+        print(f"{args=}")
         self.device_number = args.device
         self.output_path = Path(args.output_path)
         self.width = args.width
         self.height = args.height
         self.bracketing = bool(args.bracketing)
         self.frame_multiplier = 3 if self.bracketing else 1
-        self.chunk_size = args.chunk_size - (args.chunk_size % self.frame_multiplier)  # Quantity of frames (images) passed to a process
-        self.settings = bool(args.settings) # display direct show settings menu
+        # ensure chunk_size is multiple of frame_multiplier
+        self.chunk_size = args.chunk_size - (args.chunk_size % self.frame_multiplier)
+        self.settings = bool(args.settings)   # display direct show settings menu
         self.gui = bool(args.gui)
 
+        # store external subject (this object does not register signal handlers itself)
+        # Signal handling must be handled in main (main thread) and set the shutdown_event.
         self.signal_subject = signal_subject  # a reactivex subject emitting photo cell signals.
 
-        # signal handlers
-        signal.signal(signal.SIGINT, self._on_signal)
-        signal.signal(signal.SIGTERM, self._on_signal)
+        # Accept an external shutdown event, otherwise create our own.
+        # The external event should be created and set by main's signal handler.
+        if shutdown_event is None:
+            self._shutdown_event = threading.Event()
+        else:
+            self._shutdown_event = shutdown_event
+
+        # register signal handlers should NOT be done here (must be done in main thread).
+        # removed: signal.signal(signal.SIGINT, self._on_signal)
 
         # logging + subsystems
         self.initialize_logging()
@@ -76,17 +162,76 @@ cdef class DigitizeVideo:
         self.initialize_process_pool()
 
         # descriptors and thread-safety
-        self.img_desc = [] # kind of meta data
+        self.img_desc = []               # kind of meta data (Python list)
         self.img_desc_lock = threading.Lock()
 
         # prebuilt blank frame (numpy) to memcpy on errors
+        # This uses img dimensions determined in initialize_camera()
         self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
 
+        # get timing singleton from FT232H connector module
         self.timing = get_timing()
 
+        # stats
         self.processed_frames = 0
         self.start_time = time.perf_counter()
         self.new_tick = self.start_time
+
+    # -------------------------
+    # Lifecycle helpers
+    # -------------------------
+    def request_shutdown(self) -> None:
+        """
+        Programmatically request a graceful shutdown. This simply sets the internal
+        shutdown Event so run_main_loop() (or other loops) can finish cooperatively.
+
+        This method is safe to call from any thread (it just sets threading.Event).
+        """
+        try:
+            self._shutdown_event.set()
+        except Exception:
+            # defensive: ignore if event object is invalid
+            pass
+
+    def run_main_loop(self, double poll_interval=0.1) -> None:
+        """
+        Blocks until shutdown is requested.
+
+        When the event is set, perform final write and cleanup before returning.
+        This centralises the cleanup sequence and keeps the signal-handler itself tiny.
+        """
+        # Wait until shutdown event is set (set by main's signal handler or elsewhere)
+        try:
+            while not self._shutdown_event.is_set():
+                # Poll periodically — this keeps the thread responsive to shutdown
+                time.sleep(poll_interval)
+        except KeyboardInterrupt:
+            # As an additional guard allow KeyboardInterrupt to request shutdown
+            self.request_shutdown()
+
+        # Once shutdown requested, ensure frames are flushed to disk and resources cleaned up
+        try:
+            self.final_write_to_disk()
+        except Exception:
+            # best-effort: log but don't re-raise (we are shutting down)
+            try:
+                self.logger.exception("Error during final_write_to_disk()")
+            except Exception:
+                pass
+
+        # perform final cleanup (this will try to close pools and shared memory)
+        try:
+            self.cleanup()
+        except Exception:
+            try:
+                self.logger.exception("Error during cleanup()")
+            except Exception:
+                pass
+
+    # -------------------------
+    # The rest of the class is unchanged (capture, pool creation, etc.)
+    # Keep original behaviour for capture and writing.
+    # -------------------------
 
     def initialize_logging(self) -> None:
         """
@@ -102,6 +247,9 @@ cdef class DigitizeVideo:
 
     def initialize_bracketing(self) -> None:
         # Define exposure settings
+        # ensure exposures exist as attribute
+        self.exposures = []
+
         if platform.system() == "Linux":
             if self.bracketing:
                 self.exposures = [(1.0 / (1 << 7), "a"), (1.0 / (1 << 8), "b"), (1.0 / (1 << 6), "c")]
@@ -153,18 +301,6 @@ cdef class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # manual
 
         if platform.system() == "Windows":
-            # EXP_TIME = 2^(-EXP_VAL)  (https://www.kurokesu.com/main/2020/05/22/uvc-camera-exposure-timing-in-opencv/)
-            # CAP_PROP_EXPOSURE  Actual exposure time
-            #     0                    1s
-            #    -1                    500ms
-            #    -2                    250ms
-            #    -3                    125ms
-            #    -4                    62.5ms
-            #    -5                    31.3ms
-            #    -6                    15.6ms
-            #    -7                     7.8ms
-            #    -8                     3.9ms
-            #    ...
             self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
         else:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1 << 7))
@@ -186,7 +322,6 @@ cdef class DigitizeVideo:
         self.logger.info(f"   fourcc = {self.cap.get(cv2.CAP_PROP_FOURCC)}")
         self.logger.info(f"   mode = {self.cap.get(cv2.CAP_PROP_MODE)}")
         self.logger.info(f"   buffersize = {self.cap.get(cv2.CAP_PROP_BUFFERSIZE)}")
-        # self.logger.info(f"   backend = {self.cap.getBackendName()}")
         self.logger.info(f"   hardware acceleration support = {cv2.checkHardwareSupport(cv2.CAP_PROP_HW_ACCELERATION)}")
         self.logger.info(f"   video acceleration support = {cv2.checkHardwareSupport(cv2.VIDEO_ACCELERATION_ANY)}")
         self.logger.info(f"   fps support = {cv2.checkHardwareSupport(cv2.CAP_PROP_FPS)}")
@@ -210,6 +345,7 @@ cdef class DigitizeVideo:
         self.signal_observer = SignalObserver(self.final_write_to_disk)
 
         # Subscribe to signal
+        # The observer will call final_write_to_disk() when it gets an on_completed().
         self.photoCellSignalDisposable = self.signal_subject.pipe(
             # Capture immediately upon signal
             ops.map(lambda event: self.handle_trigger(event))
@@ -232,18 +368,14 @@ cdef class DigitizeVideo:
         """
         Create a pool of worker processes for parallel processing.
         """
-        self.img_bytes: cython.int = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
+        # bytes per image in the configured capture resolution
+        self.img_bytes = self.img_width * self.img_height * 3  # Calculate bytes in a single frame
 
+        ctx = multiprocessing.get_context("forkserver")   # explicit context
         # Calculate the optimal number of processes
         self.process_count = max(2, multiprocessing.cpu_count() - 1)
-        # create pool
-        self.pool = multiprocessing.Pool(self.process_count)
-
-        try:
-            if multiprocessing.get_start_method(allow_none=True) != "forkserver":
-                set_start_method("forkserver")
-        except RuntimeError:
-            pass
+        # Create pool — store as attribute so finalize/wait logic can close it later
+        self.pool = ctx.Pool(self.process_count)
 
         # frames per buffer: chunk_size * frame_multiplier (frames stored physically per buffer)
         frames_per_buffer = int(self.chunk_size * self.frame_multiplier)
@@ -290,16 +422,23 @@ cdef class DigitizeVideo:
         for res, shm, buf_idx in self.processes:
             if res.ready():
                 try:
-                    res.get()  # propagate exceptions from child
+                    res.get()
                 except Exception as e:
                     self.logger.error(f"Child process failed: {e}")
 
-                # mark buffer free
+                # mark buffer free and close the SHM handle in the parent (we still keep it in self.shared_buffers for reuse)
                 with self.buffer_lock:
                     self.buffers_in_use[buf_idx] = False
+
+                # If you want to reduce handles, close the shm handle here (main keeps the SharedMemory object but close/unlink in final cleanup)
+                try:
+                    shm.close()
+                except Exception:
+                    pass
             else:
                 still.append((res, shm, buf_idx))
         self.processes = still
+
 
     def handle_trigger(self, event: SubjectDescType) -> None:
         frame_count, start_cycle = event
@@ -328,7 +467,11 @@ cdef class DigitizeVideo:
 
         if self.gui and self.processed_frames % 100 == 0:
             capture_duration = time.perf_counter() - read_time_start
-            self.timing[self.processed_frames:3] = capture_duration
+            # timing supports item assignment / slicing — keep as-is
+            try:
+                self.timing[self.processed_frames:3] = capture_duration
+            except Exception:
+                pass
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
@@ -466,11 +609,7 @@ cdef class DigitizeVideo:
     def final_write_to_disk(self) -> None:
         """
         Write final images to disk and ensure all processes have finished.
-
-        Returns:
-            None
         """
-
         if self.img_desc:
             current_buf = self.shared_buffers_index
 
@@ -521,11 +660,17 @@ cdef class DigitizeVideo:
             self._cleanup_finished_processes()
             time.sleep(0.05)
 
-        self.pool.close()
+        # close & join pool
         try:
-            self.pool.join()
-        except Exception as e:
-            self.logger.error(f"Error joining pool: {e}")
+            if hasattr(self, 'pool') and self.pool is not None:
+                self.pool.close()
+                try:
+                    self.pool.join()
+                except Exception as e:
+                    self.logger.error(f"Error joining pool: {e}")
+        except Exception:
+            # ignore pool cleanup errors
+            pass
 
         # Calculate elapsed time and log statistics
         elapsed_time = time.perf_counter() - self.start_time
@@ -537,9 +682,12 @@ cdef class DigitizeVideo:
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
         # get timing array as numpy (copy)
-        tim = to_numpy()
+        try:
+            tim = self.timing.to_numpy()
+        except Exception:
+            tim = np.empty((0, 7))
 
-        if self.timing.size > 0:
+        if tim.size > 0:
             wait_time        = tim[:, 5]
             work_time        = tim[:, 2]
             read_time        = tim[:, 3]
@@ -632,6 +780,12 @@ cdef class DigitizeVideo:
                 shm.unlink()
             except FileNotFoundError:
                 pass
+            except Exception:
+                # log unexpected errors
+                try:
+                    self.logger.exception("Error unlinking shm")
+                except Exception:
+                    pass
 
         for dshm in getattr(self, "_desc_shms", []):
             try:
@@ -642,71 +796,62 @@ cdef class DigitizeVideo:
                 dshm.unlink()
             except FileNotFoundError:
                 pass
+            except Exception:
+                try:
+                    self.logger.exception("Error unlinking desc shm")
+                except Exception:
+                    pass
+
+        # Additional aggressive cleanup: ensure pool is closed/joined
+        if hasattr(self, "pool") and self.pool is not None:
+            try:
+                self.pool.close()
+            except Exception:
+                pass
+            try:
+                self.pool.join()
+            except Exception:
+                # try terminating if join hangs
+                try:
+                    self.pool.terminate()
+                    self.pool.join()
+                except Exception:
+                    pass
 
     def _on_signal(self, signum: int, frame) -> None:
         """
-        Handle interrupt signals.
+        Kept for compatibility but not used for signal registration.
+        Prefer using a main-level signal handler that sets external shutdown_event.
         """
         name = signal.Signals(signum).name
-        self.logger.warning(f"Signal {name} received, stopping...")
-        self.final_write_to_disk()
-        sys.exit(1)
+        self.logger.warning(f"Signal {name} received, requesting shutdown...")
+        self.request_shutdown()
 
 
 class SignalObserver(Observer):
     """
-    Custom observer for handling photo cell signals.
-
-    Attributes:
-        final_write_to_disk: Function to write final images to disk.
-
-    Methods:
-        on_next(value): Handle the next emitted value.
-        on_error(error): Handle errors during signal processing.
-        on_completed(): Handle completion of signal processing.
+    Observer that calls final_write_to_disk() on completion.
     """
 
     def __init__(self, final_write_to_disk) -> None:
-        """
-        Initialize the SignalObserver instance.
-
-        Args:
-            final_write_to_disk: Function to write final images to shared memory.
-        """
         super().__init__()
         self.final_write_to_disk = final_write_to_disk
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
     def on_next(self, value) -> None:
-        """
-        Handle the next emitted value from the signal subject.
-
-        Args:
-            value: The next emitted value.
-
-        Returns:
-            None
-        """
+        # no action required — the pipeline calls DigitizeVideo.handle_trigger()
         pass
 
     def on_error(self, error) -> None:
-        """
-        Handle errors during signal processing.
-
-        Args:
-            error: The error encountered.
-
-        Returns:
-            None
-        """
         self.logger.error(f"Signal observer error: {error}")
 
     def on_completed(self) -> None:
-        """
-        Handle completion of signal processing.
-
-        Returns:
-            None
-        """
-        self.final_write_to_disk()
+        # when the subject completes it signals end-of-film: flush and cleanup
+        try:
+            self.final_write_to_disk()
+        except Exception:
+            try:
+                self.logger.exception("Error in final_write_to_disk during on_completed")
+            except Exception:
+                pass

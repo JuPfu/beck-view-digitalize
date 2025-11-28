@@ -16,7 +16,7 @@ cdef class TimingResult:
         # create memoryview
         self.buf = arr
 
-    cdef inline void append(
+    cpdef void append(
             self,
             double count,
             double cycle,
