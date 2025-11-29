@@ -39,7 +39,6 @@ def main():
     # Parse CLI arguments
     #
     args: Namespace = CommandLineParser().parse_args()
-    print(f"[main] Starting with args={args}")
 
     #
     # Create optocoupler event Subject

@@ -195,7 +195,7 @@ cdef class DigitizeVideo:
         self.start_time = time.perf_counter()
         self.new_tick = self.start_time
 
-        # instantiate and start connector (Option B preferred)
+        # instantiate and start connector
         self._create_and_start_connector(args.maxcount)
 
     def initialize_logging(self) -> None:

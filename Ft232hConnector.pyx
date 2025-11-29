@@ -63,8 +63,6 @@ cdef class Ft232hConnector:
 
     def __init__(self, object signal_subject, int max_count, bint gui):
         """
-        Option B constructor.
-
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
@@ -188,7 +186,7 @@ cdef class Ft232hConnector:
         pins = self._read_pins_safe()
         last_pins = pins
 
-        while not stop_event.is_set() and (pins & _eof) != _eof and count < (self.max_count - 1):
+        while not stop_event.is_set() and (pins & _eof) != _eof and count < self.max_count:
             pins = self._read_pins_safe()
 
             # EOF detection
