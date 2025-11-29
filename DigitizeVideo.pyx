@@ -74,6 +74,7 @@ cdef class DigitizeVideo:
         # configuration & runtime state
         int device_number
         object output_path          # pathlib.Path at runtime (store as object)
+        bytes output_path_b         # path converted to bytes
         object exposures            # list of (exposure, suffix) tuples
         object timing               # TimingResult singleton (Python object)
 
@@ -155,6 +156,7 @@ cdef class DigitizeVideo:
         # command-line values
         self.device_number = args.device
         self.output_path = Path(args.output_path)
+        self.output_path_b = str(self.output_path).encode('utf-8')
         self.width = args.width
         self.height = args.height
         self.bracketing = bool(args.bracketing)
@@ -196,7 +198,7 @@ cdef class DigitizeVideo:
         self.new_tick = self.start_time
 
         # instantiate and start connector
-        self._create_and_start_connector(args.maxcount)
+        # self._create_and_start_connector(args.maxcount)
 
     def initialize_logging(self) -> None:
         """Configure logging for the application and store a logger on self."""
@@ -334,12 +336,12 @@ cdef class DigitizeVideo:
     def _create_and_start_connector(self, int maxcount) -> None:
         """
         Create the Ft232hConnector (strict signature):
-            Ft232hConnector(signal_subject, maxcount, gui)
+            Ft232hConnector(self._ftdi, signal_subject, maxcount, gui)
 
         All legacy support has been removed intentionally.
         """
         try:
-            self.ft232h = Ft232hConnector(self.signal_subject, maxcount, self.gui)
+            self.ft232h = Ft232hConnector(self._ftdi, self.signal_subject, maxcount, self.gui)
             self.logger.info("Ft232hConnector: instantiated with strict signature.")
         except Exception as e:
             self.logger.error(f"Failed to instantiate Ft232hConnector: {e}")
@@ -364,7 +366,7 @@ cdef class DigitizeVideo:
     def _cleanup_finished_processes(self) -> None:
         """Collect finished worker results and free buffers."""
         still = []
-        for res, shm, buf_idx in self.processes:
+        for res, shm, desc_shm, buf_idx in self.processes:
             if res.ready():
                 try:
                     res.get()
@@ -372,12 +374,24 @@ cdef class DigitizeVideo:
                     self.logger.error(f"Child process failed: {e}")
                 with self.buffer_lock:
                     self.buffers_in_use[buf_idx] = False
+
                 try:
                     shm.close()
                 except Exception:
                     pass
+
+                try:
+                    desc_shm.close()
+                except Exception:
+                    pass
+
+                try:
+                    desc_arr = self._desc_arrays[buf_idx]
+                    desc_arr.fill(0)
+                except Exception:
+                    pass
             else:
-                still.append((res, shm, buf_idx))
+                still.append((res, shm, desc_shm, buf_idx))
         self.processes = still
 
     def handle_trigger(self, event: SubjectDescType) -> None:
@@ -434,8 +448,8 @@ cdef class DigitizeVideo:
         try:
             shm = self.shared_buffers[buffer_index]
             desc_shm = self._desc_shms[buffer_index]
-            shm_name = shm.name
-            desc_name = desc_shm.name
+            shm_name = (<str>shm.name).encode('utf-8')
+            desc_name = (<str>desc_shm.name).encode('utf-8')
             frames_total = self._frames_per_buffer
 
             def process_error_callback(error):
@@ -443,12 +457,12 @@ cdef class DigitizeVideo:
 
             result = self.pool.apply_async(
                 write_images,
-                args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, str(self.output_path), self.compression_level),
+                args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
                 error_callback=process_error_callback
             )
 
             with self.buffer_lock:
-                self.processes.append((result, shm, buffer_index))
+                self.processes.append((result, shm, desc_shm, buffer_index))
 
             desc_arr = self._desc_arrays[buffer_index]
             desc_arr.fill(0)
@@ -529,8 +543,8 @@ cdef class DigitizeVideo:
             try:
                 shm = self.shared_buffers[current_buf]
                 desc_shm = self._desc_shms[current_buf]
-                shm_name = shm.name
-                desc_name = desc_shm.name
+                shm_name = (<str>shm.name).encode('utf-8')
+                desc_name = (<str>desc_shm.name).encode('utf-8')
                 frames_total = self._frames_per_buffer
 
                 def process_error_callback(error):
@@ -538,12 +552,12 @@ cdef class DigitizeVideo:
 
                 result = self.pool.apply_async(
                     write_images,
-                    args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, str(self.output_path), self.compression_level),
+                    args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
                     error_callback=process_error_callback
                 )
 
                 with self.buffer_lock:
-                    self.processes.append((result, shm, current_buf))
+                    self.processes.append((result, shm, desc_shm, current_buf))
 
                 # clear descriptor buffer
                 desc_arr = self._desc_arrays[current_buf]

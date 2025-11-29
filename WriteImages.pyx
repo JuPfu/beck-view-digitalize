@@ -18,8 +18,8 @@ from WriteImages cimport (
 # ----------------------------------------------------------
 # Constants (must match libspng)
 # ----------------------------------------------------------
-cdef int SPNG_FMT_RGB8 = 1
-cdef int SPNG_ENCODE_FINALIZE = 1
+cdef int SPNG_FMT_RGB8 = 4
+cdef int SPNG_ENCODE_FINALIZE = 2 # Finalize PNG after encoding image
 
 
 
@@ -131,22 +131,54 @@ def write_images(bytes shm_name,
                  bytes output_path,
                  int compression_level):
     """
-    Worker entrypoint: maps shared memory, writes each frame as PNG.
+    Worker entrypoint: maps shared memory,
+    reads descriptor array and writes PNGs.
     """
     cdef int i
     cdef uint8_t* frame_ptr
 
-    # Attach shared memory
-    shm = shared_memory.SharedMemory(name=shm_name.decode())
+    # Used to build filenames
+    cdef int img_bytes, frame_count, bracket_index
+
+    cdef str shm_str = shm_name.decode()
+    cdef str desc_str = desc_name.decode()
+    cdef str base = output_path.decode()
+
+    # ----------------------------------------------------------
+    # Attach image shared memory buffer
+    # ----------------------------------------------------------
+    shm = shared_memory.SharedMemory(name=shm_str)
     buf = np.ndarray((frames_total, height, width, 3),
                      dtype=np.uint8,
                      buffer=shm.buf)
 
-    base = output_path.decode()
-    desc = desc_name.decode()
+    # ----------------------------------------------------------
+    # Attach descriptor shared memory buffer
+    # Layout guaranteed by DigitizeVideo.pyx:
+    #   desc_arr[i,0] = img_bytes (uint32)
+    #   desc_arr[i,1] = frame_count (uint32)
+    #   desc_arr[i,2] = bracket_index (uint32)
+    # ----------------------------------------------------------
+    desc_shm = shared_memory.SharedMemory(name=desc_str)
+    desc_arr = np.ndarray((frames_total, 3),
+                          dtype=np.uint32,
+                          buffer=desc_shm.buf)
 
+    # ----------------------------------------------------------
+    # Encode each frame as PNG using the descriptor metadata
+    # ----------------------------------------------------------
     for i in range(frames_total):
-        filename = os.path.join(base, f"{desc}_{i:05d}.png")
+        # Extract descriptor metadata
+        img_bytes     = int(desc_arr[i, 0])
+        frame_count   = int(desc_arr[i, 1])
+        bracket_index = int(desc_arr[i, 2])
+
+        # Build descriptive filename
+        filename = os.path.join(
+            base,
+            f"f{frame_count:05d}_b{bracket_index}_s{img_bytes}.png"
+        )
+
         frame_ptr = <uint8_t*>buf[i].ctypes.data
 
         encode_png_spng(filename.encode(),
@@ -156,3 +188,4 @@ def write_images(bytes shm_name,
                         compression_level)
 
     shm.close()
+    desc_shm.close()

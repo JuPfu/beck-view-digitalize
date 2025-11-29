@@ -39,7 +39,7 @@ logger.addHandler(handler)
 
 cdef class Ft232hConnector:
     """
-    FT232H connector (Option B) — owns the FTDI device internally.
+    FT232H connector — owns the FTDI device internally.
     """
 
     cdef double LATENCY_THRESHOLD
@@ -61,8 +61,9 @@ cdef class Ft232hConnector:
     cdef int max_count
     cdef object _timing_lock
 
-    def __init__(self, object signal_subject, int max_count, bint gui):
+    def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
         """
+        - ftdi
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
@@ -75,7 +76,7 @@ cdef class Ft232hConnector:
         self._timing_lock = threading.Lock()
 
         # open FTDI device internally
-        self._ftdi = Ftdi()
+        self._ftdi = ftdi
         try:
             self._ftdi.open_mpsse_from_url("ftdi:///1")
         except Exception as e:
@@ -203,6 +204,9 @@ cdef class Ft232hConnector:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
+
+                logger.info(f"{pins=:x}  {last_pins=:x}")
+
 
                 count += 1
                 try:
