@@ -2,15 +2,14 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
 import logging
-
 import os
 import sys
+
 cimport numpy as np
 import numpy as np
 
 from libc.stdio cimport FILE, fopen, fclose
 from libc.stdint cimport uint8_t
-from libc.stddef cimport size_t
 from libc.stdlib cimport malloc, free
 
 from multiprocessing import shared_memory
@@ -29,23 +28,13 @@ from WriteImages cimport (
     png_init_io, png_set_IHDR,
     png_set_compression_level,
     png_write_info, png_write_image, png_write_end,
+    png_set_bgr,
     PNG_COLOR_TYPE_RGB
 )
 
-# ---------------------------------------------------------
-# Optional BGR→RGB swap
-# ---------------------------------------------------------
-cdef inline void swap_bgr(uint8_t* row, int width) noexcept:
-    cdef int x
-    cdef uint8_t tmp
-    for x in range(width):
-        tmp = row[3*x]
-        row[3*x] = row[3*x + 2]
-        row[3*x + 2] = tmp
-
 
 # ---------------------------------------------------------
-# Low-level PNG write using libpng
+# Low-level PNG write using libpng (with png_set_bgr)
 # ---------------------------------------------------------
 cdef void write_png(
     const char* fname,
@@ -55,10 +44,10 @@ cdef void write_png(
     int stride,
     int compression_level
 ):
+
     cdef FILE* fp
     cdef png_structp png_ptr
     cdef png_infop info_ptr
-    cdef unsigned char** rows = NULL
     cdef int y
 
     fp = fopen(fname, b"wb")
@@ -80,32 +69,29 @@ cdef void write_png(
         png_init_io(png_ptr, fp)
 
         png_set_IHDR(
-            png_ptr, info_ptr,
-            width, height,
-            8,                          # bit depth
-            PNG_COLOR_TYPE_RGB,         # always RGB
+            png_ptr,
+            info_ptr,
+            width,
+            height,
+            8,                    # bit depth
+            PNG_COLOR_TYPE_RGB,   # 3 channels
             0, 0, 0
         )
+
+        # No CPU loop: instruct libpng to interpret input as BGR
+        png_set_bgr(png_ptr)
 
         png_set_compression_level(png_ptr, compression_level)
 
         png_write_info(png_ptr, info_ptr)
 
-        rows = <unsigned char**> malloc(height * sizeof(unsigned char*))
-        if rows == NULL:
-            raise MemoryError("row_pointers malloc failed")
-
-        # prepare row pointers
+        # --- Zero-copy row streaming ---
         for y in range(height):
-            rows[y] = data_ptr + y * stride
-            swap_bgr(rows[y], width)
+            png_write_row(png_ptr, data_ptr + y * stride)
 
-        png_write_image(png_ptr, rows)
         png_write_end(png_ptr, info_ptr)
 
     finally:
-        if rows != NULL:
-            free(rows)
         png_destroy_write_struct(&png_ptr, &info_ptr)
         fclose(fp)
 
