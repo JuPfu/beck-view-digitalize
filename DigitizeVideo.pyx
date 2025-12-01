@@ -211,7 +211,7 @@ cdef class DigitizeVideo:
     def initialize_bracketing(self) -> None:
         """Prepare exposure triplets (or single) depending on platform/flags."""
         self.exposures = []
-        if platform.system() == "Linux":
+        if platform.system() == "Linux" or platform.system() == "Darwin":
             if self.bracketing:
                 self.exposures = [(1.0 / (1 << 7), "a"), (1.0 / (1 << 8), "b"), (1.0 / (1 << 6), "c")]
             else:
@@ -364,31 +364,32 @@ cdef class DigitizeVideo:
     # Capture / buffer management
     # ---------------------------
     def _cleanup_finished_processes(self) -> None:
-        """Collect finished worker results and free buffers."""
+        """
+        Check child processes for completion.
+        Properly close/unlink SHM and clear descriptor arrays safely.
+        """
         still = []
+
+
         for res, shm, desc_shm, buf_idx in self.processes:
             if res.ready():
                 try:
+                    # re-raise worker exceptions here so we can log them
                     res.get()
                 except Exception as e:
+                    # Log the worker error, but still reclaim the buffer so the pipeline continues
                     self.logger.error(f"Child process failed: {e}")
+
+                # mark buffer as free for reuse (under lock)
                 with self.buffer_lock:
                     self.buffers_in_use[buf_idx] = False
 
+                # Clear descriptor array now that worker consumed it
+                # (desc arrays are pre-allocated and reused; do NOT close/unlink here)
                 try:
-                    shm.close()
+                    self._desc_arrays[buf_idx].fill(0)
                 except Exception:
-                    pass
-
-                try:
-                    desc_shm.close()
-                except Exception:
-                    pass
-
-                try:
-                    desc_arr = self._desc_arrays[buf_idx]
-                    desc_arr.fill(0)
-                except Exception:
+                    # best-effort only
                     pass
             else:
                 still.append((res, shm, desc_shm, buf_idx))
@@ -414,7 +415,7 @@ cdef class DigitizeVideo:
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
-        if self.gui and (self.processed_frames % 100) == 0:
+        if True or self.gui and (self.processed_frames % 100) == 0:
             capture_duration = time.perf_counter() - read_time_start
             try:
                 if self.timing is not None:
@@ -455,6 +456,7 @@ cdef class DigitizeVideo:
             def process_error_callback(error):
                 self.logger.error(f"Error in child process: {error}")
 
+            self.logger.info(f"start process for write_images {frames_total=} {self._desc_shms[buffer_index]=}")
             result = self.pool.apply_async(
                 write_images,
                 args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
@@ -464,8 +466,8 @@ cdef class DigitizeVideo:
             with self.buffer_lock:
                 self.processes.append((result, shm, desc_shm, buffer_index))
 
-            desc_arr = self._desc_arrays[buffer_index]
-            desc_arr.fill(0)
+            # desc_arr = self._desc_arrays[buffer_index]
+            # desc_arr.fill(0)
         except Exception as e:
             self.logger.error(f"Error during apply_async: {e}")
             with self.buffer_lock:
@@ -490,6 +492,8 @@ cdef class DigitizeVideo:
 
         for bracket_index, (exp_val, suffix) in enumerate(exposures):
             success, frame_data = self.cap.read()
+
+            self.logger.info(f"TAKE PICTURE nach read {success=}")
 
             if self.bracketing and (bracket_index < (len(exposures) - 1)):
                 next_exp, _ = exposures[bracket_index + 1]
@@ -520,6 +524,8 @@ cdef class DigitizeVideo:
             desc_arr[frame_index, 0] = np.uint32(img_bytes)
             desc_arr[frame_index, 1] = np.uint32(frame_count)
             desc_arr[frame_index, 2] = np.uint32(bracket_index)
+
+            self.logger.info(f"TAKE PICTURE {img_bytes=} {frame_count=} {bracket_index=}")
 
             with self.img_desc_lock:
                 self.img_desc.append((img_bytes, frame_count, suffix))

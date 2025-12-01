@@ -72,7 +72,7 @@ cdef class Ft232hConnector:
         self.INITIAL_COUNT = -1
         self.gui = gui
         self.signal_subject = signal_subject
-        self.max_count = max_count + 100
+        self.max_count = 300 # max_count + 100
         self._timing_lock = threading.Lock()
 
         # open FTDI device internally
@@ -205,7 +205,7 @@ cdef class Ft232hConnector:
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
 
-                logger.info(f"{pins=:x}  {last_pins=:x}")
+                logger.info(f"{count=} {pins=:x}  {last_pins=:x}")
 
 
                 count += 1

@@ -1,35 +1,67 @@
-from libc.stddef cimport size_t
-from libc.stdint cimport uint8_t
+# WriteImages.pxd
+# libpng declarations needed by WriteImages.pyx
 
-cdef extern from "spng.h":
-    cdef struct spng_ctx
+from libc.stdint cimport uint32_t
+from libc.stdio cimport FILE
 
-    spng_ctx* spng_ctx_new(int) nogil
-    void      spng_ctx_free(spng_ctx*) nogil
-    int       spng_set_option(spng_ctx*, int, int) nogil
+# ----------------------------------------------------------------------
+# Core struct creation / destruction
+# ----------------------------------------------------------------------
+cdef extern from "png.h":
+    ctypedef struct png_struct_def:
+        pass
 
-    int spng_encode_image(
-        spng_ctx*,
-        const void* buf,
-        size_t len,
-        int fmt,
-        int flags
-    ) nogil
+    ctypedef struct png_info_def:
+        pass
 
+    ctypedef png_struct_def* png_structp
+    ctypedef png_info_def* png_infop
 
-cdef class SpngCtxWrapper:
-    cdef spng_ctx* ptr
+    ctypedef png_struct_def** png_structpp
+    ctypedef png_info_def** png_infopp
 
+    png_structp png_create_write_struct(
+        const char* user_png_ver,
+        void* error_ptr,
+        void (*error_fn)(png_structp, const char*),
+        void (*warn_fn)(png_structp, const char*)
+    )
 
-# unwrap helper
-cdef spng_ctx* _unwrap_ctx(SpngCtxWrapper wrap) except NULL nogil
+    png_infop png_create_info_struct(png_structp png_ptr)
 
+    void png_destroy_write_struct(png_structp* png_ptr_ptr,
+                                  png_infop* info_ptr_ptr)
 
-# pure nogil C-level encode wrapper
-cdef int _spng_encode(
-    spng_ctx* ctx,
-    uint8_t* img_ptr,
-    size_t img_len,
-    int fmt,
-    int flags
-) except -1 nogil
+# ----------------------------------------------------------------------
+# IO and header functions
+# ----------------------------------------------------------------------
+cdef extern from "png.h":
+    void png_init_io(png_structp png_ptr, FILE* fp)
+
+    void png_set_IHDR(
+        png_structp png_ptr,
+        png_infop info_ptr,
+        uint32_t width,
+        uint32_t height,
+        int bit_depth,
+        int color_type,
+        int interlace_method,
+        int compression_method,
+        int filter_method
+    )
+
+    void png_set_compression_level(png_structp png_ptr, int level)
+
+# ----------------------------------------------------------------------
+# Writing operations
+# ----------------------------------------------------------------------
+cdef extern from "png.h":
+    void png_write_info(png_structp png_ptr, png_infop info_ptr)
+    void png_write_image(png_structp png_ptr, unsigned char** row_pointers)
+    void png_write_end(png_structp png_ptr, png_infop info_ptr)
+
+# ----------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------
+cdef extern from "png.h":
+    int PNG_COLOR_TYPE_RGB

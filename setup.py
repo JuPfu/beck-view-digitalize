@@ -1,174 +1,82 @@
 from setuptools import setup, Extension
-import Cython.Build as cb
+from Cython.Build import cythonize
 import numpy as np
-import platform
-import subprocess
-import sys
 import os
+import sys
+import subprocess
+
 from glob import glob
 from os.path import splitext, basename
 
-
-SYSTEM = platform.system()
-
 pyx_files = glob("*.pyx")
 
-
-# --------------------------------------------------------
-# Helper: pkg-config wrapper (macOS + Linux)
-# --------------------------------------------------------
-def try_pkg_config(pkg):
+def pkg_config(libname, flag):
     try:
-        out = subprocess.check_output(
-            ["pkg-config", "--cflags", "--libs", pkg],
-            text=True
-        )
-        parts = out.strip().split()
-        inc, libdirs, libs = [], [], []
-        extra_c, extra_l = [], []
-
-        for p in parts:
-            if p.startswith("-I"):
-                inc.append(p[2:])
-            elif p.startswith("-L"):
-                libdirs.append(p[2:])
-            elif p.startswith("-l"):
-                libs.append(p[2:])
-            elif p.startswith("-Wl,") or p.startswith("-pthread"):
-                extra_l.append(p)
-            else:
-                extra_c.append(p)
-
-        return {
-            "include_dirs": inc,
-            "library_dirs": libdirs,
-            "libraries": libs,
-            "extra_compile_args": extra_c,
-            "extra_link_args": extra_l,
-        }
+        out = subprocess.check_output(["pkg-config", flag, libname], text=True).strip()
+        return out.split()
     except Exception:
-        return None
+        return []
 
+# -------------------------------------------------------------
+# libpng detection (macOS Homebrew / Linux pkg-config / Windows)
+# -------------------------------------------------------------
+include_dirs = []
+library_dirs = []
+libraries = []
 
+# --- macOS Homebrew ---
+if sys.platform == "darwin":
+    homebrew = "/opt/homebrew"
+    if os.path.exists(homebrew):
+        include_dirs.append(f"{homebrew}/include")
+        library_dirs.append(f"{homebrew}/lib")
+        libraries.extend(["png", "z"])
 
-# ========================================================
-# PLATFORM: WINDOWS
-# ========================================================
-if SYSTEM == "Windows":
+# --- Linux pkg-config ---
+include_dirs += pkg_config("libpng", "--cflags-only-I")
+library_dirs += pkg_config("libpng", "--libs-only-L")
+libraries += [lib[2:] for lib in pkg_config("libpng", "--libs-only-l")]
 
-    # Paths created by your batch script:
-    WIN_PREFIX = os.path.join(os.getcwd(), "build", "install")
+# --- fallback ---
+if not libraries:
+    libraries = ["png", "z"]
 
-    include_dirs = [
-        np.get_include(),
-        os.path.join(WIN_PREFIX, "include"),
-    ]
+# Always add NumPy
+include_dirs.append(np.get_include())
 
-    library_dirs = [
-        os.path.join(WIN_PREFIX, "lib")
-    ]
-
-    libraries = [
-        "spng",
-        "libdeflate",
-    ]
-
-    extra_compile_args = ["/O2", "/Ot", "/GL"]
-    extra_link_args    = ["/LTCG"]
-
-    define_macros = [
-        ("_CRT_SECURE_NO_WARNINGS", None),
-        ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
-    ]
-
-
-# ========================================================
-# PLATFORM: macOS or Linux
-# ========================================================
-else:
-    cfg = try_pkg_config("spng")
-
-    if cfg is None:
-        print("⚠ pkg-config failed; applying fallback paths")
-
-        # Linux fallback: typical install locations
-        include_dirs = [
-            np.get_include(),
-            "/usr/include",
-            "/usr/local/include",
-        ]
-        library_dirs = [
-            "/usr/lib",
-            "/usr/local/lib"
-        ]
-        libraries = ["spng", "deflate"]  # best guess
-
-        extra_compile_args = ["-O3"]
-        extra_link_args    = []
-    else:
-        include_dirs = cfg["include_dirs"] + [np.get_include()]
-        library_dirs = cfg["library_dirs"]
-        libraries    = cfg["libraries"]
-
-        # ensure libdeflate is present
-        if "deflate" not in libraries and "libdeflate" not in libraries:
-            libraries.append("deflate")
-
-        extra_compile_args = cfg["extra_compile_args"] + ["-O3"]
-        extra_link_args    = cfg["extra_link_args"]
-
-    # macOS: include Homebrew
-    if SYSTEM == "Darwin":
-        include_dirs.append("/opt/homebrew/include")
-        library_dirs.append("/opt/homebrew/lib")
-
-    define_macros = [
-        ("CYTHON_PROFILE", "0"),
-        ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
-    ]
-
-
-
-# ========================================================
-# EXTENSIONS
-# ========================================================
 extensions = [
     Extension(
-        name=splitext(basename(f))[0],
-        sources=[f],
+        name=splitext(basename(pyx_file))[0],
+        sources=[pyx_file],
         include_dirs=include_dirs,
         library_dirs=library_dirs,
         libraries=libraries,
-        extra_compile_args=extra_compile_args,
-        extra_link_args=extra_link_args,
-        define_macros=define_macros,
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
+        extra_compile_args=["-O3", "-march=native",  "-fstrict-aliasing"],
     )
-    for f in pyx_files
+    for pyx_file in pyx_files
 ]
 
-
-# ========================================================
-# SETUP
-# ========================================================
 setup(
-    name="beck-view-digitize",
-    version="1.2",
-    description="cython digitize 16mm films",
-    url="https://github.com/JuPfu/beck-view-digitalize",
-    author="juergen pfundt",
-    author_email="juergen.pfundt@gmail.com",
-    license="MIT",
-    ext_modules=cb.cythonize(
+    name='beck-view-digitize',
+    version='1.2',
+    url='https://github.com/JuPfu/beck-view-digitalize',
+    license='MIT licence',
+    author='juergen pfundt',
+    author_email='juergen.pfundt@gmail.com',
+    description='cython digitize 16mm films',
+    ext_modules=cythonize(
         extensions,
-        annotate=False,
         language_level=3,
+        annotate=False,
         compiler_directives={
             "boundscheck": False,
             "wraparound": False,
             "initializedcheck": False,
             "cdivision": True,
             "nonecheck": False,
-            "infer_types": True,
-        },
-    ),
+            "language_level": 3,
+            "infer_types": True
+        }
+     ),
 )
