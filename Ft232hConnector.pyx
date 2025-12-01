@@ -205,9 +205,6 @@ cdef class Ft232hConnector:
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
 
-                logger.info(f"{count=} {pins=:x}  {last_pins=:x}")
-
-
                 count += 1
                 try:
                     if not stop_event.is_set():
