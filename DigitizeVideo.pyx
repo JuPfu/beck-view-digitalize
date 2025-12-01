@@ -256,7 +256,7 @@ cdef class DigitizeVideo:
         time.sleep(1)
 
         # debug/log some properties
-        self.logger.info(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
+        self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
 
     def initialize_threads(self) -> None:
         """Create thread pool and subscribe to the signal_subject for captures."""
@@ -493,8 +493,6 @@ cdef class DigitizeVideo:
         for bracket_index, (exp_val, suffix) in enumerate(exposures):
             success, frame_data = self.cap.read()
 
-            self.logger.info(f"TAKE PICTURE nach read {success=}")
-
             if self.bracketing and (bracket_index < (len(exposures) - 1)):
                 next_exp, _ = exposures[bracket_index + 1]
                 if not self.set_exposure(next_exp):
@@ -524,8 +522,6 @@ cdef class DigitizeVideo:
             desc_arr[frame_index, 0] = np.uint32(img_bytes)
             desc_arr[frame_index, 1] = np.uint32(frame_count)
             desc_arr[frame_index, 2] = np.uint32(bracket_index)
-
-            self.logger.info(f"TAKE PICTURE {img_bytes=} {frame_count=} {bracket_index=}")
 
             with self.img_desc_lock:
                 self.img_desc.append((img_bytes, frame_count, suffix))
