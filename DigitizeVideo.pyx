@@ -415,7 +415,7 @@ cdef class DigitizeVideo:
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
-        if True or self.gui and (self.processed_frames % 100) == 0:
+        if self.gui and (self.processed_frames % 100) == 0:
             capture_duration = time.perf_counter() - read_time_start
             try:
                 if self.timing is not None:
