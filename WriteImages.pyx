@@ -157,7 +157,6 @@ def write_images(bytes shm_name,
     cdef int img_bytes, frame_count, bracket_index
     cdef int stride = width * 3
     cdef uint8_t *data_ptr = NULL
-    cdef str fname
 
     cdef np.ndarray buf = None
     cdef np.ndarray desc = None
@@ -189,7 +188,8 @@ def write_images(bytes shm_name,
             frame_count = int(desc[i, 1])
             bracket_index = int(desc[i, 2])
 
-            fname = os.path.join(base, f"frame{frame_count:05d}_b{bracket_index}_s{img_bytes}.png").encode('utf-8')
+            fname = os.path.join(base, f"frame{frame_count:05d}_b{bracket_index}_s{img_bytes}.png")
+            c_fname = fname.encode('utf-8')
 
             # get slice
             frame_slice = buf[i]
@@ -200,14 +200,14 @@ def write_images(bytes shm_name,
                 mv = frame_slice
                 data_ptr = &mv[0, 0, 0]
                 # call writer (GIL-held)
-                _write_png_libpng(<const char*> fname, data_ptr, width, height, stride,
+                _write_png_libpng(<const char*> c_fname, data_ptr, width, height, stride,
                                   compression_level, compress_strategy, disable_filters)
 
             else:
                 # single contiguous copy then write
                 contig = np.ascontiguousarray(frame_slice)
                 data_ptr = <uint8_t *> contig.ctypes.data
-                _write_png_libpng(<const char*> fname, data_ptr, width, height, stride,
+                _write_png_libpng(<const char*> c_fname, data_ptr, width, height, stride,
                                   compression_level, compress_strategy, disable_filters)
                 # release reference so memory can be freed
                 contig = None
