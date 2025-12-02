@@ -32,7 +32,7 @@ from WriteImages cimport (
     png_init_io, png_set_IHDR, png_set_compression_level, png_set_compression_strategy,
     png_set_filter, png_write_info, png_write_row, png_write_end,
     png_set_bgr,
-    PNG_COLOR_TYPE_RGB, PNG_COLOR_TYPE_RGBA, PNG_ALL_FILTERS, PNG_FILTER_NONE
+    PNG_COLOR_TYPE_RGB, PNG_ALL_FILTERS, PNG_FILTER_NONE
 )
 
 cdef int Z_HUFFMAN_ONLY = 2  # typical zlib constant
