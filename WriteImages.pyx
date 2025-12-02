@@ -1,84 +1,77 @@
 # WriteImages.pyx
-# cython: language_level=3, boundscheck=False, wraparound=False
+# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
+"""
+Zero-copy libpng writer for frame batches in shared memory.
+This implementation:
+ - uses libpng to stream PNG rows with png_write_row (no per-frame row array allocation)
+ - tells libpng to swap BGR -> RGB using png_set_bgr() (zero-copy)
+ - avoids copies when the numpy slice is already C-contiguous; otherwise makes one contiguous copy
+ - uses multiprocessing.shared_memory as the image transport (shape: frames, H, W, 3 or 4)
+
+Requires a matching WriteImages.pxd that declares the libpng symbols used here.
+"""
 
 import os
+import sys
+
 cimport numpy as np
 import numpy as np
 
 from libc.stdio cimport FILE, fopen, fclose
-from libc.stdint cimport uint8_t
+from libc.stdint cimport uint8_t, uint32_t
 from libc.stddef cimport size_t
-
-from WriteImages cimport (
-    png_create_write_struct, png_create_info_struct,
-    png_destroy_write_struct, png_init_io, png_set_IHDR,
-    png_set_compression_level, png_write_info,
-    png_write_image, png_write_end,
-    PNG_COLOR_TYPE_RGB, PNG_COLOR_TYPE_RGBA
-)
+from libc.stdlib cimport malloc, free
 
 from multiprocessing import shared_memory
 
+# libpng API (declared in WriteImages.pxd)
+from WriteImages cimport (
+    png_structp, png_infop,
+    png_create_write_struct, png_create_info_struct, png_destroy_write_struct,
+    png_init_io, png_set_IHDR, png_set_compression_level, png_set_compression_strategy,
+    png_set_filter, png_write_info, png_write_row, png_write_end,
+    png_set_bgr,
+    PNG_COLOR_TYPE_RGB, PNG_COLOR_TYPE_RGBA, PNG_ALL_FILTERS, PNG_FILTER_NONE
+)
 
-# ---------------------------------------------------------------------------
-#  BGR <-> RGB swap for contiguous uint8 image
-# ---------------------------------------------------------------------------
+cdef int Z_HUFFMAN_ONLY = 2  # typical zlib constant
 
-cdef inline void swap_bgr_channels(uint8_t[:, :, :] mv) noexcept:
-    """
-    In-place swap of B and R channels for a uint8 HxWx3 buffer.
-    """
-    cdef int y, x
-    cdef uint8_t t
-    for y in range(mv.shape[0]):
-        for x in range(mv.shape[1]):
-            t = mv[y, x, 0]
-            mv[y, x, 0] = mv[y, x, 2]
-            mv[y, x, 2] = t
+# Logging helper (lightweight)
+import logging
+logger = logging.getLogger("WriteImages")
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 
-# ---------------------------------------------------------------------------
-#  Low-level wrapper: write a PNG file from a raw contiguous RGB / RGBA buffer
-# ---------------------------------------------------------------------------
-
-def _write_png_from_rgb_file(const char* fname,
-                             uint8_t* data,
+cdef void _write_png_libpng(const char *c_fname,
+                             uint8_t *data_ptr,
                              int width,
                              int height,
-                             int stride,
-                             bint has_alpha):
+                             int stride_bytes,
+                             int compression_level,
+                             int compress_strategy,
+                             bint disable_filters=True) except *:
     """
-    Write PNG using libpng from a raw contiguous buffer.
-
-    Parameters
-    ----------
-    fname : bytes
-        File name (UTF-8 encoded).
-    data : uint8_t*
-        Pointer to the first byte of the image buffer.
-    width, height : int
-    stride : int
-        Bytes per row in memory.
-    has_alpha : bool
-        Whether buffer is RGB or RGBA.
+    Write a single PNG file using libpng. This function **runs with the GIL**.
+    - c_fname: UTF-8 NUL-terminated path
+    - data_ptr: pointer to contiguous image data
+    - stride_bytes: number of bytes per row
     """
-
     cdef FILE* fp = NULL
     cdef png_structp png_ptr = NULL
     cdef png_infop info_ptr = NULL
-    cdef unsigned char** row_pointers = NULL
-    cdef int color_type = PNG_COLOR_TYPE_RGBA if has_alpha else PNG_COLOR_TYPE_RGB
+    cdef int color_type = PNG_COLOR_TYPE_RGB
     cdef int y
+    cdef unsigned char *rowptr
 
-    # -- open file -----------------------------------------------------------
-    fp = fopen(fname, b"wb")
+    fp = fopen(c_fname, b"wb")
     if fp == NULL:
-        raise IOError(f"fopen failed for {fname!r}")
+        raise IOError(f"fopen failed for {c_fname!s}")
 
-    # -- create PNG writer structures ---------------------------------------
-    png_ptr = png_create_write_struct(b"1.6.37", NULL, NULL, NULL)
+    png_ptr = png_create_write_struct(b"1.6.40", NULL, NULL, NULL)
     if png_ptr == NULL:
         fclose(fp)
         raise MemoryError("png_create_write_struct failed")
@@ -89,48 +82,48 @@ def _write_png_from_rgb_file(const char* fname,
         fclose(fp)
         raise MemoryError("png_create_info_struct failed")
 
-    # -- set header info -----------------------------------------------------
-    png_init_io(png_ptr, fp)
-    png_set_IHDR(
-        png_ptr, info_ptr,
-        <uint32_t>width, <uint32_t>height,
-        8,                      # bit depth
-        color_type,
-        0, 0, 0
-    )
-
-    # default compression level (6)
-    png_set_compression_level(png_ptr, 6)
-
-    # -- allocate row pointer array -----------------------------------------
-    row_pointers = <unsigned char**> PyMem_Malloc(height * sizeof(unsigned char*))
-    if row_pointers is NULL:
-        png_destroy_write_struct(&png_ptr, &info_ptr)
-        fclose(fp)
-        raise MemoryError("Out of memory for row pointers")
-
     try:
-        # Point each row into the contiguous data buffer
-        for y in range(height):
-            row_pointers[y] = <unsigned char*> (data + y * stride)
+        png_init_io(png_ptr, fp)
+
+        png_set_IHDR(png_ptr, info_ptr,
+                     <uint32_t> width,
+                     <uint32_t> height,
+                     8,  # bit depth
+                     color_type,
+                     0, 0, 0)
+
+        # compression tuning
+        png_set_compression_level(png_ptr, compression_level)
+        png_set_compression_strategy(png_ptr, compress_strategy)
+
+        # filtering (fastest when disabled)
+        if disable_filters:
+            png_set_filter(png_ptr, 0, PNG_FILTER_NONE)
+        else:
+            png_set_filter(png_ptr, PNG_ALL_FILTERS, PNG_FILTER_NONE)
+
+        # BGR -> RGB swap (zero-copy)
+        png_set_bgr(png_ptr)
 
         png_write_info(png_ptr, info_ptr)
-        png_write_image(png_ptr, row_pointers)
+
+        # stream rows directly from data_ptr (no row pointer array)
+        for y in range(height):
+            rowptr = <unsigned char*> (data_ptr + <size_t>(y * stride_bytes))
+            png_write_row(png_ptr, rowptr)
+
         png_write_end(png_ptr, info_ptr)
 
     finally:
-        if row_pointers is not NULL:
-            PyMem_Free(row_pointers)
-        if png_ptr is not NULL:
+        if png_ptr != NULL:
             png_destroy_write_struct(&png_ptr, &info_ptr)
-        if fp is not NULL:
+        if fp != NULL:
             fclose(fp)
 
 
-
-# ---------------------------------------------------------------------------
-#  Worker entry point: take frames from shared memory and write PNGs
-# ---------------------------------------------------------------------------
+# ----------------------
+# Public worker
+# ----------------------
 
 def write_images(bytes shm_name,
                  bytes desc_name,
@@ -138,126 +131,91 @@ def write_images(bytes shm_name,
                  int width,
                  int height,
                  bytes output_path,
-                 int compression_level,
-                 bint incoming_is_bgr=False,
-                 bint input_has_alpha=False):
+                 int compression_level=1,
+                 int compress_strategy=Z_HUFFMAN_ONLY,
+                 bint disable_filters=True):
     """
-    Read frames from two shared memory blocks and write each frame to a PNG file.
+    Worker entrypoint that maps the shared-memory buffer and writes PNG files.
 
-    Shared memory layout
-    --------------------
-    shm_name  : contains the image data buffer
-        shape: (frames_total, height, width, channels)
-        channels = 3 (RGB) or 4 (RGBA)
+    - shm_name, desc_name, output_path: bytes (shared memory names / directory)
+    - frames_total, width, height: ints
+    - compression_level: libpng 0..9 (lower = faster)
+    - compress_strategy: zlib strategy (e.g. Z_HUFFMAN_ONLY); default is 1 (sane default)
+    - disable_filters: if True sets PNG_FILTER_NONE (fastest)
 
-    desc_name : contains per-frame metadata
-        shape: (frames_total, 3)
-        desc[i, 0] = img_bytes
-        desc[i, 1] = frame_count (for filename)
-        desc[i, 2] = exposure-bracket index
-
-    Notes
-    -----
-    - Incoming frames may be BGR (OpenCV). If so, a fast
-      in-place typed-memoryview BGR→RGB swap is applied.
-    - The shared memory is closed when this function returns.
+    Behavior:
+    - For each frame: if the numpy view is C-contiguous we take its address (zero-copy).
+      Otherwise we make a single contiguous copy (np.ascontiguousarray) and use that.
+    - Filenames are written as bytes to avoid encoding problems between processes.
     """
+
+    cdef str shm_str = shm_name.decode()
+    cdef str desc_str = desc_name.decode()
+    cdef str base = output_path.decode()
 
     cdef int i
     cdef int img_bytes, frame_count, bracket_index
-    cdef int stride_bytes
-    cdef uint8_t* frame_ptr
+    cdef int stride = width * 3
+    cdef uint8_t *data_ptr = NULL
+    cdef str fname
 
     cdef np.ndarray buf = None
     cdef np.ndarray desc = None
-    cdef np.uint8_t[:, :, :] frame_mv
+    cdef object frame_slice
+    cdef np.ndarray contig = None
 
-    if not isinstance(shm_name, (bytes, bytearray)):
-        raise TypeError("shm_name must be bytes")
-    if not isinstance(desc_name, (bytes, bytearray)):
-        raise TypeError("desc_name must be bytes")
-    if not isinstance(output_path, (bytes, bytearray)):
-        raise TypeError("output_path must be bytes")
+    cdef np.uint8_t[:, :, :] mv
 
-    base = output_path.decode()
+    logger.info(f"write_images: frames_total={frames_total} width={width} height={height} base={base}")
+
+    # Attach shared memory
+    shm = shared_memory.SharedMemory(name=shm_str)
+    desc_shm = shared_memory.SharedMemory(name=desc_str)
 
     try:
-        # -- attach to shared memories --------------------------------------
-        shm = shared_memory.SharedMemory(name=shm_name.decode())
-        buf = np.ndarray(
-            (frames_total, height, width, 4 if input_has_alpha else 3),
-            dtype=np.uint8, buffer=shm.buf
-        )
+        buf = np.ndarray((frames_total, height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
-        desc_shm = shared_memory.SharedMemory(name=desc_name.decode())
-        desc = np.ndarray((frames_total, 3), dtype=np.uint32, buffer=desc_shm.buf)
-
-        # optional debug log
         try:
-            import logging
-            logging.getLogger("WriteImages").info(
-                f"write_images: frames_total={frames_total}, size={width}x{height}"
-            )
+            desc = np.ndarray((frames_total, 3), dtype=np.uint32, buffer=desc_shm.buf)
         except Exception:
-            pass
+            desc_shm.close()
+            raise
 
-        # -- main loop: write each frame -----------------------------------
         for i in range(frames_total):
             img_bytes = int(desc[i, 0])
             if img_bytes == 0:
-                continue  # empty slot
+                continue
 
-            frame_count   = int(desc[i, 1])
+            frame_count = int(desc[i, 1])
             bracket_index = int(desc[i, 2])
 
-            filename = os.path.join(
-                base,
-                f"frame{frame_count:05d}_b{bracket_index}.png"
-            )
+            fname = os.path.join(base, f"frame{frame_count:05d}_b{bracket_index}_s{img_bytes}.png").encode('utf-8')
 
-            # Sanity check
-            expected_bytes = width * height * (4 if input_has_alpha else 3)
-            if img_bytes != expected_bytes:
-                import logging
-                logging.getLogger("WriteImages").warning(
-                    f"Descriptor img_bytes {img_bytes} != expected {expected_bytes}"
-                )
+            # get slice
+            frame_slice = buf[i]
 
-            # frame_mv is a NumPy view into shared memory
-            frame_mv = buf[i]
+            # fast path: zero-copy if already C-contiguous
+            if frame_slice.flags.c_contiguous and frame_slice.dtype == np.uint8:
+                # create a typed memoryview referencing the ndarray so we can take its address
+                mv = frame_slice
+                data_ptr = &mv[0, 0, 0]
+                # call writer (GIL-held)
+                _write_png_libpng(<const char*> fname, data_ptr, width, height, stride,
+                                  compression_level, compress_strategy, disable_filters)
 
-            # Ensure contiguous copy (required for libpng row-pointer layout)
-            arr = np.ascontiguousarray(frame_mv)
-
-            # Optional BGR→RGB fix (OpenCV source)
-            if incoming_is_bgr:
-                cdef uint8_t[:, :, :] cmv = arr
-                swap_bgr_channels(cmv)
-
-            # Data pointer + stride
-            stride_bytes = arr.strides[0]
-            frame_ptr = <uint8_t*> arr.ctypes.data
-
-            # Write PNG file
-            _write_png_from_rgb_file(
-                filename.encode("utf-8"),
-                frame_ptr, width, height, stride_bytes,
-                input_has_alpha
-            )
-
-    except Exception:
-        # Log and reraise
+            else:
+                # single contiguous copy then write
+                contig = np.ascontiguousarray(frame_slice)
+                data_ptr = <uint8_t *> contig.ctypes.data
+                _write_png_libpng(<const char*> fname, data_ptr, width, height, stride,
+                                  compression_level, compress_strategy, disable_filters)
+                # release reference so memory can be freed
+                contig = None
+    finally:
         try:
-            import traceback, logging
-            logging.getLogger("WriteImages").exception("Worker write_images failed")
-            traceback.print_exc()
+            shm.close()
+            desc_shm.close()
         except Exception:
             pass
-        raise
 
-    finally:
-        # Always close SHM handles even on error
-        try: shm.close()
-        except Exception: pass
-        try: desc_shm.close()
-        except Exception: pass
+    return 0
