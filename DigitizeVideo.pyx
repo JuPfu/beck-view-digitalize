@@ -140,6 +140,9 @@ cdef class DigitizeVideo:
         double start_time
         double new_tick
 
+        # administration
+        bint _final_write_done
+
         CTimingResult timing_view
 
     def __cinit__(self):
@@ -410,23 +413,24 @@ cdef class DigitizeVideo:
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
+        capture_duration = time.perf_counter() - read_time_start
+
         if (self.processed_frames % 100) == 0:
-            capture_duration = time.perf_counter() - read_time_start
-
-            try:
-                if self.processed_frames < self.timing_view.max_frames:
-                    buf = self.timing_view.buf
-                    buf[self.processed_frames, 3] = capture_duration
-                else:
-                    self.logger.error(
-                        f"Timing buffer overflow at frame {self.processed_frames}, "
-                        f"max={self.timing_view.max_frames}"
-                    )
-            except Exception:
-                self.logger.error(f"Could not add {capture_duration=} for frame {self.processed_frames} to self.timing_view")
-                pass
-
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
+
+        try:
+            if self.processed_frames < self.timing_view.max_frames:
+                buf = self.timing_view.buf
+                buf[self.processed_frames, 3] = capture_duration
+            else:
+                self.logger.error(
+                    f"Timing buffer overflow at frame {self.processed_frames}, "
+                    f"max={self.timing_view.max_frames}"
+                )
+        except Exception:
+            self.logger.error(f"Could not add {capture_duration=} for frame {self.processed_frames} to self.timing_view")
+            pass
+
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
         """Run in a threadpool: find a free buffer and schedule worker to write it."""
