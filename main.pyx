@@ -105,16 +105,13 @@ def main():
         )
     except Exception as e:
         print(f"[main] Failed to create Ft232hConnector: {e}", file=sys.stderr)
-        # ensure cleanup
-        try:
-            digitizer.final_write_to_disk()
-        except Exception:
-            pass
         try:
             ftdi.close()
         except Exception:
             pass
         sys.exit(1)
+
+    digitizer.connect(ft_conn)
 
     #
     # Start poller thread

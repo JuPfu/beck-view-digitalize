@@ -33,6 +33,8 @@ from cython.view cimport array
 cimport numpy as np
 import numpy as np
 
+from datetime import datetime
+
 from libc.string cimport memcpy
 
 import platform
@@ -48,6 +50,7 @@ from argparse import Namespace
 from pathlib import Path
 from typing import List
 
+
 import cv2
 from reactivex import operators as ops, Observer
 from reactivex.subject import Subject
@@ -55,9 +58,11 @@ from reactivex.subject import Subject
 from TypeDefinitions import ImgDescType, SubjectDescType
 from WriteImages import write_images
 
-# The get_timing function is used to obtain the TimingResult singleton.
-from Ft232hConnector import get_timing
-from Ft232hConnector import Ft232hConnector  # may support Option B or older API
+from Ft232hConnector cimport Ft232hConnector
+from Ft232hConnector import get_timing, get_timing_view
+
+from TimingResult cimport TimingResult as CTimingResult
+
 
 cdef class DigitizeVideo:
     """
@@ -135,6 +140,8 @@ cdef class DigitizeVideo:
         double start_time
         double new_tick
 
+        CTimingResult timing_view
+
     def __cinit__(self):
         # nothing heavy here — ensure numpy API will be initialised in __init__
         pass
@@ -196,9 +203,6 @@ cdef class DigitizeVideo:
         self.processed_frames = 0
         self.start_time = time.perf_counter()
         self.new_tick = self.start_time
-
-        # instantiate and start connector
-        # self._create_and_start_connector(args.maxcount)
 
     def initialize_logging(self) -> None:
         """Configure logging for the application and store a logger on self."""
@@ -284,6 +288,23 @@ cdef class DigitizeVideo:
         # direct subscribe to completion (no on_next here)
         self.completion_disposable = self.signal_subject.subscribe(on_completed=_on_completed)
 
+    cpdef connect(self, Ft232hConnector conn):
+        """
+        Call this after Ft232hConnector is created.
+        Stores both Python-level and C-level timing references.
+        """
+        try:
+            # prefer Python-level safe accessor
+            py_tv = get_timing()
+            if py_tv is None:
+                # fallback to requesting from connector instance (safer if connector created now)
+                py_tv = conn.get_timing()
+            self.timing_view = <CTimingResult> py_tv  # store C-typed reference
+        except Exception as e:
+            # keep the attribute None on failure
+            self.timing_view = None
+            self.logger.error(f"DigitizeVideo.connect: could not obtain timing_view: {e}")
+
     cpdef bint set_exposure(self, double exp_val):
         """Set camera exposure; return True on success."""
         return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
@@ -331,36 +352,6 @@ cdef class DigitizeVideo:
         self._frames_per_buffer = frames_per_buffer
 
     # ---------------------------
-    # Connector creation & lifecycle
-    # ---------------------------
-    def _create_and_start_connector(self, int maxcount) -> None:
-        """
-        Create the Ft232hConnector (strict signature):
-            Ft232hConnector(self._ftdi, signal_subject, maxcount, gui)
-
-        All legacy support has been removed intentionally.
-        """
-        try:
-            self.ft232h = Ft232hConnector(self._ftdi, self.signal_subject, maxcount, self.gui)
-            self.logger.info("Ft232hConnector: instantiated with strict signature.")
-        except Exception as e:
-            self.logger.error(f"Failed to instantiate Ft232hConnector: {e}")
-            raise
-
-        # obtain timing singleton (provided by connector module)
-        try:
-            self.timing = get_timing()
-        except Exception:
-            self.timing = None
-
-        # start the poller
-        try:
-            self.ft232h.start()
-        except Exception as e:
-            self.logger.error(f"Failed to start FT232H poller: {e}")
-            raise
-
-    # ---------------------------
     # Capture / buffer management
     # ---------------------------
     def _cleanup_finished_processes(self) -> None:
@@ -369,7 +360,6 @@ cdef class DigitizeVideo:
         Properly close/unlink SHM and clear descriptor arrays safely.
         """
         still = []
-
 
         for res, shm, desc_shm, buf_idx in self.processes:
             if res.ready():
@@ -399,6 +389,8 @@ cdef class DigitizeVideo:
         """
         Called for each optocoupler event. Grabs frames and fills the current shared buffer.
         """
+        cdef double[:, :] buf
+
         frame_count, start_cycle = event
 
         read_time_start = time.perf_counter()
@@ -415,18 +407,22 @@ cdef class DigitizeVideo:
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
-        if self.gui and (self.processed_frames % 100) == 0:
+        if (self.processed_frames % 100) == 0:
             capture_duration = time.perf_counter() - read_time_start
+
             try:
-                if self.timing is not None:
-                    # best-effort record; TimingResult supports append or slicing depending on implementation
-                    # safe guard with try/except
-                    try:
-                        self.timing[self.processed_frames:3] = capture_duration
-                    except Exception:
-                        pass
+                if self.processed_frames < self.timing_view.max_frames:
+                    buf = self.timing_view.buf
+                    buf[self.processed_frames, 3] = capture_duration
+                else:
+                    self.logger.error(
+                        f"Timing buffer overflow at frame {self.processed_frames}, "
+                        f"max={self.timing_view.max_frames}"
+                    )
             except Exception:
+                self.logger.error(f"Could not add {capture_duration=} for frame {self.processed_frames} to self.timing_view")
                 pass
+
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
@@ -599,21 +595,38 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        try:
-            tim = self.timing.to_numpy() if (self.timing is not None) else np.empty((0, 7))
-        except Exception:
-            tim = np.empty((0, 7))
+        self.logger.info("DigitizeVideo try to convert self.timing_view to numpy")
 
-        if tim.size > 0:
-            # write CSV of timing
-            timing_log = str(self.output_path / f"timing_{self.processed_frames:05d}.csv").encode('utf-8')
-            try:
-                np.savetxt(timing_log, tim, delimiter=",")
-            except Exception:
-                pass
+        time_now  = datetime.now()
+        fname = str(self.output_path / f"timing_{time_now.strftime('%m_%d_%Y_%H_%M_%S')}_{self.processed_frames:05d}.csv")
+        self.logger.info(f"CSV file to be opened: {fname}")
+        self.write_timing_csv(fname)
 
         # final cleanup
         self.cleanup()
+
+    cpdef write_timing_csv(self, str filename):
+        cdef int i
+        cdef int count = 0
+        cdef int cycle = 1
+        cdef int work = 2
+        cdef int read = 3
+        cdef int latency = 4
+        cdef int wait_time = 5
+        cdef int total_work = 6
+
+        buf = self.timing_view.buf
+        rows = self.timing_view.size
+
+        with open(filename, "w") as f:
+            f.write("frame,read,cycle,work,latency,wait_time,total_work\n")
+
+            for i in range(rows):
+                f.write(
+                    f"{buf[i, count]},{buf[i, read]},{buf[i, cycle]},"
+                    f"{buf[i, work]},{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]}\n"
+                )
+            f.close()
 
     def wait_for_completion(self, timeout: float = None) -> bool:
         """

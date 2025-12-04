@@ -26,9 +26,9 @@ from reactivex import Subject
 from TimingResult cimport TimingResult as CTimingResult
 from TimingResult import TimingResult as PyTimingResult
 
-# module-level singleton for timing
-from Ft232hConnector cimport get_timing
-timing = None
+cdef object timing = None  # python singleton (holds PyTimingResult instance)
+# C-level module global (must match .pxd)
+cdef CTimingResult timing_view  # initially NULL
 
 # logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -41,25 +41,6 @@ cdef class Ft232hConnector:
     """
     FT232H connector — owns the FTDI device internally.
     """
-
-    cdef double LATENCY_THRESHOLD
-    cdef int INITIAL_COUNT
-    cdef bint gui
-    cdef CTimingResult timing_view
-
-    cdef object _ftdi
-    cdef object _gpio
-    cdef object signal_subject
-
-    cdef int _OK1_mask
-    cdef int _END_OF_FILM_mask
-
-    cdef object _stop_event
-    cdef object _thread
-    cdef bint running
-
-    cdef int max_count
-    cdef object _timing_lock
 
     def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
         """
@@ -112,11 +93,15 @@ cdef class Ft232hConnector:
             logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
             raise
 
+        global timing, timing_view
+
         # timing singleton
-        global timing
         if timing is None:
             timing = PyTimingResult(self.max_count)
+
+        # store python-level and c-level handles
         self.timing_view = <CTimingResult> timing
+        timing_view = self.timing_view   # assigns the C-level global
 
         # thread control
         self._stop_event = threading.Event()
@@ -184,6 +169,8 @@ cdef class Ft232hConnector:
 
         count = self.INITIAL_COUNT
         start_cycle = time.perf_counter()
+        wait_time = start_cycle
+        wait_time_start = start_cycle
         pins = self._read_pins_safe()
         last_pins = pins
 
@@ -204,6 +191,7 @@ cdef class Ft232hConnector:
                 stop_cycle = time.perf_counter()
                 delta = stop_cycle - start_cycle
                 start_cycle = stop_cycle
+                wait_time = stop_cycle - wait_time_start
 
                 count += 1
                 try:
@@ -211,6 +199,8 @@ cdef class Ft232hConnector:
                         subj.on_next((count, start_cycle))
                 except Exception:
                     pass
+
+                work_time = time.perf_counter() - start_cycle
 
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
@@ -224,20 +214,28 @@ cdef class Ft232hConnector:
                         timing_view.append(
                             count,
                             float(time.perf_counter() - start_cycle),
-                            0.0,
+                            float(work_time),
                             -1.0,
                             float(latency),
-                            0.0,
+                            float(wait_time),
                             float(delta)
                         )
                     except Exception:
+                        logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
                         pass
 
                 if latency > LATENCY_THRESHOLD:
                     logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
+                wait_time_start = time.perf_counter()
+
             last_pins = pins
             time.sleep(0)
+
+        try:
+            self.log_timing_results()
+        except Exception:
+            logger.error("[Ft232hConnector] Failed to log timing_view after EOF")
 
         # ensure completion
         try:
@@ -247,7 +245,48 @@ cdef class Ft232hConnector:
             pass
 
 
+    def log_timing_results(self):
+        """
+        Log all collected timing_view entries.
+        Safe for Cython memoryview layout used in TimingResult.
+        """
+        cdef double[:, :] buf
+
+        with self._timing_lock:
+            tv = self.timing_view
+            total = tv.size
+
+            logger.info(f"[Ft232hConnector] Logging timing_view with {total} entries")
+
+            buf = tv.buf
+
+            for i in range(total):
+                try:
+                    logger.info(
+                        f"timing[{i}]: "
+                        f"count={buf[i,0]:.0f}, "
+                        f"cycle={buf[i,1]:.6f}, "
+                        f"work={buf[i,2]:.6f}, "
+                        f"read={buf[i,3]:.6f}, "
+                        f"latency={buf[i,4]:.6f}, "
+                        f"wait_time={buf[i,5]:.6f}, "
+                        f"total_work={buf[i,6]:.6f}"
+                    )
+                except Exception as e:
+                    logger.warning(f"[Ft232hConnector] Failed to read timing_view[{i}]: {e}")
+
+
+cpdef CTimingResult get_timing_view():
+    """
+    Return the C-level TimingResult pointer (may be NULL if not initialized).
+    Caller must not dereference without checking.
+    """
+    return timing_view
+
 cpdef object get_timing():
-    """Return the TimingResult singleton."""
-    global timing
+    """Return the Python-level TimingResult singleton (or None)."""
     return timing
+
+
+
+

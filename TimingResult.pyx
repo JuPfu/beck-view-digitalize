@@ -33,7 +33,7 @@ cdef class TimingResult:
         self.buf[i, 0] = count
         self.buf[i, 1] = cycle
         self.buf[i, 2] = work
-        self.buf[i, 3] = read
+        # self.buf[i, 3] = read # is assigend separately in DigitizeVideo.pyx
         self.buf[i, 4] = latency
         self.buf[i, 5] = wait_time
         self.buf[i, 6] = total_work
