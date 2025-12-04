@@ -452,7 +452,6 @@ cdef class DigitizeVideo:
             def process_error_callback(error):
                 self.logger.error(f"Error in child process: {error}")
 
-            self.logger.info(f"start process for write_images {frames_total=} {self._desc_shms[buffer_index]=}")
             result = self.pool.apply_async(
                 write_images,
                 args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
