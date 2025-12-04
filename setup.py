@@ -4,44 +4,91 @@ import numpy as np
 import os
 import sys
 import subprocess
-
 from glob import glob
 from os.path import splitext, basename
 
 pyx_files = glob("*.pyx")
 
 def pkg_config(libname, flag):
+    """Return pkg-config results as a list of tokens."""
     try:
         out = subprocess.check_output(["pkg-config", flag, libname], text=True).strip()
         return out.split()
     except Exception:
         return []
 
-# -------------------------------------------------------------
-# libpng detection (macOS Homebrew / Linux pkg-config / Windows)
-# -------------------------------------------------------------
 include_dirs = []
 library_dirs = []
 libraries = []
 
-# --- macOS Homebrew ---
+# ============================================================
+# macOS (Homebrew)
+# ============================================================
 if sys.platform == "darwin":
-    homebrew = "/opt/homebrew"
-    if os.path.exists(homebrew):
-        include_dirs.append(f"{homebrew}/include")
-        library_dirs.append(f"{homebrew}/lib")
-        libraries.extend(["png", "z"])
+    # Detect both Arm64 and Intel Homebrew locations
+    brew_candidates = [
+        "/opt/homebrew",   # Apple Silicon
+        "/usr/local"       # Intel macOS
+    ]
+    for prefix in brew_candidates:
+        if os.path.exists(prefix):
+            include_dirs.append(f"{prefix}/include")
+            library_dirs.append(f"{prefix}/lib")
 
-# --- Linux pkg-config ---
-include_dirs += pkg_config("libpng", "--cflags-only-I")
-library_dirs += pkg_config("libpng", "--libs-only-L")
-libraries += [lib[2:] for lib in pkg_config("libpng", "--libs-only-l")]
+    # libpng / zlib usually installed as png / z
+    libraries.extend(["png", "z"])
 
-# --- fallback ---
+
+# ============================================================
+# Linux (pkg-config)
+# ============================================================
+if sys.platform.startswith("linux"):
+    # Include dirs: convert "-I/usr/include" lists to plain dirs
+    cflags = pkg_config("libpng", "--cflags-only-I")
+    for flag in cflags:
+        if flag.startswith("-I"):
+            include_dirs.append(flag[2:])
+
+    # Library dirs: convert "-L/usr/lib"
+    ldflags = pkg_config("libpng", "--libs-only-L")
+    for flag in ldflags:
+        if flag.startswith("-L"):
+            library_dirs.append(flag[2:])
+
+    # Libraries: convert "-lpng"
+    libs = pkg_config("libpng", "--libs-only-l")
+    for flag in libs:
+        if flag.startswith("-l"):
+            libraries.append(flag[2:])
+
+    # Ensure fallback to zlib
+    if "z" not in libraries:
+        libraries.append("z")
+
+
+# ============================================================
+# Windows (MSVC / MinGW)
+# ============================================================
+if sys.platform == "win32":
+    # Try common vcpkg install paths
+    vcpkg = os.getenv("VCPKG_ROOT")
+    if vcpkg:
+        triplet = "x64-windows" if sys.maxsize > 2**32 else "x86-windows"
+        include_dirs.append(f"{vcpkg}/installed/{triplet}/include")
+        library_dirs.append(f"{vcpkg}/installed/{triplet}/lib")
+
+    # Windows libraries are usually named libpng / zlib or png / z
+    libraries.extend(["png", "zlib"])
+
+
+# ============================================================
+# Fallback for unknown platforms
+# ============================================================
 if not libraries:
     libraries = ["png", "z"]
 
-# Always add NumPy
+
+# Always add NumPy include path
 include_dirs.append(np.get_include())
 
 extensions = [
@@ -52,7 +99,11 @@ extensions = [
         library_dirs=library_dirs,
         libraries=libraries,
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
-        extra_compile_args=["-O3", "-march=native",  "-fstrict-aliasing"],
+        extra_compile_args=[
+            "-O3",
+            "-march=native",
+            "-fstrict-aliasing"
+        ] if sys.platform != "win32" else ["/O2"],
     )
     for pyx_file in pyx_files
 ]
@@ -61,13 +112,12 @@ setup(
     name='beck-view-digitize',
     version='1.2',
     url='https://github.com/JuPfu/beck-view-digitalize',
-    license='MIT licence',
+    license='MIT',
     author='juergen pfundt',
     author_email='juergen.pfundt@gmail.com',
     description='cython digitize 16mm films',
     ext_modules=cythonize(
         extensions,
-        language_level=3,
         annotate=False,
         compiler_directives={
             "boundscheck": False,
@@ -78,5 +128,5 @@ setup(
             "language_level": 3,
             "infer_types": True
         }
-     ),
+    ),
 )
