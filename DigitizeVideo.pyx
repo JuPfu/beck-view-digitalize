@@ -196,6 +196,9 @@ cdef class DigitizeVideo:
         self.img_desc_lock = threading.Lock()
         self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
 
+        # administration
+        self._final_write_done = False
+
         # timing singleton from connector module (may be None until connector created)
         self.timing = None
 
@@ -532,6 +535,11 @@ cdef class DigitizeVideo:
         Trigger final write for remaining images and wait for workers to finish.
         This is idempotent and safe to call multiple times.
         """
+        if self._final_write_done:
+            return
+
+        self._final_write_done = True
+
         if self.img_desc:
             current_buf = self.shared_buffers_index
             with self.buffer_lock:
