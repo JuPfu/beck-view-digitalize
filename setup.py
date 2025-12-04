@@ -67,18 +67,23 @@ if sys.platform.startswith("linux"):
 
 
 # ============================================================
-# Windows (MSVC / MinGW)
+# Windows (MSVC / MinGW) -- vcpkg auto-detect
 # ============================================================
-if sys.platform == "win32":
-    # Try common vcpkg install paths
-    vcpkg = os.getenv("VCPKG_ROOT")
-    if vcpkg:
-        triplet = "x64-windows" if sys.maxsize > 2**32 else "x86-windows"
-        include_dirs.append(f"{vcpkg}/installed/{triplet}/include")
-        library_dirs.append(f"{vcpkg}/installed/{triplet}/lib")
+if sys.platform.startswith("win"):
+    # Common vcpkg installation path
+    possible_vcpkg_roots = [
+        os.environ.get("VCPKG_ROOT"),
+        os.path.expanduser("~/vcpkg"),
+        "C:/vcpkg"
+    ]
 
-    # Windows libraries are usually named libpng / zlib or png / z
-    libraries.extend(["png", "zlib"])
+    for root in possible_vcpkg_roots:
+        if root and os.path.exists(root):
+            triplet = "x64-windows"
+            include_dirs.append(os.path.join(root, "installed", triplet, "include"))
+            library_dirs.append(os.path.join(root, "installed", triplet, "lib"))
+            libraries.extend(["png16", "z"])   # Windows naming
+            break
 
 
 # ============================================================
