@@ -18,6 +18,8 @@ import sys
 cimport numpy as np
 import numpy as np
 
+import gc
+
 from libc.stdio cimport FILE, fopen, fclose
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stddef cimport size_t
@@ -212,8 +214,28 @@ def write_images(bytes shm_name,
                 # release reference so memory can be freed
                 contig = None
     finally:
+        # drop numpy views explicitly
+        try:
+            del buf
+        except Exception:
+            pass
+        try:
+            del desc
+        except Exception:
+            pass
+
+        # force GC so exported pointers are released
+        try:
+            gc.collect()
+        except Exception:
+            pass
+
+        # close shared memory (do NOT unlink if parent owns it)
         try:
             shm.close()
+        except Exception:
+            pass
+        try:
             desc_shm.close()
         except Exception:
             pass

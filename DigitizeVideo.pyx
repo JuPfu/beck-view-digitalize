@@ -606,10 +606,8 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
 
-        self.logger.info("DigitizeVideo try to convert self.timing_view to numpy")
-
         time_now  = datetime.now()
-        fname = str(self.output_path / f"timing_{time_now.strftime('%m_%d_%Y_%H_%M_%S')}_{self.processed_frames:05d}.csv")
+        fname = str(self.output_path / f"timing_{time_now.strftime('%Y_%m_%d_%H_%M_%S')}_{self.processed_frames:05d}.csv")
         self.logger.info(f"CSV file to be opened: {fname}")
         self.write_timing_csv(fname)
 
@@ -646,74 +644,55 @@ cdef class DigitizeVideo:
         """
         return self._completion_event.wait(timeout)
 
-    def cleanup(self) -> None:
+    def cleanup(self, timeout_wait_for_workers: float = 2.0) -> None:
         """
-        Clean up resources (camera, shared memory, workers, connector).
-        Safe to call multiple times.
+        Robust, idempotent cleanup that tries hard to avoid BufferError / leaked
+        shared memory. Safe to call multiple times.
         """
-        self.logger.info("Cleaning up ...")
+        if getattr(self, "_cleaned_up", False):
+            self.logger.info("cleanup() already ran — skipping")
+            return
+        self._cleaned_up = True
 
-        # shutdown executor
+        self.logger.info("Cleaning up ... (robust mode)")
+
+        # 0) Prefer stopping the FTDI poller early to avoid new events
         try:
-            if hasattr(self, 'executor'):
+            if hasattr(self, 'ft232h') and self.ft232h is not None:
+                try:
+                    if hasattr(self.ft232h, "stop"):
+                        self.ft232h.stop()
+                except Exception:
+                    self.logger.exception("Error stopping ft232h in cleanup")
+        except Exception:
+            pass
+
+        # 1) Shut down threadpool executor (wait for submitted tasks)
+        try:
+            if hasattr(self, "executor") and self.executor is not None:
                 self.executor.shutdown(wait=True)
         except Exception:
-            pass
+            self.logger.exception("Error shutting down executor")
 
-        # release camera
+        # 2) Wait for any pending child process async results (self.processes)
+        #    We call _cleanup_finished_processes to reap results, then wait a short time.
         try:
-            if hasattr(self, 'cap'):
-                self.cap.release()
-        except Exception:
-            pass
-
-        # dispose subscriptions
-        try:
-            if hasattr(self, 'photoCellSignalDisposable'):
-                self.photoCellSignalDisposable.dispose()
-        except Exception:
-            pass
-        try:
-            if hasattr(self, 'completion_disposable'):
-                self.completion_disposable.dispose()
-        except Exception:
-            pass
-
-        # release numpy views
-        self._release_views()
-
-        # unlink shared memory
-        for shm in getattr(self, "shared_buffers", []):
-            try:
-                shm.close()
-            except Exception:
-                pass
-            try:
-                shm.unlink()
-            except FileNotFoundError:
-                pass
-            except Exception:
+            t0 = time.time()
+            while self.processes:
+                # try to reap finished processes
                 try:
-                    self.logger.exception("Error unlinking shm")
+                    self._cleanup_finished_processes()
                 except Exception:
-                    pass
+                    self.logger.exception("_cleanup_finished_processes failed")
+                # if still waiting, sleep briefly until timeout
+                if time.time() - t0 > timeout_wait_for_workers:
+                    self.logger.warning("Timeout waiting for worker processes to finish")
+                    break
+                time.sleep(0.05)
+        except Exception:
+            self.logger.exception("Error while waiting for child processes")
 
-        for dshm in getattr(self, "_desc_shms", []):
-            try:
-                dshm.close()
-            except Exception:
-                pass
-            try:
-                dshm.unlink()
-            except FileNotFoundError:
-                pass
-            except Exception:
-                try:
-                    self.logger.exception("Error unlinking desc shm")
-                except Exception:
-                    pass
-
-        # close pool again if needed
+        # 3) Shutdown multiprocessing pool (child processes)
         try:
             if hasattr(self, "pool") and self.pool is not None:
                 try:
@@ -727,28 +706,189 @@ cdef class DigitizeVideo:
                         self.pool.terminate()
                         self.pool.join()
                     except Exception:
-                        pass
+                        self.logger.exception("Could not terminate/join multiprocessing pool")
         except Exception:
-            pass
+            self.logger.exception("Error cleaning up pool")
 
-        # finally close connector (FTDI and gpio) if present
+        # 4) Dispose Rx subscriptions (stop receiving further events)
+        for attr in ("photoCellSignalDisposable", "completion_disposable"):
+            try:
+                disp = getattr(self, attr, None)
+                if disp is not None:
+                    try:
+                        disp.dispose()
+                    except Exception:
+                        # some disposables don't implement dispose well; swallow
+                        pass
+            except Exception:
+                self.logger.exception(f"Error disposing {attr}")
+
+        # 5) Release camera
         try:
-            if hasattr(self, 'ft232h') and self.ft232h is not None:
+            if hasattr(self, "cap") and self.cap is not None:
                 try:
-                    # prefer a close() method that stops and releases hardware
-                    if hasattr(self.ft232h, "close"):
-                        self.ft232h.close()
-                    else:
-                        # otherwise call stop()
-                        self.ft232h.stop()
+                    self.cap.release()
                 except Exception:
                     pass
         except Exception:
+            self.logger.exception("Error releasing camera")
+
+        # 6) Drop all references to numpy views / memoryviews in parent
+        try:
+            # clear and delete lists holding views
+            try:
+                self._shm_arrays[:] = []
+            except Exception:
+                self._shm_arrays = []
+            try:
+                self._desc_arrays[:] = []
+            except Exception:
+                self._desc_arrays = []
+
+            # also clear other references that might hold views
+            try:
+                self.img_desc = []
+            except Exception:
+                pass
+
+            # processes list should be empty from step 2; clear to release SHM refs
+            try:
+                self.processes = []
+            except Exception:
+                pass
+
+            # clear shared_buffers/_desc_shms lists of SharedMemory objects only after GC
+        except Exception:
+            self.logger.exception("Error clearing local memoryview references")
+
+        # 7) Force GC now to try to drop exported pointers
+        try:
+            import gc
+            gc.collect()
+            time.sleep(0.05)  # small sleep gives C-level finalizers a chance
+        except Exception:
             pass
 
+        # 8) Close & unlink all SharedMemory objects with retries
+        def _close_and_unlink(shm_obj):
+            name = getattr(shm_obj, "name", "<unknown>")
+            # Try close / unlink with a couple retries if BufferError occurs
+            for attempt in range(3):
+                try:
+                    try:
+                        shm_obj.close()
+                    except BufferError:
+                        self.logger.warning(f"Buffer still exported for {name}; gc+retry (attempt {attempt+1})")
+                        import gc
+                        gc.collect()
+                        time.sleep(0.05)
+                        # retry close on next loop iteration
+                        continue
+                    except Exception:
+                        # other close errors — log and continue to unlink attempt
+                        self.logger.exception(f"Error closing shared memory {name}")
+                    # now try unlink
+                    try:
+                        shm_obj.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except Exception:
+                        self.logger.exception(f"Could not unlink shared memory {name}")
+                    # success (or unlink attempted) — break
+                    return
+                except Exception:
+                    self.logger.exception(f"Unexpected while closing/unlinking {name}")
+            # final attempt: try unlink even if close failed
+            try:
+                shm_obj.unlink()
+            except Exception:
+                # give up but log
+                self.logger.exception(f"Final unlink attempt failed for {name}")
+
+        # iterate both lists: shared_buffers (image frames) and _desc_shms (desc arrays)
+        for list_name in ("shared_buffers", "_desc_shms"):
+            lst = getattr(self, list_name, None)
+            if not lst:
+                continue
+            # copy to avoid mutation during iteration
+            try:
+                items = list(lst)
+            except Exception:
+                items = lst[:]
+            for shm in items:
+                try:
+                    self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.05)
+                    # self._close_and_unlink(shm)
+                except Exception:
+                    self.logger.exception(f"Failed close/unlink for an entry in {list_name}")
+
+        # 9) Clear those lists (remove references to SharedMemory objects)
+        try:
+            self.shared_buffers = []
+        except Exception:
+            pass
+        try:
+            self._desc_shms = []
+        except Exception:
+            pass
+
+        # 10) Final GC + short sleep to let runtime finalize destructors
+        try:
+            import gc
+            gc.collect()
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+        # 11) Close FTDI connector last (if not already)
+        try:
+            if hasattr(self, "ft232h") and self.ft232h is not None:
+                try:
+                    if hasattr(self.ft232h, "close"):
+                        self.ft232h.close()
+                    elif hasattr(self.ft232h, "stop"):
+                        self.ft232h.stop()
+                except Exception:
+                    self.logger.exception("Error closing ft232h at end of cleanup")
+        except Exception:
+            pass
+
+        self.logger.info("Cleanup complete (robust).")
+
+
+    def _close_and_unlink_shm_with_retries(self, shm_obj, retries=5, sleep=0.05):
+        name = getattr(shm_obj, "name", "<unknown>")
+        for attempt in range(retries):
+            try:
+                shm_obj.close()
+                break
+            except BufferError:
+                import gc, time
+                gc.collect()
+                time.sleep(sleep)
+            except Exception:
+                break
+        # try unlink regardless (parent owns unlink)
+        try:
+            shm_obj.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception:
+            # log it and move on
+            self.logger.exception(f"Could not unlink {name}")
+
     def _release_views(self) -> None:
-        self._shm_arrays = []
-        self._desc_arrays = []
+        """
+        Release all memoryviews to shared memory to allow proper unlinking.
+        """
+        # Clear memoryviews
+        self._shm_arrays.clear()    # if you store shared memory as np.array views
+        self._desc_arrays.clear()   # for descriptor memoryviews
+
+        # Force garbage collection to free memoryviews
+        import gc
+        gc.collect()
+
 
     def _on_signal(self, signum: int, frame) -> None:
         """Process-level signal handler for graceful shutdown (SIGINT/SIGTERM)."""
