@@ -5,122 +5,165 @@ import os
 import sys
 import subprocess
 from glob import glob
-from os.path import splitext, basename
+from pathlib import Path
 
-pyx_files = glob("*.pyx")
 
-def pkg_config(libname, flag):
-    """Return pkg-config results as a list of tokens."""
+# ================================================================
+# 1) Find .pyx sources recursively
+# ================================================================
+pyx_files = glob("**/*.pyx", recursive=True)
+
+if not pyx_files:
+    print("WARNING: No .pyx files found! (search path: **/*.pyx)")
+else:
+    print(f"Found {len(pyx_files)} .pyx files")
+
+
+# ================================================================
+# 2) Helper: safe pkg-config invocation (Linux/macOS)
+# ================================================================
+def pkg_config_flags(libname, flag):
     try:
-        out = subprocess.check_output(["pkg-config", flag, libname], text=True).strip()
+        out = subprocess.check_output(
+            ["pkg-config", flag, libname],
+            text=True
+        ).strip()
         return out.split()
     except Exception:
         return []
 
+
+# ================================================================
+# 3) Platform configuration
+# ================================================================
 include_dirs = []
 library_dirs = []
 libraries = []
 
-# ============================================================
+PLATFORM = sys.platform
+
+
+# ================================================================
 # macOS (Homebrew)
-# ============================================================
-if sys.platform == "darwin":
-    # Detect both Arm64 and Intel Homebrew locations
-    brew_candidates = [
-        "/opt/homebrew",   # Apple Silicon
-        "/usr/local"       # Intel macOS
+# ================================================================
+if PLATFORM == "darwin":
+    print("Configuring for macOS…")
+
+    brew_paths = [
+        "/opt/homebrew",  # Apple Silicon
+        "/usr/local"      # Intel macOS
     ]
-    for prefix in brew_candidates:
+
+    for prefix in brew_paths:
         if os.path.exists(prefix):
             include_dirs.append(f"{prefix}/include")
             library_dirs.append(f"{prefix}/lib")
+            print(f"Using Homebrew libs from {prefix}")
+            break
 
-    # libpng / zlib usually installed as png / z
-    libraries.extend(["png", "z"])
+    libraries += ["png", "z"]  # macOS names
 
 
-# ============================================================
+# ================================================================
 # Linux (pkg-config)
-# ============================================================
-if sys.platform.startswith("linux"):
-    # Include dirs: convert "-I/usr/include" lists to plain dirs
-    cflags = pkg_config("libpng", "--cflags-only-I")
-    for flag in cflags:
+# ================================================================
+elif PLATFORM.startswith("linux"):
+    print("Configuring for Linux…")
+
+    # --- Includes ---
+    for flag in pkg_config_flags("libpng", "--cflags-only-I"):
         if flag.startswith("-I"):
             include_dirs.append(flag[2:])
 
-    # Library dirs: convert "-L/usr/lib"
-    ldflags = pkg_config("libpng", "--libs-only-L")
-    for flag in ldflags:
+    # --- Lib dirs ---
+    for flag in pkg_config_flags("libpng", "--libs-only-L"):
         if flag.startswith("-L"):
             library_dirs.append(flag[2:])
 
-    # Libraries: convert "-lpng"
-    libs = pkg_config("libpng", "--libs-only-l")
-    for flag in libs:
+    # --- Libraries ---
+    for flag in pkg_config_flags("libpng", "--libs-only-l"):
         if flag.startswith("-l"):
             libraries.append(flag[2:])
 
-    # Ensure fallback to zlib
     if "z" not in libraries:
         libraries.append("z")
 
 
-# ============================================================
-# Windows (MSVC / MinGW) -- vcpkg auto-detect
-# ============================================================
-if sys.platform.startswith("win"):
-    # Common vcpkg installation path
-    possible_vcpkg_roots = [
+# ================================================================
+# Windows (MSVC / vcpkg)
+# ================================================================
+elif PLATFORM.startswith("win"):
+    print("Configuring for Windows…")
+
+    # Known places for vcpkg
+    vcpkg_roots = [
         os.environ.get("VCPKG_ROOT"),
-        os.path.expanduser("~/vcpkg"),
+        str(Path.home() / "vcpkg"),
         "C:/vcpkg"
     ]
 
-    for root in possible_vcpkg_roots:
+    found_vcpkg = False
+    for root in vcpkg_roots:
         if root and os.path.exists(root):
             triplet = "x64-windows"
-            include_dirs.append(os.path.join(root, "installed", triplet, "include"))
-            library_dirs.append(os.path.join(root, "installed", triplet, "lib"))
-            libraries.extend(["png16", "z"])   # Windows naming
-            break
+            inc = Path(root) / "installed" / triplet / "include"
+            lib = Path(root) / "installed" / triplet / "lib"
+
+            if inc.exists():
+                include_dirs.append(str(inc))
+                library_dirs.append(str(lib))
+                libraries += ["png16", "zlib"]  # vcpkg names
+                print(f"Using vcpkg libs from {root}")
+                found_vcpkg = True
+                break
+
+    if not found_vcpkg:
+        print("WARNING: vcpkg not found → PNG support disabled")
+        libraries = []  # PNG is optional on Windows
 
 
-# ============================================================
-# Fallback for unknown platforms
-# ============================================================
+# ================================================================
+# Fallback
+# ================================================================
 if not libraries:
-    libraries = ["png", "z"]
+    print("NOTE: PNG libraries missing, using fallback (no PNG linking)")
+    libraries = []
 
 
-# Always add NumPy include path
+# Always add NumPy include directory
 include_dirs.append(np.get_include())
 
+
+# ================================================================
+# 4) Build extension list
+# ================================================================
 extensions = [
     Extension(
-        name=splitext(basename(pyx_file))[0],
-        sources=[pyx_file],
+        name=str(Path(pyx).with_suffix("")).replace(os.sep, "."),
+        sources=[pyx],
         include_dirs=include_dirs,
         library_dirs=library_dirs,
         libraries=libraries,
-        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
-        extra_compile_args=[
-            "-O3",
-            "-march=native",
-            "-fstrict-aliasing"
-        ] if sys.platform != "win32" else ["/O2"],
+        define_macros=[
+            ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")
+        ],
+        extra_compile_args=(
+            ["/O2"] if PLATFORM.startswith("win") else ["-O3", "-march=native", "-fstrict-aliasing"]
+        )
     )
-    for pyx_file in pyx_files
+    for pyx in pyx_files
 ]
 
+
+# ================================================================
+# 5) setup()
+# ================================================================
 setup(
-    name='beck-view-digitize',
-    version='1.2',
-    url='https://github.com/JuPfu/beck-view-digitalize',
-    license='MIT',
-    author='juergen pfundt',
-    author_email='juergen.pfundt@gmail.com',
-    description='cython digitize 16mm films',
+    name="beck-view-digitize",
+    version="1.3",
+    description="Cython accelerated 16mm digitization tools",
+    author="juergen pfundt",
+    url="https://github.com/JuPfu/beck-view-digitalize",
     ext_modules=cythonize(
         extensions,
         annotate=False,
@@ -128,10 +171,10 @@ setup(
             "boundscheck": False,
             "wraparound": False,
             "initializedcheck": False,
-            "cdivision": True,
             "nonecheck": False,
+            "cdivision": True,
             "language_level": 3,
-            "infer_types": True
-        }
+            "infer_types": True,
+        },
     ),
 )
