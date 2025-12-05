@@ -167,8 +167,8 @@ extensions = [
         include_dirs=include_dirs,
         library_dirs=library_dirs,
         libraries=libraries,         # empty if statically linked
-        extra_link_args=extra_link_args,
-        extra_compile_args=extra_compile_args,
+        extra_link_args = windows_link_args if sys.platform.startswith("win") else extra_link_args,
+        extra_compile_args = windows_compile_args if sys.platform.startswith("win") else extra_compile_args,
         define_macros=[
             ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
         ],
