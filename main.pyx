@@ -37,9 +37,6 @@ from Ft232hConnector import Ft232hConnector
 def main():
     freeze_support()
 
-    print(os.environ.get("PKG_CONFIG_PATH"))
-    subprocess.run(["pkg-config", "--cflags", "--libs", "spng"], check=True)
-
     #
     # Parse CLI arguments
     #
