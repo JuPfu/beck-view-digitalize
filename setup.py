@@ -11,7 +11,7 @@ from pathlib import Path
 # ================================================================
 # 1) Find .pyx sources recursively
 # ================================================================
-pyx_files = glob("**/*.pyx", recursive=True)
+pyx_files = glob("*.pyx")
 
 if not pyx_files:
     print("WARNING: No .pyx files found! (search path: **/*.pyx)")
@@ -112,7 +112,7 @@ elif PLATFORM.startswith("win"):
             if inc.exists():
                 include_dirs.append(str(inc))
                 library_dirs.append(str(lib))
-                libraries += ["png16", "zlib"]  # vcpkg names
+                libraries += ["libpng16", "zlib"]  # vcpkg names
                 print(f"Using vcpkg libs from {root}")
                 found_vcpkg = True
                 break
