@@ -5,24 +5,13 @@ import os
 import sys
 import subprocess
 from glob import glob
-from pathlib import Path
+from os.path import splitext, basename, dirname
 
-
-# ================================================================
-# 1) Find .pyx sources recursively
-# ================================================================
+# Project-local PYX files (avoids picking up unintended files)
 pyx_files = glob("*.pyx")
 
-if not pyx_files:
-    print("WARNING: No .pyx files found! (search path: **/*.pyx)")
-else:
-    print(f"Found {len(pyx_files)} .pyx files")
 
-
-# ================================================================
-# 2) Helper: safe pkg-config invocation (Linux/macOS)
-# ================================================================
-def pkg_config_flags(libname, flag):
+def pkg_config(libname, flag):
     try:
         out = subprocess.check_output(
             ["pkg-config", flag, libname],
@@ -33,137 +22,154 @@ def pkg_config_flags(libname, flag):
         return []
 
 
-# ================================================================
-# 3) Platform configuration
-# ================================================================
+# ============================================================
+# Build configuration
+# ============================================================
+
 include_dirs = []
 library_dirs = []
 libraries = []
 
-PLATFORM = sys.platform
+extra_link_args = []
+extra_compile_args = []
+
+static_link = True     # <--- static linking enabled
 
 
-# ================================================================
+# ============================================================
 # macOS (Homebrew)
-# ================================================================
-if PLATFORM == "darwin":
-    print("Configuring for macOS…")
-
-    brew_paths = [
-        "/opt/homebrew",  # Apple Silicon
-        "/usr/local"      # Intel macOS
+# ============================================================
+if sys.platform == "darwin":
+    brew_prefixes = [
+        "/opt/homebrew",     # Apple Silicon
+        "/usr/local"         # Intel
     ]
 
-    for prefix in brew_paths:
-        if os.path.exists(prefix):
-            include_dirs.append(f"{prefix}/include")
-            library_dirs.append(f"{prefix}/lib")
-            print(f"Using Homebrew libs from {prefix}")
-            break
+    for prefix in brew_prefixes:
+        inc = os.path.join(prefix, "include")
+        lib = os.path.join(prefix, "lib")
+        if os.path.exists(inc):
+            include_dirs.append(inc)
+        if os.path.exists(lib):
+            library_dirs.append(lib)
 
-    libraries += ["png", "z"]  # macOS names
+    # Try static libs first
+    png_static = os.path.join(library_dirs[0], "libpng.a")
+    z_static = os.path.join(library_dirs[0], "libz.a")
+
+    if static_link and os.path.exists(png_static):
+        extra_link_args.extend([png_static])
+    else:
+        libraries.append("png")
+
+    if static_link and os.path.exists(z_static):
+        extra_link_args.extend([z_static])
+    else:
+        libraries.append("z")
+
+    extra_compile_args = ["-O3", "-fstrict-aliasing"]
 
 
-# ================================================================
-# Linux (pkg-config)
-# ================================================================
-elif PLATFORM.startswith("linux"):
-    print("Configuring for Linux…")
-
-    # --- Includes ---
-    for flag in pkg_config_flags("libpng", "--cflags-only-I"):
+# ============================================================
+# Linux (pkg-config + static optional)
+# ============================================================
+elif sys.platform.startswith("linux"):
+    for flag in pkg_config("libpng", "--cflags-only-I"):
         if flag.startswith("-I"):
             include_dirs.append(flag[2:])
 
-    # --- Lib dirs ---
-    for flag in pkg_config_flags("libpng", "--libs-only-L"):
+    for flag in pkg_config("libpng", "--libs-only-L"):
         if flag.startswith("-L"):
             library_dirs.append(flag[2:])
 
-    # --- Libraries ---
-    for flag in pkg_config_flags("libpng", "--libs-only-l"):
-        if flag.startswith("-l"):
-            libraries.append(flag[2:])
+    png_static = "/usr/lib/libpng.a"
+    z_static = "/usr/lib/libz.a"
 
-    if "z" not in libraries:
+    if static_link and os.path.exists(png_static):
+        extra_link_args.append(png_static)
+    else:
+        libraries.append("png")
+
+    if static_link and os.path.exists(z_static):
+        extra_link_args.append(z_static)
+    else:
         libraries.append("z")
 
+    extra_compile_args = ["-O3", "-march=native"]
 
-# ================================================================
-# Windows (MSVC / vcpkg)
-# ================================================================
-elif PLATFORM.startswith("win"):
-    print("Configuring for Windows…")
 
-    # Known places for vcpkg
+# ============================================================
+# Windows (MSVC) + vcpkg static linking
+# ============================================================
+elif sys.platform.startswith("win"):
+    triplet = "x64-windows-static"
+
     vcpkg_roots = [
         os.environ.get("VCPKG_ROOT"),
-        str(Path.home() / "vcpkg"),
-        "C:/vcpkg"
+        "C:/vcpkg",
+        os.path.expanduser("~/vcpkg"),
     ]
 
-    found_vcpkg = False
     for root in vcpkg_roots:
         if root and os.path.exists(root):
-            triplet = "x64-windows"
-            inc = Path(root) / "installed" / triplet / "include"
-            lib = Path(root) / "installed" / triplet / "lib"
+            inc = os.path.join(root, "installed", triplet, "include")
+            lib = os.path.join(root, "installed", triplet, "lib")
 
-            if inc.exists():
-                include_dirs.append(str(inc))
-                library_dirs.append(str(lib))
-                libraries += ["libpng16", "zlib"]  # vcpkg names
-                print(f"Using vcpkg libs from {root}")
-                found_vcpkg = True
-                break
+            include_dirs.append(inc)
+            library_dirs.append(lib)
 
-    if not found_vcpkg:
-        print("WARNING: vcpkg not found → PNG support disabled")
-        libraries = []  # PNG is optional on Windows
+            # STATIC linking: link .lib, not DLLs
+            libraries = ["libpng16", "zlib"]
 
+            # Tell MSVC to build static CRT
+            extra_link_args.extend([
+                "/NODEFAULTLIB:MSVCRT",
+                "/DEFAULTLIB:LIBCMT"
+            ])
 
-# ================================================================
-# Fallback
-# ================================================================
-if not libraries:
-    print("NOTE: PNG libraries missing, using fallback (no PNG linking)")
-    libraries = []
+            break
+
+    extra_compile_args = ["/O2"]
 
 
-# Always add NumPy include directory
+# ============================================================
+# Fallback (any OS)
+# ============================================================
+if not libraries and not extra_link_args:
+    libraries = ["png", "z"]
+
+
+# Add NumPy headers
 include_dirs.append(np.get_include())
 
 
-# ================================================================
-# 4) Build extension list
-# ================================================================
+# ============================================================
+# Extension definitions
+# ============================================================
 extensions = [
     Extension(
-        name=str(Path(pyx).with_suffix("")).replace(os.sep, "."),
+        name=splitext(basename(pyx))[0],
         sources=[pyx],
         include_dirs=include_dirs,
         library_dirs=library_dirs,
         libraries=libraries,
+        extra_link_args=extra_link_args,
+        extra_compile_args=extra_compile_args,
         define_macros=[
-            ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")
-        ],
-        extra_compile_args=(
-            ["/O2"] if PLATFORM.startswith("win") else ["-O3", "-march=native", "-fstrict-aliasing"]
-        )
+            ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
+        ]
     )
     for pyx in pyx_files
 ]
 
 
-# ================================================================
-# 5) setup()
-# ================================================================
+# ============================================================
+# Final setup
+# ============================================================
 setup(
     name="beck-view-digitize",
     version="1.3",
-    description="Cython accelerated 16mm digitization tools",
-    author="juergen pfundt",
-    url="https://github.com/JuPfu/beck-view-digitalize",
+    description="Cython digitize 16mm films",
     ext_modules=cythonize(
         extensions,
         annotate=False,
@@ -171,8 +177,8 @@ setup(
             "boundscheck": False,
             "wraparound": False,
             "initializedcheck": False,
-            "nonecheck": False,
             "cdivision": True,
+            "nonecheck": False,
             "language_level": 3,
             "infer_types": True,
         },

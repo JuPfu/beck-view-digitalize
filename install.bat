@@ -1,25 +1,60 @@
-cd /d %~dp0
+@echo off
+setlocal EnableDelayedExpansion
 
-rmdir /S /Q dist
-del *.c *.pyd
+echo ---------------------------------------
+echo Cleaning old builds ...
+echo ---------------------------------------
+rmdir /S /Q build 2>nul
+rmdir /S /Q dist 2>nul
+del /Q *.c *.pyd 2>nul
 
+echo ---------------------------------------
+echo Upgrading build dependencies ...
+echo ---------------------------------------
 python -m pip install --upgrade pip setuptools wheel cython
 
+echo ---------------------------------------
+echo Running Cython build (static linking) ...
+echo ---------------------------------------
 python setup.py clean --all
 python setup.py build_ext --inplace
 
-mkdir dist
-move *.pyd dist
+echo ---------------------------------------
+echo Searching for generated .pyd files ...
+echo ---------------------------------------
+set pyd_files=
+for %%f in (*.pyd) do (
+    set pyd_files=!pyd_files! %%f
+)
 
+echo Found: !pyd_files!
+
+if "!pyd_files!"=="" (
+    echo ERROR: No .pyd files were generated!
+    echo Setup.py probably didn't detect your .pyx sources.
+    exit /b 1
+)
+
+echo ---------------------------------------
+echo Moving .pyd files into dist folder ...
+echo ---------------------------------------
+mkdir dist
+for %%f in (!pyd_files!) do (
+    move %%f dist >nul
+)
+
+echo ---------------------------------------
+echo Running PyInstaller ...
+echo ---------------------------------------
 pyinstaller beck-view-digitize.spec --noconfirm
 
-echo Copying libpng and zlib runtime DLLs...
+echo ---------------------------------------
+echo Copy final EXE back to project root ...
+echo ---------------------------------------
+copy /y dist\beck-view-digitize-bundle\beck-view-digitize.exe "%CD%" >nul
 
-set TRIPLET=x64-windows
-
-copy "%VCPKG_ROOT%\installed\%TRIPLET%\bin\libpng16.dll" dist\beck-view-digitize-bundle\ >nul
-copy "%VCPKG_ROOT%\installed\%TRIPLET%\bin\zlib1.dll" dist\beck-view-digitize-bundle\ >nul
-
-copy /y dist\beck-view-digitize-bundle\beck-view-digitize.exe "%CD%"
-
-echo Executable beck-view-digitize.exe ready for usage in directory %CD%
+echo.
+echo #############################################################
+echo   Static EXE build complete — NO DLLs required at runtime!
+echo #############################################################
+echo.
