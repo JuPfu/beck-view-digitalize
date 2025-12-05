@@ -5,182 +5,190 @@ import os
 import sys
 import subprocess
 from glob import glob
-from os.path import splitext, basename, dirname
+from os.path import splitext, basename
 
-# Project-local PYX files (avoids picking up unintended files)
+#
+# -------------------------------------------------------------
+# Collect project-local .pyx files (avoid picking up others)
+# -------------------------------------------------------------
+#
 pyx_files = glob("*.pyx")
 
 
 def pkg_config(libname, flag):
+    """Return pkg-config flags split into tokens."""
     try:
-        out = subprocess.check_output(
-            ["pkg-config", flag, libname],
-            text=True
-        ).strip()
+        out = subprocess.check_output(["pkg-config", flag, libname],
+                                      text=True).strip()
         return out.split()
     except Exception:
         return []
 
 
-# ============================================================
-# Build configuration
-# ============================================================
-
 include_dirs = []
 library_dirs = []
 libraries = []
-
 extra_link_args = []
 extra_compile_args = []
 
-static_link = True     # <--- static linking enabled
-
-
-# ============================================================
-# macOS (Homebrew)
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  macOS (Homebrew)
+# ───────────────────────────────────────────────────────────────
+#
 if sys.platform == "darwin":
     brew_prefixes = [
-        "/opt/homebrew",     # Apple Silicon
-        "/usr/local"         # Intel
+        "/opt/homebrew",   # ARM macOS
+        "/usr/local"       # Intel macOS
     ]
 
     for prefix in brew_prefixes:
-        inc = os.path.join(prefix, "include")
-        lib = os.path.join(prefix, "lib")
-        if os.path.exists(inc):
-            include_dirs.append(inc)
-        if os.path.exists(lib):
-            library_dirs.append(lib)
+        if os.path.exists(prefix):
+            include_dirs.append(f"{prefix}/include")
+            library_dirs.append(f"{prefix}/lib")
 
-    # Try static libs first
-    png_static = os.path.join(library_dirs[0], "libpng.a")
-    z_static = os.path.join(library_dirs[0], "libz.a")
+    # macOS always uses dynamic libpng/zlib shipped by Homebrew
+    libraries.extend(["png", "z"])
 
-    if static_link and os.path.exists(png_static):
-        extra_link_args.extend([png_static])
-    else:
-        libraries.append("png")
-
-    if static_link and os.path.exists(z_static):
-        extra_link_args.extend([z_static])
-    else:
-        libraries.append("z")
-
-    extra_compile_args = ["-O3", "-fstrict-aliasing"]
+    extra_compile_args = ["-O3", "-march=native", "-fstrict-aliasing"]
 
 
-# ============================================================
-# Linux (pkg-config + static optional)
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  Linux (pkg-config)
+# ───────────────────────────────────────────────────────────────
+#
 elif sys.platform.startswith("linux"):
+
+    # Extract include dirs (-Ifoo)
     for flag in pkg_config("libpng", "--cflags-only-I"):
         if flag.startswith("-I"):
             include_dirs.append(flag[2:])
 
+    # Extract library dirs (-Lfoo)
     for flag in pkg_config("libpng", "--libs-only-L"):
         if flag.startswith("-L"):
             library_dirs.append(flag[2:])
 
-    png_static = "/usr/lib/libpng.a"
-    z_static = "/usr/lib/libz.a"
+    # Extract libs (-lpng16)
+    for flag in pkg_config("libpng", "--libs-only-l"):
+        if flag.startswith("-l"):
+            libraries.append(flag[2:])
 
-    if static_link and os.path.exists(png_static):
-        extra_link_args.append(png_static)
-    else:
-        libraries.append("png")
-
-    if static_link and os.path.exists(z_static):
-        extra_link_args.append(z_static)
-    else:
+    if "z" not in libraries:
         libraries.append("z")
 
-    extra_compile_args = ["-O3", "-march=native"]
+    extra_compile_args = ["-O3", "-march=native", "-fstrict-aliasing"]
 
 
-# ============================================================
-# Windows (MSVC) + vcpkg static linking
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  Windows (MSVC + vcpkg) with STATIC linking
+# ───────────────────────────────────────────────────────────────
+#
 elif sys.platform.startswith("win"):
-    triplet = "x64-windows-static"
 
+    triplet = "x64-windows"
     vcpkg_roots = [
         os.environ.get("VCPKG_ROOT"),
         "C:/vcpkg",
-        os.path.expanduser("~/vcpkg"),
+        os.path.expanduser("~/vcpkg")
     ]
 
+    vcpkg_found = None
     for root in vcpkg_roots:
         if root and os.path.exists(root):
-            inc = os.path.join(root, "installed", triplet, "include")
-            lib = os.path.join(root, "installed", triplet, "lib")
-
-            include_dirs.append(inc)
-            library_dirs.append(lib)
-
-            # STATIC linking: link .lib, not DLLs
-            libraries = ["libpng16", "zlib"]
-
-            # Tell MSVC to build static CRT
-            extra_link_args.extend([
-                "/NODEFAULTLIB:MSVCRT",
-                "/DEFAULTLIB:LIBCMT"
-            ])
-
+            vcpkg_found = root
             break
 
-    extra_compile_args = ["/O2"]
+    if vcpkg_found:
+        include_dirs.append(os.path.join(vcpkg_found, "installed", triplet, "include"))
+        library_dirs.append(os.path.join(vcpkg_found, "installed", triplet, "lib"))
+
+        #
+        # Static linking: explicitly link against .lib static archives
+        #
+        static_libpng = os.path.join(vcpkg_found, "installed", triplet, "lib", "libpng16_static.lib")
+        static_zlib   = os.path.join(vcpkg_found, "installed", triplet, "lib", "zlib.lib")
+
+        if os.path.exists(static_libpng) and os.path.exists(static_zlib):
+            #
+            # STATIC linking mode
+            #
+            extra_link_args = [
+                static_libpng,
+                static_zlib,
+            ]
+            libraries = []         # No dll-based libs
+        else:
+            #
+            # Fallback to dynamic linking
+            #
+            libraries = ["png16", "z"]
+
+        extra_compile_args = ["/O2", "/fp:fast", "/GL"]
 
 
-# ============================================================
-# Fallback (any OS)
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  Fallback (unknown system)
+# ───────────────────────────────────────────────────────────────
+#
 if not libraries and not extra_link_args:
     libraries = ["png", "z"]
 
 
-# Add NumPy headers
+#
+# Always add NumPy includes
+#
 include_dirs.append(np.get_include())
 
 
-# ============================================================
-# Extension definitions
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  Build Cython extensions
+# ───────────────────────────────────────────────────────────────
+#
 extensions = [
     Extension(
         name=splitext(basename(pyx))[0],
         sources=[pyx],
         include_dirs=include_dirs,
         library_dirs=library_dirs,
-        libraries=libraries,
+        libraries=libraries,         # empty if statically linked
         extra_link_args=extra_link_args,
         extra_compile_args=extra_compile_args,
         define_macros=[
             ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
-        ]
+        ],
     )
     for pyx in pyx_files
 ]
 
 
-# ============================================================
-# Final setup
-# ============================================================
+#
+# ───────────────────────────────────────────────────────────────
+#  Final setup()
+# ───────────────────────────────────────────────────────────────
+#
 setup(
     name="beck-view-digitize",
-    version="1.3",
-    description="Cython digitize 16mm films",
+    version="1.2",
+    description="cython digitize 16mm films",
+    url="https://github.com/JuPfu/beck-view-digitalize",
+    author="juergen pfundt",
+    license="MIT",
     ext_modules=cythonize(
         extensions,
         annotate=False,
-        compiler_directives={
-            "boundscheck": False,
-            "wraparound": False,
-            "initializedcheck": False,
-            "cdivision": True,
-            "nonecheck": False,
-            "language_level": 3,
-            "infer_types": True,
-        },
+        compiler_directives=dict(
+            boundscheck=False,
+            wraparound=False,
+            initializedcheck=False,
+            cdivision=True,
+            nonecheck=False,
+            language_level=3,
+            infer_types=True
+        )
     ),
 )
