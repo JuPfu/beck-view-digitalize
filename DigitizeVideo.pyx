@@ -325,15 +325,27 @@ cdef class DigitizeVideo:
 
     def initialize_process_pool(self) -> None:
         """
-        Create a multiprocessing pool (forkserver) and pre-allocate shared memory buffers.
+            Create a multiprocessing pool (forkserver) and pre-allocate shared memory buffers.
         """
+
         self.img_bytes = self.img_width * self.img_height * 3
 
-        ctx = multiprocessing.get_context("forkserver")
+        if sys.platform.startswith("win"):
+            # Windows only supports "spawn"
+            ctx = multiprocessing.get_context("spawn")
+        else:
+            # Unix: forkserver is best, but use fallback to fork
+            try:
+                ctx = multiprocessing.get_context("forkserver")
+            except ValueError:
+                ctx = multiprocessing.get_context("fork")
+
         self.process_count = max(2, multiprocessing.cpu_count() - 1)
         self.pool = ctx.Pool(self.process_count)
 
         frames_per_buffer = int(self.chunk_size * self.frame_multiplier)
+
+        # Shared memory allocation
         self.shared_buffers = [shared_memory.SharedMemory(create=True, size=(frames_per_buffer * self.img_bytes)) for _ in range(self.process_count)]
 
         self._shm_arrays = []
