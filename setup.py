@@ -86,48 +86,55 @@ elif sys.platform.startswith("linux"):
 #  Windows (MSVC + vcpkg) with STATIC linking
 # ───────────────────────────────────────────────────────────────
 #
+
+# ============================================================
+# Windows (MSVC / MinGW) — vcpkg detection
+# ============================================================
 elif sys.platform.startswith("win"):
 
-    triplet = "x64-windows"
-    vcpkg_roots = [
+    triplet_dynamic = "x64-windows"
+    triplet_static = "x64-windows-static"
+
+    possible_roots = [
         os.environ.get("VCPKG_ROOT"),
-        "C:/vcpkg",
-        os.path.expanduser("~/vcpkg")
+        os.path.expanduser("~/vcpkg"),
+        "C:/vcpkg"
     ]
 
-    vcpkg_found = None
-    for root in vcpkg_roots:
+    vcpkg_root = None
+    for root in possible_roots:
         if root and os.path.exists(root):
-            vcpkg_found = root
+            vcpkg_root = root
             break
 
-    if vcpkg_found:
-        include_dirs.append(os.path.join(vcpkg_found, "installed", triplet, "include"))
-        library_dirs.append(os.path.join(vcpkg_found, "installed", triplet, "lib"))
+    if vcpkg_root:
+        # --- Static linking (preferred) ---
+        static_include = os.path.join(vcpkg_root, "installed", triplet_static, "include")
+        static_lib = os.path.join(vcpkg_root, "installed", triplet_static, "lib")
 
-        #
-        # Static linking: explicitly link against .lib static archives
-        #
-        static_libpng = os.path.join(vcpkg_found, "installed", triplet, "lib", "libpng16_static.lib")
-        static_zlib   = os.path.join(vcpkg_found, "installed", triplet, "lib", "zlib.lib")
+        # --- Dynamic linking fallback ---
+        dyn_include = os.path.join(vcpkg_root, "installed", triplet_dynamic, "include")
+        dyn_lib = os.path.join(vcpkg_root, "installed", triplet_dynamic, "lib")
 
-        if os.path.exists(static_libpng) and os.path.exists(static_zlib):
-            #
-            # STATIC linking mode
-            #
-            extra_link_args = [
-                static_libpng,
-                static_zlib,
-            ]
-            libraries = []         # No dll-based libs
+        # 1) Static linking available?
+        png_static = os.path.join(static_lib, "libpng16.lib")
+        z_static = os.path.join(static_lib, "zlib.lib")
+
+        if os.path.exists(png_static) and os.path.exists(z_static):
+            include_dirs.append(static_include)
+            library_dirs.append(static_lib)
+            libraries.extend(["libpng16", "zlib"])
+            print(">>> Using static libpng16 + zlib from vcpkg (x64-windows-static)")
         else:
-            #
-            # Fallback to dynamic linking
-            #
-            libraries = ["png16", "z"]
-
-        extra_compile_args = ["/O2", "/fp:fast", "/GL"]
-
+            # 2) Fallback: dynamic
+            include_dirs.append(dyn_include)
+            library_dirs.append(dyn_lib)
+            libraries.extend(["libpng16", "zlib"])
+            print(">>> Using dynamic libpng16 + zlib (fallback)")
+    else:
+        # Final fallback
+        libraries.extend(["libpng16", "zlib"])
+        print(">>> WARNING: VCPKG not found — using fallback DLL names")
 
 #
 # ───────────────────────────────────────────────────────────────
