@@ -3,10 +3,10 @@ cd /d %~dp0
 rmdir /S /Q dist
 del *.c *.pyd
 
-python3 -m pip install --upgrade pip setuptools wheel cython
+python -m pip install --upgrade pip setuptools wheel cython
 
-python3 setup.py clean --all
-python3 setup.py build_ext --inplace
+python setup.py clean --all
+python setup.py build_ext --inplace
 
 mkdir dist
 move *.pyd dist
