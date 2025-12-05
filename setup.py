@@ -81,12 +81,6 @@ elif sys.platform.startswith("linux"):
     extra_compile_args = ["-O3", "-march=native", "-fstrict-aliasing"]
 
 
-#
-# ───────────────────────────────────────────────────────────────
-#  Windows (MSVC + vcpkg) with STATIC linking
-# ───────────────────────────────────────────────────────────────
-#
-
 # ============================================================
 # Windows (MSVC / MinGW) — vcpkg detection
 # ============================================================
@@ -124,12 +118,22 @@ elif sys.platform.startswith("win"):
             include_dirs.append(static_include)
             library_dirs.append(static_lib)
             libraries.extend(["libpng16", "zlib"])
+
+            windows_compile_args = ["/O2", "/MT"]
+            windows_link_args = [
+                "/NODEFAULTLIB:MSVCRT"
+            ]
+
             print(">>> Using static libpng16 + zlib from vcpkg (x64-windows-static)")
         else:
             # 2) Fallback: dynamic
             include_dirs.append(dyn_include)
             library_dirs.append(dyn_lib)
             libraries.extend(["libpng16", "zlib"])
+
+            windows_compile_args = ["/O2", "/MD"]
+            windows_link_args = []
+
             print(">>> Using dynamic libpng16 + zlib (fallback)")
     else:
         # Final fallback
