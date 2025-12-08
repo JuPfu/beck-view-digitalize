@@ -20,7 +20,7 @@ import threading
 
 import usb
 from pyftdi.ftdi import Ftdi
-from pyftdi.gpio import GpioMpsseController
+from pyftdi.gpio import GpioMpsseController, GpioAsyncController
 from reactivex import Subject
 
 from TimingResult cimport TimingResult as CTimingResult
@@ -52,6 +52,7 @@ cdef class Ft232hConnector:
         self.LATENCY_THRESHOLD = 0.01
         self.INITIAL_COUNT = -1
         self.gui = gui
+
         self.signal_subject = signal_subject
         self.max_count = 300 # max_count + 100
         self._timing_lock = threading.Lock()
@@ -59,35 +60,38 @@ cdef class Ft232hConnector:
         # open FTDI device internally
         self._ftdi = ftdi
         try:
-            self._ftdi.open_mpsse_from_url("ftdi:///1")
+            self._ftdi.open_from_url("ftdi:///1")
         except Exception as e:
             logger.error(f"Could not open FTDI device: {e}")
             raise
 
+        try:
+            self._ftdi.set_latency_timer(16)
+        except Exception:
+            pass
+
+        # self._gpio.set_baudrate(6000000)
+        #try:
+        #   self._ftdi.set_frequency(self._ftdi.frequency_max)
+        #except Exception:
+        #   pass
+
         # configure GPIO
-        self._gpio = GpioMpsseController()
-        MSB = 8
-        self._OK1_mask = ((1 << 2) << MSB)
-        self._END_OF_FILM_mask = ((1 << 3) << MSB)
+        self._gpio = GpioAsyncController()
+        MSB = 0
+        self._OK1_mask = ((1 << 6) << MSB)
+        self._END_OF_FILM_mask = ((1 << 7) << MSB)
 
         try:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                frequency=self._ftdi.frequency_max,
+                frequency=6000000, # self._ftdi.frequency_max,
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
                                      direction=self._END_OF_FILM_mask | self._OK1_mask)
             self._gpio.write(0x0)
-            try:
-                self._ftdi.set_latency_timer(128)
-            except Exception:
-                pass
-            try:
-                self._ftdi.set_frequency(self._ftdi.frequency_max)
-            except Exception:
-                pass
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask, direction=0x0)
         except Exception as e:
             logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
@@ -144,19 +148,6 @@ cdef class Ft232hConnector:
         except Exception:
             pass
 
-    def _read_pins_safe(self):
-        """Robust GPIO read."""
-        try:
-            rv = self._gpio.read(1)
-        except Exception:
-            return 0
-        if isinstance(rv, (tuple, list)):
-            return int(rv[0]) if len(rv) > 0 else 0
-        try:
-            return int(rv)
-        except Exception:
-            return 0
-
     def _poll_loop(self) -> None:
         """Poll GPIO and publish events to the Subject."""
         cdef int pins, last_pins, count
@@ -171,21 +162,13 @@ cdef class Ft232hConnector:
         start_cycle = time.perf_counter()
         wait_time = start_cycle
         wait_time_start = start_cycle
-        pins = self._read_pins_safe()
-        last_pins = pins
+        last_pins = 0
+        pins = self._gpio.read(1, True)
+
+        lc = 0.0
 
         while not stop_event.is_set() and (pins & _eof) != _eof and count < self.max_count:
-            pins = self._read_pins_safe()
-
-            # EOF detection
-            if (pins & _eof) == _eof:
-                try:
-                    if not stop_event.is_set():
-                        subj.on_next((count, start_cycle))
-                except Exception:
-                    pass
-                break
-
+            lc = lc + 1.0
             # rising edge detection for OK1
             if ((last_pins & _ok) == 0) and ((pins & _ok) == _ok):
                 stop_cycle = time.perf_counter()
@@ -194,6 +177,7 @@ cdef class Ft232hConnector:
                 wait_time = stop_cycle - wait_time_start
 
                 count += 1
+                # temporarily commented out to test wait-time
                 try:
                     if not stop_event.is_set():
                         subj.on_next((count, start_cycle))
@@ -204,9 +188,9 @@ cdef class Ft232hConnector:
 
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
-                while ((pins & _ok) == _ok) and not stop_event.is_set():
-                    time.sleep(0)
-                    pins = self._read_pins_safe()
+                while ((pins & _ok) == _ok):
+                    time.sleep(0.0005)
+                    pins = self._gpio.read(1, True)
                 latency = time.perf_counter() - latency_start
 
                 with self._timing_lock:
@@ -215,7 +199,7 @@ cdef class Ft232hConnector:
                             count,
                             float(time.perf_counter() - start_cycle),
                             float(work_time),
-                            -1.0,
+                            float(lc),
                             float(latency),
                             float(wait_time),
                             float(delta)
@@ -224,13 +208,15 @@ cdef class Ft232hConnector:
                         logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
                         pass
 
+                lc = 0
                 if latency > LATENCY_THRESHOLD:
                     logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
                 wait_time_start = time.perf_counter()
 
             last_pins = pins
-            time.sleep(0)
+            pins = self._gpio.read(1, True)
+            time.sleep(0.0005)
 
         try:
             self.log_timing_results()
