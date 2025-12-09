@@ -1,50 +1,69 @@
 # cython: language_level=3
-# main.pyx
-
-"""
-Main entrypoint for beck-view-digitize.
-
-Responsibilities:
-- Parse command-line args (via CommandLineParser)
-- Create FTDI device and open it
-- Create shared Subject for optocoupler events
-- Instantiate DigitizeVideo (subscriber)
-- Instantiate Ft232hConnector(ftdi, subject, max_count, gui)
-- Start poller, wait for EOF or Ctrl-C
-- Perform coordinated shutdown and cleanup
-"""
-
-from multiprocessing import freeze_support
-import faulthandler, sys
-faulthandler.enable(file=sys.stderr, all_threads=True)
-
-import os, subprocess
-
+# cython.infer_types(True)
 import sys
 import threading
-import signal
-
 from argparse import Namespace
+from multiprocessing import freeze_support
 
 from pyftdi.ftdi import Ftdi
 from reactivex import Subject
 
 from CommandLineParser import CommandLineParser
-from DigitizeVideo import DigitizeVideo
-from Ft232hConnector import Ft232hConnector
 
+"""
+Technologies used in this project
+
+ReactiveX for Signal Handling:
+    Reactivex is being used for handling photo cell signals. This allows for asynchronous and non-blocking operation
+    improving responsiveness.
+
+Spawning Processes:
+    Circumvent the Global Interpreter Lock (GIL) by using separate processes for writing images to persistent
+    storage.
+
+Chunk Processing for Efficiency:
+    Usage of a chunk of images for writing to persistent storage is an efficient strategy that reduces the number of
+    context switches and system calls.
+
+Shared Memory for Fast Data Transfer:
+    Employing shared memory for transferring image data to a separate process (inter-process communication).
+
+Monitoring:
+    The inclusion of a monitoring window provides valuable insights into program execution.
+
+Logging:
+    Logging capabilities to help analyse potential problems.
+"""
 
 def main():
     freeze_support()
 
-    #
-    # Parse CLI arguments
-    #
+    # retrieve command line arguments
     args: Namespace = CommandLineParser().parse_args()
 
-    #
-    # Create optocoupler event Subject
-    #
+    # initialize FTDI device driver
+    ftdi = Ftdi()
+
+    # list available ftdi devices
+    # on macOS do a `ls -lta /dev/cu*` when the ftdi microcontroller is connected
+    try:
+        print(f"List attached FT232H devices: {ftdi.list_devices()}")
+    except Exception as e:
+        print(f"Error listing FT232H devices: {e}")
+        sys.exit(1)
+
+    try:
+        # open a dedicated ftdi device contained in the list of ftdi devices
+        # URL Scheme
+        # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
+        ftdi.open_from_url("ftdi:///1")
+    except Exception as e:
+        print(f"Error accessing FT232H chip: {e}")
+        sys.exit(1)
+
+    from DigitizeVideo import DigitizeVideo
+    from Ft232hConnector import Ft232hConnector
+
     optocoupler_signal_subject = Subject()
 
     #
@@ -63,18 +82,7 @@ def main():
         on_error=lambda e: print(f"[main] Subject error: {e}")
     )
 
-    #
-    # Open FTDI device
-    #
-    try:
-        ftdi = Ftdi()
-        print("[main] Listing attached FT232H devices:", ftdi.list_devices())
-        # open MPSSE device — conservative approach: fail fast on error
-        ftdi.open_mpsse_from_url("ftdi:///1")
-        print("[main] FTDI opened successfully")
-    except Exception as e:
-        print(f"[main] ERROR: cannot open FTDI device: {e}", file=sys.stderr)
-        sys.exit(1)
+    # create class instances
 
     #
     # Instantiate DigitizeVideo first so it subscribes immediately
@@ -89,32 +97,16 @@ def main():
             pass
         sys.exit(1)
 
-    #
-    # Instantiate Ft232hConnector using *strict signature*
-    # Ft232hConnector(ftdi, signal_subject, max_count, gui)
-    #
-    try:
-        ft_conn = Ft232hConnector(
-            ftdi,
-            optocoupler_signal_subject,
-            args.maxcount,
-            args.gui
-        )
-    except Exception as e:
-        print(f"[main] Failed to create Ft232hConnector: {e}", file=sys.stderr)
-        try:
-            ftdi.close()
-        except Exception:
-            pass
-        sys.exit(1)
+    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount, args.gui)
 
-    digitizer.connect(ft_conn)
+    digitizer.connect(ft232h)
 
+    # start recording - wait for signal(s) to take picture(s)
     #
     # Start poller thread
     #
     try:
-        ft_conn.start()
+        ft232h.start()
     except Exception as e:
         print(f"[main] Failed to start poller: {e}", file=sys.stderr)
         try:
@@ -122,7 +114,7 @@ def main():
         except Exception:
             pass
         try:
-            ft_conn.stop()
+            ft232h.stop()
         except Exception:
             pass
         try:
@@ -148,7 +140,7 @@ def main():
     print("[main] Coordinated shutdown starting...")
 
     try:
-        ft_conn.stop()
+        ft232h.stop()
     except Exception as e:
         print(f"[main] Error stopping Ft232hConnector: {e}", file=sys.stderr)
 

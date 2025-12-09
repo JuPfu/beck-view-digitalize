@@ -213,7 +213,9 @@ cdef class DigitizeVideo:
     def initialize_logging(self) -> None:
         """Configure logging for the application and store a logger on self."""
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        self.logger = logging.getLogger("DigitizeVideo")
+        self.logger = logging.getLogger(__name__)
+
+        # if program was started from beck-view-gui
         if self.gui:
             handler = logging.StreamHandler(sys.stdout)
             self.logger.addHandler(handler)

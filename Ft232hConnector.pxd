@@ -14,6 +14,8 @@ cdef class Ft232hConnector:
     """
 
     # C attributes (must match those in the .pyx)
+    cdef object logger
+
     cdef double LATENCY_THRESHOLD
     cdef int INITIAL_COUNT
     cdef bint gui

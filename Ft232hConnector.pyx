@@ -30,12 +30,6 @@ cdef object timing = None  # python singleton (holds PyTimingResult instance)
 # C-level module global (must match .pxd)
 cdef CTimingResult timing_view  # initially NULL
 
-# logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("Ft232hConnector")
-handler = logging.StreamHandler(sys.stdout)
-logger.addHandler(handler)
-
 
 cdef class Ft232hConnector:
     """
@@ -53,6 +47,8 @@ cdef class Ft232hConnector:
         self.INITIAL_COUNT = -1
         self.gui = gui
 
+        self._initialize_logging()
+
         self.signal_subject = signal_subject
         self.max_count = 300 # max_count + 100
         self._timing_lock = threading.Lock()
@@ -62,7 +58,7 @@ cdef class Ft232hConnector:
         try:
             self._ftdi.open_from_url("ftdi:///1")
         except Exception as e:
-            logger.error(f"Could not open FTDI device: {e}")
+            self.logger.error(f"Could not open FTDI device: {e}")
             raise
 
         try:
@@ -94,7 +90,7 @@ cdef class Ft232hConnector:
             self._gpio.write(0x0)
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask, direction=0x0)
         except Exception as e:
-            logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
+            self.logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
             raise
 
         global timing, timing_view
@@ -115,6 +111,32 @@ cdef class Ft232hConnector:
         # start poller automatically
         self.start()
 
+    def _initialize_logging(self) -> None:
+        """
+        Configure logging for the application.
+        """
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
+        if self.gui:
+            handler = logging.StreamHandler(sys.stdout)
+            self.logger.addHandler(handler)
+
+        self.logger.info("LOGGING INITIALIZED")
+
+    def _initialize_device(self) -> None:
+        """
+        Initialize the USB device based on Vendor and Product IDs.
+
+        Raises:
+            ValueError: If the USB device is not found.
+        """
+        # Find the USB device with specified Vendor and Product IDs
+        self.dev = usb.core.find(idVendor=0x0403, idProduct=0x6014)
+        if self.dev is None:
+            self.logger.error(f"No USB device with 'vendor Id = 0x0403 and product id = 0x6014' found!")
+            sys.exit(3)
+        self.logger.info(f"USB device found: {self.dev}")
+
     def start(self) -> None:
         """Start the polling thread."""
         if self.running:
@@ -123,7 +145,7 @@ cdef class Ft232hConnector:
         self._thread = threading.Thread(target=self._poll_loop, name="ft232h-poller", daemon=True)
         self._thread.start()
         self.running = True
-        logger.info("[Ft232hConnector] Poller started")
+        self.logger.info("[Ft232hConnector] Poller started")
 
     def stop(self, object timeout=None) -> None:
         """Stop polling thread safely."""
@@ -131,7 +153,7 @@ cdef class Ft232hConnector:
         if self._thread is not None:
             self._thread.join(timeout)
         self.running = False
-        logger.info("[Ft232hConnector] Poller stopped")
+        self.logger.info("[Ft232hConnector] Poller stopped")
 
     def close(self) -> None:
         """Stop poller and release FTDI/GPIO safely."""
@@ -205,12 +227,12 @@ cdef class Ft232hConnector:
                             float(delta)
                         )
                     except Exception:
-                        logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
+                        self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
                         pass
 
                 lc = 0
                 if latency > LATENCY_THRESHOLD:
-                    logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
+                    self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
                 wait_time_start = time.perf_counter()
 
@@ -221,7 +243,7 @@ cdef class Ft232hConnector:
         try:
             self.log_timing_results()
         except Exception:
-            logger.error("[Ft232hConnector] Failed to log timing_view after EOF")
+            self.logger.error("[Ft232hConnector] Failed to log timing_view after EOF")
 
         # ensure completion
         try:
@@ -242,13 +264,13 @@ cdef class Ft232hConnector:
             tv = self.timing_view
             total = tv.size
 
-            logger.info(f"[Ft232hConnector] Logging timing_view with {total} entries")
+            self.logger.info(f"[Ft232hConnector] Logging timing_view with {total} entries")
 
             buf = tv.buf
 
             for i in range(total):
                 try:
-                    logger.info(
+                    self.logger.info(
                         f"timing[{i}]: "
                         f"count={buf[i,0]:.0f}, "
                         f"cycle={buf[i,1]:.6f}, "
@@ -259,7 +281,7 @@ cdef class Ft232hConnector:
                         f"total_work={buf[i,6]:.6f}"
                     )
                 except Exception as e:
-                    logger.warning(f"[Ft232hConnector] Failed to read timing_view[{i}]: {e}")
+                    self.logger.warning(f"[Ft232hConnector] Failed to read timing_view[{i}]: {e}")
 
 
 cpdef CTimingResult get_timing_view():
