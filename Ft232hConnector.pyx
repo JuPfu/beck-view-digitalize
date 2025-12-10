@@ -13,14 +13,19 @@ Modernized Option B FT232H connector for beck-view-digitize.
 
 import cython
 from cython.view cimport array
+
+import signal
 import logging
 import sys
 import time
 import threading
 
 import usb
+
 from pyftdi.ftdi import Ftdi
-from pyftdi.gpio import GpioMpsseController, GpioAsyncController
+from pyftdi.eeprom import FtdiEeprom
+from pyftdi.gpio import GpioAsyncController
+
 from reactivex import Subject
 
 from TimingResult cimport TimingResult as CTimingResult
@@ -31,10 +36,35 @@ cdef object timing = None  # python singleton (holds PyTimingResult instance)
 cdef CTimingResult timing_view  # initially NULL
 
 
+cdef object sigsub = None
+
+def sigint_handler(signum, frame):
+    print("SIGINT captured, graceful exit.")
+    sigsub.on_completed()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, sigint_handler)
+
 cdef class Ft232hConnector:
     """
-    FT232H connector — owns the FTDI device internally.
+    Ft232hConnector class for interfacing with the opto-coupler signals and controlling frame processing.
+
+    This class provides the necessary functionality to control the digital signals from opto-couplers,
+    manage frame processing, and handle the End Of Film (EoF) signal.
+
+    Args:
+        signal_subject: Subject -- A subject that emits signals triggered by opto-coupler OK1.
+
+        max_count: int -- Emergency break if EoF (End of Film) is not recognized by opto-coupler OK2
     """
+
+    # 15-m-Cassette about 3.600 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 30-m-Cassette about 7.200 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 60-m-Cassette about 14.400 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 90-m-Cassette about 21.800 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
+    # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
+
 
     def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
         """
@@ -50,6 +80,7 @@ cdef class Ft232hConnector:
         self._initialize_logging()
 
         self.signal_subject = signal_subject
+        sigsub = signal_subject
         self.max_count = 300 # max_count + 100
         self._timing_lock = threading.Lock()
 
@@ -66,23 +97,18 @@ cdef class Ft232hConnector:
         except Exception:
             pass
 
-        # self._gpio.set_baudrate(6000000)
-        #try:
-        #   self._ftdi.set_frequency(self._ftdi.frequency_max)
-        #except Exception:
-        #   pass
+        MSB = 0
+        self._OK1_mask = ((1 << 6) << MSB) # ADBUS 6
+        self._END_OF_FILM_mask = ((1 << 7) << MSB) # ADBUS 7
 
         # configure GPIO
         self._gpio = GpioAsyncController()
-        MSB = 0
-        self._OK1_mask = ((1 << 6) << MSB)
-        self._END_OF_FILM_mask = ((1 << 7) << MSB)
 
         try:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                frequency=6000000, # self._ftdi.frequency_max,
+                frequency=6000000, # 6 MHz - this seems to be the upper limit ?
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
@@ -97,7 +123,7 @@ cdef class Ft232hConnector:
 
         # timing singleton
         if timing is None:
-            timing = PyTimingResult(self.max_count)
+            timing = PyTimingResult(self.max_count + 10)
 
         # store python-level and c-level handles
         self.timing_view = <CTimingResult> timing
@@ -108,9 +134,6 @@ cdef class Ft232hConnector:
         self._thread = None
         self.running = False
 
-        # start poller automatically
-        self.start()
-
     def _initialize_logging(self) -> None:
         """
         Configure logging for the application.
@@ -120,8 +143,6 @@ cdef class Ft232hConnector:
         if self.gui:
             handler = logging.StreamHandler(sys.stdout)
             self.logger.addHandler(handler)
-
-        self.logger.info("LOGGING INITIALIZED")
 
     def _initialize_device(self) -> None:
         """
@@ -141,34 +162,20 @@ cdef class Ft232hConnector:
         """Start the polling thread."""
         if self.running:
             return
-        self._stop_event.clear()
         self._thread = threading.Thread(target=self._poll_loop, name="ft232h-poller", daemon=True)
-        self._thread.start()
         self.running = True
-        self.logger.info("[Ft232hConnector] Poller started")
+        self._thread.start()
+        self.logger.info("[Ft232hConnector] Ready to receive signals from projector")
 
     def stop(self, object timeout=None) -> None:
         """Stop polling thread safely."""
-        self._stop_event.set()
-        if self._thread is not None:
+        if self._thread and self._thread.is_alive():
             self._thread.join(timeout)
         self.running = False
-        self.logger.info("[Ft232hConnector] Poller stopped")
+        self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
 
-    def close(self) -> None:
-        """Stop poller and release FTDI/GPIO safely."""
-        try:
-            self.stop()
-        except Exception:
-            pass
-        try:
-            self._gpio.close()
-        except Exception:
-            pass
-        try:
-            self._ftdi.close()
-        except Exception:
-            pass
+    def signal_input(self):
+        self.start()
 
     def _poll_loop(self) -> None:
         """Poll GPIO and publish events to the Subject."""
@@ -184,13 +191,10 @@ cdef class Ft232hConnector:
         start_cycle = time.perf_counter()
         wait_time = start_cycle
         wait_time_start = start_cycle
-        last_pins = 0
+
         pins = self._gpio.read(1, True)
 
-        lc = 0.0
-
-        while not stop_event.is_set() and (pins & _eof) != _eof and count < self.max_count:
-            lc = lc + 1.0
+        while (pins & _eof) != _eof and count < self.max_count:
             # rising edge detection for OK1
             if ((last_pins & _ok) == 0) and ((pins & _ok) == _ok):
                 stop_cycle = time.perf_counter()
@@ -199,12 +203,8 @@ cdef class Ft232hConnector:
                 wait_time = stop_cycle - wait_time_start
 
                 count += 1
-                # temporarily commented out to test wait-time
-                try:
-                    if not stop_event.is_set():
-                        subj.on_next((count, start_cycle))
-                except Exception:
-                    pass
+
+                subj.on_next((count, start_cycle))
 
                 work_time = time.perf_counter() - start_cycle
 
@@ -221,7 +221,7 @@ cdef class Ft232hConnector:
                             count,
                             float(time.perf_counter() - start_cycle),
                             float(work_time),
-                            float(lc),
+                            0.0,
                             float(latency),
                             float(wait_time),
                             float(delta)
@@ -230,7 +230,6 @@ cdef class Ft232hConnector:
                         self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
                         pass
 
-                lc = 0
                 if latency > LATENCY_THRESHOLD:
                     self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
@@ -240,17 +239,29 @@ cdef class Ft232hConnector:
             pins = self._gpio.read(1, True)
             time.sleep(0.0005)
 
+        # --- END OF LOOP ---
+        self.logger.info("[Ft232hConnector] EOF or max_count reached")
+
+        # try:
+        #    self.log_timing_results()
+        # except Exception as e:
+        #    self.logger.error(f"[Ft232hConnector] Timing log failed: {e}")
+
         try:
-            self.log_timing_results()
-        except Exception:
-            self.logger.error("[Ft232hConnector] Failed to log timing_view after EOF")
+            subj.on_completed()
+        except Exception as e:
+            self.logger.error(f"[Ft232hConnector] on_completed failed: {e}")
+
+        self.running = False
+        return
+
 
         # ensure completion
-        try:
-            if not stop_event.is_set():
-                subj.on_completed()
-        except Exception:
-            pass
+        #try:
+        #    self.stop()
+        #except Exception as e:
+        #    self.logger.error(f"[Ft232hConnector] Failed to complete on EOF: {e}")
+        #    pass
 
 
     def log_timing_results(self):

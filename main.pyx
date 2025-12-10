@@ -74,15 +74,12 @@ def main():
     # subscribe a tiny handler to set the event when EOF/completion occurs
     # subscribe supports keyword callbacks: on_next, on_error, on_completed
     def _on_completed():
-        print("[main] Received on_completed — signalling completion_event")
         completion_event.set()
 
     optocoupler_signal_subject.subscribe(
         on_completed=_on_completed,
         on_error=lambda e: print(f"[main] Subject error: {e}")
     )
-
-    # create class instances
 
     #
     # Instantiate DigitizeVideo first so it subscribes immediately
@@ -102,28 +99,7 @@ def main():
     digitizer.connect(ft232h)
 
     # start recording - wait for signal(s) to take picture(s)
-    #
-    # Start poller thread
-    #
-    try:
-        ft232h.start()
-    except Exception as e:
-        print(f"[main] Failed to start poller: {e}", file=sys.stderr)
-        try:
-            digitizer.final_write_to_disk()
-        except Exception:
-            pass
-        try:
-            ft232h.stop()
-        except Exception:
-            pass
-        try:
-            ftdi.close()
-        except Exception:
-            pass
-        sys.exit(1)
-
-    print("[main] Poller started — waiting for EOF or Ctrl-C")
+    ft232h.signal_input()
 
     #
     # Main wait loop
@@ -139,15 +115,7 @@ def main():
     #
     print("[main] Coordinated shutdown starting...")
 
-    try:
-        ft232h.stop()
-    except Exception as e:
-        print(f"[main] Error stopping Ft232hConnector: {e}", file=sys.stderr)
-
-    try:
-        digitizer.final_write_to_disk()
-    except Exception as e:
-        print(f"[main] Error in final_write_to_disk: {e}", file=sys.stderr)
+    # digitizer.final_write_to_disk()
 
     try:
         ftdi.close()
