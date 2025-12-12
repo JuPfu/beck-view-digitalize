@@ -41,7 +41,7 @@ cdef int Z_HUFFMAN_ONLY = 2  # typical zlib constant
 
 # Logging helper (lightweight)
 import logging
-logger = logging.getLogger("WriteImages")
+logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
     logger.addHandler(handler)
