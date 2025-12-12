@@ -113,6 +113,7 @@ cdef class DigitizeVideo:
         object signal_observer          # SignalObserver instance
         object photoCellSignalDisposable  # subscription disposable
         object completion_disposable     # subscription for on_completed -> set event
+        object wait_subject             #
 
         # shared memory buffers for workers
         list shared_buffers            # list of shared_memory.SharedMemory objects
@@ -150,7 +151,7 @@ cdef class DigitizeVideo:
         # nothing heavy here — ensure numpy API will be initialised in __init__
         pass
 
-    def __init__(self, args: Namespace, signal_subject: Subject) -> None:
+    def __init__(self, args: Namespace, signal_subject: Subject, wait_subject: Subject) -> None:
         """
         Initialize the DigitizeVideo instance and start the FT232H poller.
 
@@ -201,6 +202,7 @@ cdef class DigitizeVideo:
         self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
 
         # administration
+        self.wait_subject = wait_subject
         self._final_write_done = False
         self._cleaned_up = False
 
@@ -295,9 +297,6 @@ cdef class DigitizeVideo:
             except Exception:
                 pass
 
-        # direct subscribe to completion (no on_next here)
-        self.completion_disposable = self.signal_subject.subscribe(on_completed=_on_completed)
-
     cpdef connect(self, Ft232hConnector conn):
         """
         Call this after Ft232hConnector is created.
@@ -383,11 +382,6 @@ cdef class DigitizeVideo:
         """
         still = []
 
-        print("IN _cleanup_finished_processes")
-
-        self.logger.info(f"Processes list: {self.processes}")
-        self.logger.info(f"States: {[p.ready() if hasattr(p, 'ready') else p.is_alive() for p in self.processes]}")
-
         for res, shm, desc_shm, buf_idx in self.processes:
             if res.ready():
                 try:
@@ -406,7 +400,6 @@ cdef class DigitizeVideo:
                 try:
                     self._desc_arrays[buf_idx].fill(0)
                 except Exception:
-                    print("IN _cleanup_finished_processes Clear descriptor array")
                     # best-effort only
                     pass
             else:
@@ -432,6 +425,7 @@ cdef class DigitizeVideo:
 
             with self.buffer_lock:
                 self.buffers_in_use[self.shared_buffers_index] = True
+
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
@@ -579,17 +573,7 @@ cdef class DigitizeVideo:
                 desc_name = (<str>desc_shm.name).encode('utf-8')
                 frames_total = self._frames_per_buffer
 
-                def process_error_callback(error):
-                    self.logger.error(f"Error in child process: {error}")
-
-                result = self.pool.apply_async(
-                    write_images,
-                    args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
-                    error_callback=process_error_callback
-                )
-
-                with self.buffer_lock:
-                    self.processes.append((result, shm, desc_shm, current_buf))
+                write_images(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level)
 
                 # clear descriptor buffer
                 desc_arr = self._desc_arrays[current_buf]
@@ -600,6 +584,8 @@ cdef class DigitizeVideo:
                     self.buffers_in_use[current_buf] = False
 
             self.img_desc = []
+
+            time.sleep(3.0)
 
         # log statistics and save timing
         elapsed_time = time.perf_counter() - self.start_time
@@ -616,6 +602,9 @@ cdef class DigitizeVideo:
 
         # final cleanup
         self.cleanup()
+
+        # signal completion to main
+        self.wait_subject.on_completed()
 
     cpdef write_timing_csv(self, str filename):
         cdef int i
@@ -671,6 +660,7 @@ cdef class DigitizeVideo:
             pass
 
         self.logger.info("1 Cleaning up ...")
+        self.executor.shutdown(wait=True)
         # 1) Shut down threadpool executor (wait for submitted tasks)
         try:
             if hasattr(self, "executor") and self.executor is not None:
@@ -681,7 +671,9 @@ cdef class DigitizeVideo:
         self.logger.info("2 Cleaning up ...")
         # 2) Wait for any pending child process async results (self.processes)
         #    We call _cleanup_finished_processes to reap results, then wait a short time.
+
         try:
+            # wait for all pool jobs to finish; cleanup shared memory handles
             t0 = time.time()
             while self.processes:
                 # try to reap finished processes
@@ -700,17 +692,21 @@ cdef class DigitizeVideo:
                 time.sleep(0.5)
         except Exception:
             self.logger.error("2e Cleaning up ... Error while waiting for child processes")
-            self.logger.exception("Error while waiting for child processes")
+            pass
+            # self.logger.exception("Error while waiting for child processes")
 
         self.logger.info("3 Cleaning up ...")
         # 3) Shutdown multiprocessing pool (child processes)
         try:
-            if hasattr(self, "pool") and self.pool is not None:
+            if True or hasattr(self, "pool") and self.pool is not None:
                 try:
+                    self.logger.info("3a Cleaning up ...")
                     self.pool.close()
                 except Exception:
+                    self.logger.info("3b Cleaning up Exception...")
                     pass
                 try:
+                    self.logger.info("3c Cleaning up pool.join...")
                     self.pool.join()
                 except Exception:
                     try:
@@ -724,6 +720,7 @@ cdef class DigitizeVideo:
         self.logger.info("4 Cleaning up ...")
         # 4) Dispose Rx subscriptions (stop receiving further events)
         for attr in ("photoCellSignalDisposable", "completion_disposable"):
+            disp.dispose()
             try:
                 disp = getattr(self, attr, None)
                 if disp is not None:
@@ -738,8 +735,10 @@ cdef class DigitizeVideo:
         self.logger.info("5 Cleaning up ...")
         # 5) Release camera
         try:
+            self.cap.release()
             if hasattr(self, "cap") and self.cap is not None:
                 try:
+                    self.logger.info("5a Cleaning up cap.release")
                     self.cap.release()
                 except Exception:
                     pass
@@ -777,24 +776,25 @@ cdef class DigitizeVideo:
 
         self.logger.info("7 Cleaning up ...")
         # 7) Force GC now to try to drop exported pointers
-        try:
-            import gc
-            gc.collect()
-            time.sleep(0.05)  # small sleep gives C-level finalizers a chance
-        except Exception:
-            pass
+        #try:
+        #    import gc
+        #    gc.collect()
+        #    time.sleep(0.05)  # small sleep gives C-level finalizers a chance
+        #except Exception:
+        #    pass
 
         self.logger.info("8 Cleaning up ...")
         # 8) Close & unlink all SharedMemory objects with retries
         def _close_and_unlink(shm_obj):
-            name = getattr(shm_obj, "name", "<unknown>")
+            self.logger.info("8a Cleaning up .in _close_and_unlink..")
+            # name = getattr(shm_obj, "name", "<unknown>")
             # Try close / unlink with a couple retries if BufferError occurs
             for attempt in range(3):
                 try:
                     try:
                         shm_obj.close()
                     except BufferError:
-                        self.logger.warning(f"Buffer still exported for {name}; gc+retry (attempt {attempt+1})")
+                        self.logger.warning(f"Buffer still exported for {shm_obj.name}; gc+retry (attempt {attempt+1})")
                         import gc
                         gc.collect()
                         time.sleep(0.05)
@@ -802,24 +802,24 @@ cdef class DigitizeVideo:
                         continue
                     except Exception:
                         # other close errors — log and continue to unlink attempt
-                        self.logger.exception(f"Error closing shared memory {name}")
+                        self.logger.exception(f"Error closing shared memory {shm_obj.name}")
                     # now try unlink
                     try:
                         shm_obj.unlink()
                     except FileNotFoundError:
                         pass
                     except Exception:
-                        self.logger.exception(f"Could not unlink shared memory {name}")
+                        self.logger.exception(f"Could not unlink shared memory {shm_obj.name}")
                     # success (or unlink attempted) — break
                     return
                 except Exception:
-                    self.logger.exception(f"Unexpected while closing/unlinking {name}")
+                    self.logger.exception(f"Unexpected while closing/unlinking {shm_obj.name}")
             # final attempt: try unlink even if close failed
             try:
                 shm_obj.unlink()
             except Exception:
                 # give up but log
-                self.logger.exception(f"Final unlink attempt failed for {name}")
+                self.logger.exception(f"Final unlink attempt failed for {shm_obj.name}")
 
         self.logger.info("8a Cleaning up ...")
         # iterate both lists: shared_buffers (image frames) and _desc_shms (desc arrays)
@@ -834,8 +834,9 @@ cdef class DigitizeVideo:
                 items = lst[:]
             for shm in items:
                 try:
-                    self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.05)
-                    # self._close_and_unlink(shm)
+                    self.logger.info("8b Cleaning up .vor _close_and_unlink..")
+                    # self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.05)
+                    self._close_and_unlink(shm)
                 except Exception:
                     self.logger.exception(f"Failed close/unlink for an entry in {list_name}")
 
@@ -863,6 +864,7 @@ cdef class DigitizeVideo:
         # 11) Close FTDI connector last (if not already)
         try:
             if hasattr(self, "ft232h") and self.ft232h is not None:
+                self.logger.info("11a Cleaning up .Close FTDI.")
                 try:
                     if hasattr(self.ft232h, "close"):
                         self.ft232h.close()
@@ -878,6 +880,7 @@ cdef class DigitizeVideo:
 
     def _close_and_unlink_shm_with_retries(self, shm_obj, retries=5, sleep=0.05):
         name = getattr(shm_obj, "name", "<unknown>")
+        self.logger.info("11a Cleaning up _close_and_unlink_shm_with_retries")
         for attempt in range(retries):
             try:
                 shm_obj.close()
@@ -947,7 +950,6 @@ class SignalObserver(Observer):
     def on_completed(self) -> None:
         # Called when FT232H connector signals EOF via subject.on_completed()
         try:
-            print("=====on_completed=====")
             self.final_write_to_disk()
         except Exception:
             pass
