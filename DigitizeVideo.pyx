@@ -720,7 +720,6 @@ cdef class DigitizeVideo:
         self.logger.info("4 Cleaning up ...")
         # 4) Dispose Rx subscriptions (stop receiving further events)
         for attr in ("photoCellSignalDisposable", "completion_disposable"):
-            disp.dispose()
             try:
                 disp = getattr(self, attr, None)
                 if disp is not None:
