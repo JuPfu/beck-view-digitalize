@@ -103,19 +103,15 @@ def main():
     # start recording - wait for signal(s) to take picture(s)
     ft232h.signal_input()
 
-    #
     # Main wait loop
-    #
     try:
         while not completion_event.wait(timeout=1.0):
             pass
     except KeyboardInterrupt:
         print("[main] KeyboardInterrupt — initiating shutdown...")
 
-    #
-    # Coordinated shutdown
-    #
-    print("[main] Coordinated shutdown starting...")
+    # Shutdown
+    print("[main] Shutdown starting...")
 
     try:
         ftdi.close()
