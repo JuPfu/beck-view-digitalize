@@ -66,6 +66,8 @@ def main():
 
     optocoupler_signal_subject = Subject()
 
+    wait_subject = Subject()
+
     #
     # Event that will be set when on_completed() fires (EOF)
     #
@@ -76,7 +78,7 @@ def main():
     def _on_completed():
         completion_event.set()
 
-    optocoupler_signal_subject.subscribe(
+    wait_subject.subscribe(
         on_completed=_on_completed,
         on_error=lambda e: print(f"[main] Subject error: {e}")
     )
@@ -85,7 +87,7 @@ def main():
     # Instantiate DigitizeVideo first so it subscribes immediately
     #
     try:
-        digitizer = DigitizeVideo(args, optocoupler_signal_subject)
+        digitizer = DigitizeVideo(args, optocoupler_signal_subject, wait_subject)
     except Exception as e:
         print(f"[main] Failed to create DigitizeVideo: {e}", file=sys.stderr)
         try:
@@ -114,8 +116,6 @@ def main():
     # Coordinated shutdown
     #
     print("[main] Coordinated shutdown starting...")
-
-    # digitizer.final_write_to_disk()
 
     try:
         ftdi.close()
