@@ -23,7 +23,6 @@ import threading
 import usb
 
 from pyftdi.ftdi import Ftdi
-from pyftdi.eeprom import FtdiEeprom
 from pyftdi.gpio import GpioAsyncController
 
 from reactivex import Subject
@@ -97,9 +96,8 @@ cdef class Ft232hConnector:
         except Exception:
             pass
 
-        MSB = 0
-        self._OK1_mask = ((1 << 6) << MSB) # ADBUS 6
-        self._END_OF_FILM_mask = ((1 << 7) << MSB) # ADBUS 7
+        self._OK1_mask = 1 << 6         # ADBUS 6 (D6)
+        self._END_OF_FILM_mask = 1 << 7 # ADBUS 7 (D7)
 
         # configure GPIO
         self._gpio = GpioAsyncController()
@@ -162,6 +160,7 @@ cdef class Ft232hConnector:
         """Start the polling thread."""
         if self.running:
             return
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._poll_loop, name="ft232h-poller", daemon=True)
         self.running = True
         self._thread.start()
@@ -173,6 +172,21 @@ cdef class Ft232hConnector:
             self._thread.join(timeout)
         self.running = False
         self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
+
+    def close(self) -> None:
+        """Stop poller and release FTDI/GPIO safely."""
+        try:
+            self.stop()
+        except Exception:
+            pass
+        try:
+            self._gpio.close()
+        except Exception:
+            pass
+        try:
+            self._ftdi.close()
+        except Exception:
+            pass
 
     def signal_input(self):
         self.start()
@@ -239,29 +253,17 @@ cdef class Ft232hConnector:
             pins = self._gpio.read(1, True)
             time.sleep(0.0005)
 
-        # --- END OF LOOP ---
-        self.logger.info("[Ft232hConnector] EOF or max_count reached")
+        # --- END OF FILM ---
+        if (pins & _eof) == _eof:
+            self.logger.info("[Ft232hConnector] EOF encountered!")
+        else:
+            self.logger.info(f"[Ft232hConnector] count of frames reached or superseeded maximum count = {self.max_count}!")
 
-        # try:
-        #    self.log_timing_results()
-        # except Exception as e:
-        #    self.logger.error(f"[Ft232hConnector] Timing log failed: {e}")
-
+        # Signal the completion of frame processing and EoF detection
         try:
             subj.on_completed()
         except Exception as e:
             self.logger.error(f"[Ft232hConnector] on_completed failed: {e}")
-
-        self.running = False
-        return
-
-
-        # ensure completion
-        #try:
-        #    self.stop()
-        #except Exception as e:
-        #    self.logger.error(f"[Ft232hConnector] Failed to complete on EOF: {e}")
-        #    pass
 
 
     def log_timing_results(self):
