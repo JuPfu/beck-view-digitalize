@@ -255,7 +255,7 @@ cdef class DigitizeVideo:
         _, _ = self.cap.read()
         self.img_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
-        self.compression_level = 3
+
         # various capture tuning
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
@@ -270,6 +270,8 @@ cdef class DigitizeVideo:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1 << 7))
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
         time.sleep(1)
+
+        self.compression_level = 3 # relevant for writing PNG-files
 
         # debug/log some properties
         self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
@@ -638,8 +640,14 @@ cdef class DigitizeVideo:
 
     def cleanup(self, timeout_wait_for_workers: float = 2.0) -> None:
         """
-        Robust, idempotent cleanup that tries hard to avoid BufferError / leaked
-        shared memory. Safe to call multiple times.
+        Simplified, idempotent cleanup.
+        - stop ft232h poller (if present)
+        - shutdown executor (if present)
+        - reap finished pool tasks non-blocking for up to timeout_wait_for_workers
+        - close/join pool
+        - dispose Rx disposables, release camera
+        - release memoryviews, close+unlink shared memory
+        - final gc and close FTDI
         """
         if getattr(self, "_cleaned_up", False):
             self.logger.info("cleanup() already ran — skipping")
@@ -648,106 +656,89 @@ cdef class DigitizeVideo:
 
         self.logger.info("Cleaning up ...")
 
-        # 0) Prefer stopping the FTDI poller early to avoid new events
+        # 0) Stop FTDI poller early to avoid new events
         try:
-            if hasattr(self, 'ft232h') and self.ft232h is not None:
-                try:
-                    if hasattr(self.ft232h, "stop"):
-                        self.ft232h.stop()
-                except Exception:
-                    self.logger.exception("Error stopping ft232h in cleanup")
+            ft = getattr(self, "ft232h", None)
+            if ft is not None:
+                stop = getattr(ft, "stop", None)
+                if callable(stop):
+                    stop()
         except Exception:
-            pass
+            self.logger.exception("Error stopping ft232h in cleanup")
 
-        self.logger.info("1 Cleaning up ...")
-        self.executor.shutdown(wait=True)
-        # 1) Shut down threadpool executor (wait for submitted tasks)
+        # 1) Shutdown thread executor (if any)
         try:
-            if hasattr(self, "executor") and self.executor is not None:
-                self.executor.shutdown(wait=True)
+            executor = getattr(self, "executor", None)
+            if executor is not None:
+                executor.shutdown(wait=True)
         except Exception:
             self.logger.exception("Error shutting down executor")
 
-        self.logger.info("2 Cleaning up ...")
-        # 2) Wait for any pending child process async results (self.processes)
-        #    We call _cleanup_finished_processes to reap results, then wait a short time.
-
+        # 2) Reap finished worker results (non-blocking), wait briefly for outstanding ones
+        t0 = time.time()
         try:
-            # wait for all pool jobs to finish; cleanup shared memory handles
-            t0 = time.time()
             while self.processes:
-                # try to reap finished processes
                 try:
-                    self.logger.info("2a Cleaning up ... vor _cleanup_finished_processes")
-                    self._cleanup_finished_processes()
+                    self._final_cleanup_finished_processes()
                 except Exception:
-                    self.logger.error("2b Cleaning up ... vor _cleanup_finished_processes")
-                    self.logger.exception("_cleanup_finished_processes failed")
-
-                self.logger.info("2d Cleaning up ... till waiting, sleep briefly until timeout")
-                # if still waiting, sleep briefly until timeout
+                    self.logger.exception("_final_cleanup_finished_processes failed")
                 if time.time() - t0 > timeout_wait_for_workers:
                     self.logger.warning("Timeout waiting for worker processes to finish")
                     break
-                time.sleep(0.5)
+                # short sleep to avoid busy loop; small so we remain responsive
+                time.sleep(0.05)
         except Exception:
-            self.logger.error("2e Cleaning up ... Error while waiting for child processes")
-            pass
-            # self.logger.exception("Error while waiting for child processes")
+            self.logger.exception("Error while waiting for child processes")
 
-        self.logger.info("3 Cleaning up ...")
-        # 3) Shutdown multiprocessing pool (child processes)
+        # 3) Close & join multiprocessing pool (if any)
         try:
-            if True or hasattr(self, "pool") and self.pool is not None:
+            pool = getattr(self, "pool", None)
+            if pool is not None:
                 try:
-                    self.logger.info("3a Cleaning up ...")
-                    self.pool.close()
+                    pool.close()
                 except Exception:
-                    self.logger.info("3b Cleaning up Exception...")
-                    pass
+                    # best-effort; move on to join/terminate steps
+                    self.logger.debug("pool.close() raised exception (continuing to join/terminate)")
+
                 try:
-                    self.logger.info("3c Cleaning up pool.join...")
-                    self.pool.join()
+                    pool.join()
                 except Exception:
+                    # try terminate as a fallback
                     try:
-                        self.pool.terminate()
-                        self.pool.join()
+                        pool.terminate()
+                        pool.join()
                     except Exception:
                         self.logger.exception("Could not terminate/join multiprocessing pool")
         except Exception:
             self.logger.exception("Error cleaning up pool")
 
-        self.logger.info("4 Cleaning up ...")
-        # 4) Dispose Rx subscriptions (stop receiving further events)
+        # 4) Dispose Rx subscriptions (if any)
         for attr in ("photoCellSignalDisposable", "completion_disposable"):
             try:
                 disp = getattr(self, attr, None)
                 if disp is not None:
                     try:
+                        # many disposables implement dispose; if not, ignore errors
                         disp.dispose()
                     except Exception:
-                        # some disposables don't implement dispose well; swallow
                         pass
             except Exception:
                 self.logger.exception(f"Error disposing {attr}")
 
-        self.logger.info("5 Cleaning up ...")
-        # 5) Release camera
+        # 5) Release camera (if present)
         try:
-            self.cap.release()
-            if hasattr(self, "cap") and self.cap is not None:
+            cap = getattr(self, "cap", None)
+            if cap is not None:
                 try:
-                    self.logger.info("5a Cleaning up cap.release")
-                    self.cap.release()
+                    cap.release()
                 except Exception:
-                    pass
+                    self.logger.exception("Error releasing camera")
         except Exception:
-            self.logger.exception("Error releasing camera")
+            self.logger.exception("Error releasing camera (outer)")
 
-        self.logger.info("6 Cleaning up ...")
-        # 6) Drop all references to numpy views / memoryviews in parent
+        # 6) Drop memoryview references in parent (allow unlink)
         try:
-            # clear and delete lists holding views
+            # clear lists that hold numpy/memoryview references
             try:
                 self._shm_arrays[:] = []
             except Exception:
@@ -757,89 +748,43 @@ cdef class DigitizeVideo:
             except Exception:
                 self._desc_arrays = []
 
-            # also clear other references that might hold views
             try:
                 self.img_desc = []
             except Exception:
                 pass
 
-            # processes list should be empty from step 2; clear to release SHM refs
+            # ensure processes emptied (we reaped above), drop references anyway
             try:
                 self.processes = []
             except Exception:
                 pass
-
-            # clear shared_buffers/_desc_shms lists of SharedMemory objects only after GC
         except Exception:
             self.logger.exception("Error clearing local memoryview references")
 
-        self.logger.info("7 Cleaning up ...")
-        # 7) Force GC now to try to drop exported pointers
-        #try:
-        #    import gc
-        #    gc.collect()
-        #    time.sleep(0.05)  # small sleep gives C-level finalizers a chance
-        #except Exception:
-        #    pass
+        # 7) Force GC now to free exported views (one short collect)
+        try:
+            import gc
+            gc.collect()
+            time.sleep(0.02)
+        except Exception:
+            pass
 
-        self.logger.info("8 Cleaning up ...")
         # 8) Close & unlink all SharedMemory objects with retries
-        def _close_and_unlink(shm_obj):
-            self.logger.info("8a Cleaning up .in _close_and_unlink..")
-            # name = getattr(shm_obj, "name", "<unknown>")
-            # Try close / unlink with a couple retries if BufferError occurs
-            for attempt in range(3):
-                try:
-                    try:
-                        shm_obj.close()
-                    except BufferError:
-                        self.logger.warning(f"Buffer still exported for {shm_obj.name}; gc+retry (attempt {attempt+1})")
-                        import gc
-                        gc.collect()
-                        time.sleep(0.05)
-                        # retry close on next loop iteration
-                        continue
-                    except Exception:
-                        # other close errors — log and continue to unlink attempt
-                        self.logger.exception(f"Error closing shared memory {shm_obj.name}")
-                    # now try unlink
-                    try:
-                        shm_obj.unlink()
-                    except FileNotFoundError:
-                        pass
-                    except Exception:
-                        self.logger.exception(f"Could not unlink shared memory {shm_obj.name}")
-                    # success (or unlink attempted) — break
-                    return
-                except Exception:
-                    self.logger.exception(f"Unexpected while closing/unlinking {shm_obj.name}")
-            # final attempt: try unlink even if close failed
-            try:
-                shm_obj.unlink()
-            except Exception:
-                # give up but log
-                self.logger.exception(f"Final unlink attempt failed for {shm_obj.name}")
-
-        self.logger.info("8a Cleaning up ...")
-        # iterate both lists: shared_buffers (image frames) and _desc_shms (desc arrays)
         for list_name in ("shared_buffers", "_desc_shms"):
             lst = getattr(self, list_name, None)
             if not lst:
                 continue
-            # copy to avoid mutation during iteration
+            # copy to avoid concurrent mutation
             try:
                 items = list(lst)
             except Exception:
                 items = lst[:]
             for shm in items:
                 try:
-                    self.logger.info("8b Cleaning up .vor _close_and_unlink..")
-                    # self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.05)
-                    self._close_and_unlink(shm)
+                    self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.02)
                 except Exception:
                     self.logger.exception(f"Failed close/unlink for an entry in {list_name}")
 
-        self.logger.info("9 Cleaning up ...")
         # 9) Clear those lists (remove references to SharedMemory objects)
         try:
             self.shared_buffers = []
@@ -850,25 +795,26 @@ cdef class DigitizeVideo:
         except Exception:
             pass
 
-        self.logger.info("10 Cleaning up ...")
         # 10) Final GC + short sleep to let runtime finalize destructors
         try:
             import gc
             gc.collect()
-            time.sleep(0.05)
+            time.sleep(0.02)
         except Exception:
             pass
 
-        self.logger.info("11 Cleaning up ...")
-        # 11) Close FTDI connector last (if not already)
+        # 11) Close FTDI connector last (best-effort)
         try:
-            if hasattr(self, "ft232h") and self.ft232h is not None:
-                self.logger.info("11a Cleaning up .Close FTDI.")
+            ft = getattr(self, "ft232h", None)
+            if ft is not None:
                 try:
-                    if hasattr(self.ft232h, "close"):
-                        self.ft232h.close()
-                    elif hasattr(self.ft232h, "stop"):
-                        self.ft232h.stop()
+                    close = getattr(ft, "close", None)
+                    if callable(close):
+                        close()
+                    else:
+                        stop = getattr(ft, "stop", None)
+                        if callable(stop):
+                            stop()
                 except Exception:
                     self.logger.exception("Error closing ft232h at end of cleanup")
         except Exception:
@@ -877,39 +823,176 @@ cdef class DigitizeVideo:
         self.logger.info("Cleanup complete.")
 
 
+    def _final_cleanup_finished_processes(self) -> None:
+        """
+        Reap finished worker ApplyResult entries in self.processes.
+
+        Each entry is expected to be a tuple:
+            (apply_result, shm_frame, desc_shm, buf_idx)
+
+        - Non-blocking: only process items where apply_result.ready() == True
+        - Close/unlink shared memory and mark buffer free under buffer_lock
+        - Remove reaped entries from self.processes
+        """
+        try:
+            procs_copy = list(self.processes)
+        except Exception:
+            # nothing we can do
+            return
+
+        for entry in procs_copy:
+            # Validate tuple shape
+            if not isinstance(entry, tuple) or len(entry) < 1:
+                # unexpected; remove defensively
+                try:
+                    self.processes.remove(entry)
+                except Exception:
+                    pass
+                continue
+
+            apply_res = entry[0]
+            shm_frame = entry[1] if len(entry) > 1 else None
+            desc_shm  = entry[2] if len(entry) > 2 else None
+            buf_idx   = entry[3] if len(entry) > 3 else None
+
+            # Only touch finished results
+            try:
+                ready_callable = getattr(apply_res, "ready", None)
+                finished = bool(ready_callable()) if callable(ready_callable) else False
+            except Exception:
+                finished = False
+
+            if not finished:
+                continue
+
+            # collect/raise worker exceptions (non-blocking since ready() was True)
+            try:
+                apply_res.get()
+            except Exception as e:
+                self.logger.error(f"Worker raised exception: {e}")
+
+            # mark buffer free for reuse
+            if buf_idx is not None:
+                try:
+                    with self.buffer_lock:
+                        if 0 <= buf_idx < len(self.buffers_in_use):
+                            self.buffers_in_use[buf_idx] = False
+                except Exception:
+                    self.logger.debug(f"Could not mark buffer {buf_idx} free")
+
+            # clear descriptor array if present
+            try:
+                if buf_idx is not None and 0 <= buf_idx < len(self._desc_arrays):
+                    try:
+                        self._desc_arrays[buf_idx].fill(0)
+                    except Exception:
+                        self.logger.debug("Could not clear descriptor array (likely already released)")
+            except Exception:
+                pass
+
+            # close+unlink shared memory objects (best-effort)
+            for shm_obj in (shm_frame, desc_shm):
+                if shm_obj is None:
+                    continue
+                try:
+                    self._close_and_unlink_shm_with_retries(shm_obj, retries=3, sleep=0.02)
+                except Exception:
+                    self.logger.exception("Error closing/unlinking a shared memory object")
+
+                # remove from global lists if present
+                try:
+                    if hasattr(self, "shared_buffers") and shm_obj in self.shared_buffers:
+                        try:
+                            self.shared_buffers.remove(shm_obj)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "_desc_shms") and shm_obj in self._desc_shms:
+                        try:
+                            self._desc_shms.remove(shm_obj)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # finally remove entry from live processes
+            try:
+                if entry in self.processes:
+                    self.processes.remove(entry)
+            except Exception:
+                pass
+
+        # log remaining
+        try:
+            self.logger.info(f"_cleanup_finished_processes: remaining processes: {len(self.processes)}")
+        except Exception:
+            pass
+
+
     def _close_and_unlink_shm_with_retries(self, shm_obj, retries=5, sleep=0.05):
+        """
+        Try to close a SharedMemory object and unlink it. Retry on BufferError.
+        """
         name = getattr(shm_obj, "name", "<unknown>")
-        self.logger.info("11a Cleaning up _close_and_unlink_shm_with_retries")
         for attempt in range(retries):
             try:
-                shm_obj.close()
-                break
-            except BufferError:
-                import gc, time
-                gc.collect()
-                time.sleep(sleep)
-            except Exception:
-                break
-        # try unlink regardless (parent owns unlink)
+                try:
+                    shm_obj.close()
+                except BufferError:
+                    # memoryview still exported in this process; try GC and retry
+                    import gc
+                    gc.collect()
+                    time.sleep(sleep)
+                    continue
+                except Exception:
+                    # other close errors — log and continue to unlink attempt
+                    self.logger.debug(f"_close_and_unlink_shm_with_retries: close() raised for {name}")
+                # try unlink (may raise FileNotFoundError if another process already unlinked)
+                try:
+                    shm_obj.unlink()
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    self.logger.debug(f"_close_and_unlink_shm_with_retries: unlink() raised for {name}")
+                return
+            except Exception as e:
+                self.logger.debug(f"_close_and_unlink_shm_with_retries: unexpected error for {name}: {e}")
+        # final attempt to unlink, best-effort
         try:
             shm_obj.unlink()
-        except FileNotFoundError:
-            pass
         except Exception:
-            # log it and move on
-            self.logger.exception(f"Could not unlink {name}")
+            self.logger.debug(f"_close_and_unlink_shm_with_retries: final unlink failed for {name}")
+
 
     def _release_views(self) -> None:
         """
-        Release all memoryviews to shared memory to allow proper unlinking.
+        Release references to numpy/memoryviews so SHM can be unlinked.
         """
-        # Clear memoryviews
-        self._shm_arrays.clear()    # if you store shared memory as np.array views
-        self._desc_arrays.clear()   # for descriptor memoryviews
+        try:
+            # Clear memoryview lists
+            try:
+                self._shm_arrays.clear()
+            except Exception:
+                self._shm_arrays = []
+            try:
+                self._desc_arrays.clear()
+            except Exception:
+                self._desc_arrays = []
 
-        # Force garbage collection to free memoryviews
-        import gc
-        gc.collect()
+            # other possible holders
+            try:
+                self.img_desc = []
+            except Exception:
+                pass
+
+            # GC to free up C-level exports
+            import gc
+            gc.collect()
+            time.sleep(0.02)
+        except Exception:
+            self.logger.exception("_release_views failed")
 
 
     def _on_signal(self, signum: int, frame) -> None:
