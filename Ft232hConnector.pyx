@@ -206,6 +206,7 @@ cdef class Ft232hConnector:
         wait_time = start_cycle
         wait_time_start = start_cycle
 
+        last_pins = 0
         pins = self._gpio.read(1, True)
 
         while (pins & _eof) != _eof and count < self.max_count:
