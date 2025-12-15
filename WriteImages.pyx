@@ -165,7 +165,7 @@ def write_images(bytes shm_name,
     cdef object frame_slice
     cdef np.ndarray contig = None
 
-    tuple suffix_map = ('a', 'b', 'c')
+    cdef tuple suffix_map = ('a', 'b', 'c')
 
     cdef np.uint8_t[:, :, :] mv
 
