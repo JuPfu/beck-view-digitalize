@@ -80,7 +80,7 @@ cdef class Ft232hConnector:
 
         self.signal_subject = signal_subject
         sigsub = signal_subject
-        self.max_count = 300 # max_count + 100
+        self.max_count = max_count + 100
         self._timing_lock = threading.Lock()
 
         # open FTDI device internally
@@ -106,9 +106,10 @@ cdef class Ft232hConnector:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                frequency=6000000, # 6 MHz - this seems to be the upper limit ?
+                frequency=1000000, # 1 MHz
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
+            self._gpio.set_frequency(1000000)
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
                                      direction=self._END_OF_FILM_mask | self._OK1_mask)
             self._gpio.write(0x0)
@@ -226,7 +227,7 @@ cdef class Ft232hConnector:
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
                 while ((pins & _ok) == _ok):
-                    time.sleep(0.0005)
+                    time.sleep(0.0001)
                     pins = self._gpio.read(1, True)
                 latency = time.perf_counter() - latency_start
 
@@ -252,7 +253,7 @@ cdef class Ft232hConnector:
 
             last_pins = pins
             pins = self._gpio.read(1, True)
-            time.sleep(0.0005)
+            time.sleep(0.0001)
 
         # --- END OF FILM ---
         if (pins & _eof) == _eof:
