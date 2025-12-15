@@ -165,6 +165,8 @@ def write_images(bytes shm_name,
     cdef object frame_slice
     cdef np.ndarray contig = None
 
+    tuple suffix_map = ('a', 'b', 'c')
+
     cdef np.uint8_t[:, :, :] mv
 
     logger.debug(f"write_images: frames_total={frames_total} width={width} height={height} base={base}")
@@ -190,7 +192,13 @@ def write_images(bytes shm_name,
             frame_count = int(desc[i, 1])
             bracket_index = int(desc[i, 2])
 
-            fname = os.path.join(base, f"frame{frame_count:05d}_b{bracket_index}_s{img_bytes}.png")
+            # suffix from bracket_index (fallback to 'a'.. if out of range)
+            if 0 <= bracket_index < len(suffix_map):
+                suffix = suffix_map[bracket_index]
+            else:
+                suffix = 'a'
+
+            fname = os.path.join(base, f"frame{frame_count:05d}{suffix}.png")
             c_fname = fname.encode('utf-8')
 
             # get slice
