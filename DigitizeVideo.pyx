@@ -246,7 +246,11 @@ cdef class DigitizeVideo:
         elif platform.system() == "Linux":
             api = cv2.CAP_V4L2
 
-        self.cap = cv2.VideoCapture(self.device_number, api, [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+        try:
+            self.cap = cv2.VideoCapture(self.device_number, api, [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+        except Exception as e:
+            self.logger.error(f"DigitizeVideo.initialize_camera: could not find a camera: {e}")
+
         time.sleep(1)
         # set preferred resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
