@@ -456,6 +456,8 @@ cdef class DigitizeVideo:
 
     def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
         """Run in a threadpool: find a free buffer and schedule worker to write it."""
+        self._cleanup_finished_processes()
+
         next_buf = None
         while next_buf is None:
             with self.buffer_lock:
@@ -496,8 +498,7 @@ cdef class DigitizeVideo:
             self.logger.error(f"Error during apply_async: {e}")
             with self.buffer_lock:
                 self.buffers_in_use[buffer_index] = False
-        finally:
-            self._cleanup_finished_processes()
+
 
     def take_picture(self, descriptor: SubjectDescType) -> None:
         """Capture one (or multiple if bracketing) frames and copy into shared buffer."""
