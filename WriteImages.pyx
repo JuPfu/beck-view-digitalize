@@ -221,6 +221,8 @@ def write_images(bytes shm_name,
                                   compression_level, compress_strategy, disable_filters)
                 # release reference so memory can be freed
                 contig = None
+
+        desc[:, 0] = 0
     finally:
         # drop numpy views explicitly
         try:
@@ -229,12 +231,6 @@ def write_images(bytes shm_name,
             pass
         try:
             del desc
-        except Exception:
-            pass
-
-        # force GC so exported pointers are released
-        try:
-            gc.collect()
         except Exception:
             pass
 
