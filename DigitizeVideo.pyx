@@ -284,7 +284,7 @@ cdef class DigitizeVideo:
         """Create thread pool and subscribe to the signal_subject for captures."""
         cpu_count = multiprocessing.cpu_count()
         self.logger.info(f"CPU count: {cpu_count}")
-        self.executor = concurrent.futures.ThreadPoolExecutor()
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.process_count)
 
         # SignalObserver triggers final_write_to_disk on subject completion.
         self.signal_observer = SignalObserver(self.final_write_to_disk)
@@ -492,8 +492,6 @@ cdef class DigitizeVideo:
             with self.buffer_lock:
                 self.processes.append((result, shm, desc_shm, buffer_index))
 
-            # desc_arr = self._desc_arrays[buffer_index]
-            # desc_arr.fill(0)
         except Exception as e:
             self.logger.error(f"Error during apply_async: {e}")
             with self.buffer_lock:
