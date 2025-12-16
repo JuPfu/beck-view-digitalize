@@ -283,8 +283,7 @@ cdef class DigitizeVideo:
     def initialize_threads(self) -> None:
         """Create thread pool and subscribe to the signal_subject for captures."""
         cpu_count = multiprocessing.cpu_count()
-        self.logger.info(f"CPU count: {cpu_count}")
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.process_count)
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(2, cpu_count - 1))
 
         # SignalObserver triggers final_write_to_disk on subject completion.
         self.signal_observer = SignalObserver(self.final_write_to_disk)
