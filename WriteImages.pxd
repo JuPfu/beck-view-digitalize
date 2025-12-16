@@ -59,3 +59,4 @@ cdef extern from "png.h":
     int PNG_COLOR_TYPE_RGB
     int PNG_ALL_FILTERS
     int PNG_FILTER_NONE
+    int PNG_FILTER_TYPE_BASE

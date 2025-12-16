@@ -20,7 +20,7 @@ import numpy as np
 
 import gc
 
-from libc.stdio cimport FILE, fopen, fclose
+from libc.stdio cimport FILE, fopen, fclose, setvbuf, _IOFBF
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport malloc, free
@@ -34,7 +34,7 @@ from WriteImages cimport (
     png_init_io, png_set_IHDR, png_set_compression_level, png_set_compression_strategy,
     png_set_filter, png_write_info, png_write_row, png_write_end,
     png_set_bgr,
-    PNG_COLOR_TYPE_RGB, PNG_ALL_FILTERS, PNG_FILTER_NONE
+    PNG_COLOR_TYPE_RGB, PNG_ALL_FILTERS, PNG_FILTER_NONE, PNG_FILTER_TYPE_BASE
 )
 
 cdef int Z_HUFFMAN_ONLY = 2  # typical zlib constant
@@ -78,6 +78,9 @@ cdef void _write_png_libpng(const char *c_fname,
         fclose(fp)
         raise MemoryError("png_create_write_struct failed")
 
+    # Force fully buffered I/O with a large buffer (e.g. 1 MiB)
+    setvbuf(fp, NULL, _IOFBF, 1 << 20)
+
     info_ptr = png_create_info_struct(png_ptr)
     if info_ptr == NULL:
         png_destroy_write_struct(&png_ptr, NULL)
@@ -101,6 +104,7 @@ cdef void _write_png_libpng(const char *c_fname,
         # filtering (fastest when disabled)
         if disable_filters:
             png_set_filter(png_ptr, 0, PNG_FILTER_NONE)
+            png_set_filter(png_ptr, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE);
         else:
             png_set_filter(png_ptr, PNG_ALL_FILTERS, PNG_FILTER_NONE)
 
