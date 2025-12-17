@@ -968,35 +968,6 @@ cdef class DigitizeVideo:
             self.logger.debug(f"_close_and_unlink_shm_with_retries: final unlink failed for {name}")
 
 
-    def _release_views(self) -> None:
-        """
-        Release references to numpy/memoryviews so SHM can be unlinked.
-        """
-        try:
-            # Clear memoryview lists
-            try:
-                self._shm_arrays.clear()
-            except Exception:
-                self._shm_arrays = []
-            try:
-                self._desc_arrays.clear()
-            except Exception:
-                self._desc_arrays = []
-
-            # other possible holders
-            try:
-                self.img_desc = []
-            except Exception:
-                pass
-
-            # GC to free up C-level exports
-            import gc
-            gc.collect()
-            time.sleep(0.02)
-        except Exception:
-            self.logger.exception("_release_views failed")
-
-
     def _on_signal(self, signum: int, frame) -> None:
         """Process-level signal handler for graceful shutdown (SIGINT/SIGTERM)."""
         name = signal.Signals(signum).name
