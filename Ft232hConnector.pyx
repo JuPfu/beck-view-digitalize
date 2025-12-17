@@ -201,20 +201,20 @@ cdef class Ft232hConnector:
         stop_event = self._stop_event
         LATENCY_THRESHOLD = self.LATENCY_THRESHOLD
         timing_view = self.timing_view
+        buf = self.timing_view.buf
 
         count = self.INITIAL_COUNT
         start_cycle = time.perf_counter()
         wait_time = start_cycle
         wait_time_start = start_cycle
 
-        last_pins = 0
         pins = self._gpio.read(1, True)
 
         while (pins & _eof) != _eof and count < self.max_count:
             # rising edge detection for OK1
-            if ((last_pins & _ok) == 0) and ((pins & _ok) == _ok):
+            if (pins & _ok) == _ok:
                 stop_cycle = time.perf_counter()
-                delta = stop_cycle - start_cycle
+                total = stop_cycle - start_cycle
                 start_cycle = stop_cycle
                 wait_time = stop_cycle - wait_time_start
 
@@ -226,8 +226,9 @@ cdef class Ft232hConnector:
 
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
+                pins = self._gpio.read(1, True)
                 while ((pins & _ok) == _ok):
-                    time.sleep(0.0001)
+                    time.sleep(0)
                     pins = self._gpio.read(1, True)
                 latency = time.perf_counter() - latency_start
 
@@ -240,7 +241,7 @@ cdef class Ft232hConnector:
                             0.0,
                             float(latency),
                             float(wait_time),
-                            float(delta)
+                            float(total)
                         )
                     except Exception:
                         self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
@@ -249,11 +250,18 @@ cdef class Ft232hConnector:
                 if latency > LATENCY_THRESHOLD:
                     self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
+                if count > 3:
+                    # floating average speed based on total cycle time
+                    avg = (buf[count - 3, 6] + buf[count - 2, 6] + buf[count - 1, 6]) / 3.0
+                    if total > (1.5 * avg):
+                        self.logger.warning(f"[Ft232hConnector] Missed trigger ? {total=:.3f}s > {(1.5 * avg):.3f}s) at frame {count}")
+                    elif total < (0.75 * avg):
+                        self.logger.warning(f"[Ft232hConnector] Unexpected short cycle: {total=:.3f}s < {(0.75 * avg):.3f}s) at frame {count}")
+
                 wait_time_start = time.perf_counter()
 
-            last_pins = pins
             pins = self._gpio.read(1, True)
-            time.sleep(0.0001)
+            time.sleep(0)
 
         # --- END OF FILM ---
         if (pins & _eof) == _eof:

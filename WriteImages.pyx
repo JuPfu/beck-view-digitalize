@@ -173,7 +173,7 @@ def write_images(bytes shm_name,
 
     cdef np.uint8_t[:, :, :] mv
 
-    logger.info(f"write_images: frames_total={frames_total} width={width} height={height} base={base}")
+    logger.debug(f"write_images: frames_total={frames_total} width={width} height={height} base={base}")
 
     # Attach shared memory
     shm = shared_memory.SharedMemory(name=shm_str)
