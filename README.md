@@ -12,89 +12,229 @@ The captured images can be reassembled into a movie with [Beck-View-Movie](https
 
 ![beck-view](./assets/img/beck-view-overview.jpg)
 
-## Using Cython in This Project
+## Building Beck-View-Digitize
 
-### Why Cython?
+Beck-View-Digitize combines Python, Cython, and native libraries for high-performance film digitisation.
 
-Cython provides an easy way to significantly boost the performance of your Python code by converting it into C. It is particularly useful when working with computationally intensive tasks, such as image processing in this project.
+This section explains how to build the project on **Windows**, **macOS**, and **Linux**.
 
-By integrating Cython into **Beck-View Digitalize**, the speed of processing frames has increased compared to the pure Python version.
+The repository provides helper scripts:
 
-### Setting Up Cython
+- `install.bat` (Windows)
+- `install.sh` (macOS / Linux)
 
-1. **Install Cython**
+These scripts install Python dependencies and build the Cython extensions.  
+Native dependencies (notably **libpng**) must be installed separately.
 
-   Ensure that Cython is installed in your environment:
-   ```bash
-   pip install cython
-   ```
+---
 
-2. **Compiling the Cython Code**
+## Prerequisites (All Platforms)
 
-   In this project, certain modules are implemented in Cython to enhance performance. To compile the Cython `.pyx` files into C and then build the extension, follow these steps:
+- Python **3.10 or newer** (64-bit recommended)
+- Git
+- C compiler
+  - Windows: MSVC (Visual Studio Build Tools)
+  - macOS: Xcode Command Line Tools
+  - Linux: GCC or Clang
 
-   ```bash
-   python setup.py build_ext --inplace
-   ```
+Using a virtual environment is strongly recommended.
 
-   The `setup.py` file provided in the repository is already configured for compiling the Cython files.
+---
+
+## Windows
+
+### 1. Install Python
+
+Download Python from:
+
+https://www.python.org/downloads/windows/
+
+During installation:
+
+- Enable **“Add Python to PATH”**
+- Install **pip**
+
+Verify:
+
+```powershell
+python --version
+pip --version
+````
+
+---
+
+### 2. Install Visual Studio Build Tools (MSVC)
+
+Cython extensions and libpng require a native compiler.
+
+Download **Visual Studio Build Tools** from:
+
+[https://visualstudio.microsoft.com/visual-cpp-build-tools/](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+
+During setup, enable:
+
+* Desktop development with C++
+* MSVC v143 (or newer)
+* Windows 10/11 SDK
+
+---
+
+## Windows: Installing libpng using vcpkg
+
+Beck-View-Digitize uses **libpng directly** for high-performance PNG writing.
+On Windows, **vcpkg** is the recommended and tested installation method.
+
+### 3. Install vcpkg
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git
+cd vcpkg
+bootstrap-vcpkg.bat
+```
+
+Optional but recommended (system-wide MSVC integration):
+
+```powershell
+vcpkg integrate install
+```
+
+---
+
+### 4. Install libpng via vcpkg
+
+Make sure to match your Python architecture (usually `x64`):
+
+```powershell
+vcpkg install libpng:x64-windows
+```
+
+This installs:
+
+* `png.h`
+* `libpng16.lib`
+* required zlib dependencies
+
+If `vcpkg integrate install` was used, no further configuration is required.
+
+---
+
+### 5. Build Beck-View-Digitize (Windows)
+
+From the project root directory:
+
+```powershell
+install.bat
+```
+
+The script will:
+
+* create a virtual environment
+* install Python dependencies
+* build all Cython extensions in place
+
+---
+
+### 6. Verify the Build
+
+The install script on each platform builds a native executable.
+
+A simple way to verify that the build succeeded is to run the executable with the `--help` option.  
+This is not a full functional test, but it confirms that:
+
+- the executable was built successfully
+- all required native libraries are found at runtime
+- the program starts correctly
 
 
-3. **Build Executable with Pyinstaller**
+```powershell
+beck-view-digitize.exe --help
+````
 
-   In a do it once step the .spec file for building an executable can be generated as shown here
+If the help text is printed, the build can be considered successful.
 
-   ```bash
-   pyinstaller beck-view-digitize.py --name beck-view-digitize --onefile --console --specpath .
-   ```
-   Add the hidden_imports to in the 'Analysis' section
+---
 
-   ```bash
-   a = Analysis(
-    ['beck-view-digitize.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=['multiprocessing', 'pyftdi.ftdi', 'reactivex', 'CommandLineParser', 'SignalHandler' ],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=0,
-   )
-   ```
+## macOS
 
-   Building the executable in the **dist** folder is done by
+### 1. Install System Dependencies
 
-   ```bash
-   pyinstaller beck-view-digitize.spec
-   ```
-   Move the executable one level up into the project folder.
+```bash
+xcode-select --install
+brew install python libpng
+```
+
+---
+
+### 2. Build Beck-View-Digitize
+
+From the project root:
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+Homebrew provides `libpng` headers and libraries automatically.
+
+### 3. Verify the Build
+
+```bash
+./beck-view-digitize --help
+```
+
+This should display the command line options available.
+
+---
+
+## Linux (Debian / Ubuntu)
+
+### 1. Install System Packages
+
+```bash
+sudo apt update
+sudo apt install -y \
+    python3 python3-venv python3-dev \
+    build-essential \
+    libpng-dev
+```
+
+---
+
+### 2. Build Beck-View-Digitize
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+### 3. Verify the Build
+
+```bash
+./beck-view-digitize --help
+```
+
+---
+
+## Notes
+
+* The libpng-based writer is essential for sustained frame rates.
+* PNG filters are disabled by default for performance.
+* Shared memory is used to avoid unnecessary data copies.
+* On Windows, **MSVC + vcpkg** provides the most reliable and reproducible build setup.
+
+---
+
+## Troubleshooting
+
+* **png.h not found**
+  → libpng not installed or include path missing
+
+* **Linker error: libpng16.lib not found**
+  → vcpkg triplet does not match Python architecture
+
+* **Cython extensions compile but PNG writing is slow**
+  → verify that libpng is used (not a fallback Python encoder)
 
 
-4. **Using Beck-View-Digitize**
-
-   Once compiled with Cython and linked into an executable with Pyinstaller the program should run with significantly 
-   improved performance compared to the pure Python version.
-
-   This is how to start the compiled program
-   ```bash
-   beck-view-digitize --help
-   ```
-   This should display the available command line arguments for `beck-view-digitize`
-
-
-5. **Alternative Way of Building a Standalone Executable**
-
-   Building an executable on Windows can be done by calling
-   ```bash
-   install.bat
-   ```
-   The Unix or MacOS side can use
-   ```bash unix
-   ./install.sh
-   ```
 
 ### Further Reading on Cython
 

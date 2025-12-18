@@ -55,6 +55,6 @@ copy /y dist\beck-view-digitize-bundle\beck-view-digitize.exe "%CD%" >nul
 
 echo.
 echo #############################################################
-echo   Static EXE build complete — NO DLLs required at runtime!
+echo   Static EXE build complete - NO DLLs required at runtime!
 echo #############################################################
 echo.
