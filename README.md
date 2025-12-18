@@ -1,10 +1,13 @@
 # Beck-View Digitalize
 
-Digitize Super 8 films with **Cython**, OpenCV, ReactiveX, PyFtdi, and the Adafruit FT232H Breakout Board.
+Digitize 16mm films with **Cython**, OpenCV, ReactiveX, PyFtdi, and a FT232H Breakout Board.
 
 ## Project Summary
 
-This application is designed to digitalize Super 8 films. A modified Super 8 projector is equipped with a USB camera mounted in front of its lens. When a frame is positioned and at rest, an opto-coupler sends a signal to an Adafruit FT232H Microcontroller, which triggers the USB camera to capture the frame. The captured image is then processed using OpenCV.
+This application is designed to digitalize 16mm films. A modified projector is equipped with a USB camera mounted in 
+front of its lens. When a frame is positioned and at rest, an opto-coupler sends a signal to an FT232H Microcontroller, 
+which triggers the USB camera to capture the frame. The captured image is then processed using OpenCV. Each captured
+image is written to disc in PNG-format.
 
 To improve the overall performance, **Cython** has been integrated into the project. This migration from Python to Cython allows for faster execution of the core processing routines, making the image capture and processing pipeline more efficient.
 
@@ -398,7 +401,8 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Acknowledgements
 
-- Thanks to the contributors of [NumPy](https://numpy.org/), [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), [PyFtdi](https://eblot.github.io/pyftdi/installation.html) for their libraries and support.
+- Thanks to the contributors of [NumPy](https://numpy.org/), [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), 
+- [PyFtdi](https://eblot.github.io/pyftdi/installation.html) [libpng](https://www.libpng.org/pub/png/libpng.html) for their libraries and support.
 
 ---
 
