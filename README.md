@@ -39,6 +39,12 @@ Native dependencies (notably **libpng**) must be installed separately.
 
 Using a virtual environment is strongly recommended.
 
+### Clone the Repository
+
+```bash
+git clone https://github.com/JuPfu/beck-view-digitalize.git
+cd beck-view-digitalize
+```
 ---
 
 ## Windows
@@ -242,84 +248,83 @@ chmod +x install.sh
 - [Cython Tutorials](https://cython.readthedocs.io/en/latest/src/tutorial/index.html) – Step-by-step guides to help you get started.
 - [Optimizing Python Code with Cython](https://cython.readthedocs.io/en/latest/src/tutorial/profiling_tutorial.html) – Explore ways to profile and optimize Python code with Cython.
 
-![FT232H](./assets/img/projector_1.jpg)
-*Image: By Jürgen Pfundt & Gerald Beck - Own work - Projector with mounted camera
 
-![FT232H](./assets/img/projector_2.jpg)
-*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Optocoupler synchronized with rotating shutter.
+## Windows: Installing the libusb-win32 Driver for FT232H
 
-![FT232H](./assets/img/projector_3.jpg)
-*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Front view with spring damped wooden platform
+Beck-View-Digitize accesses the FT232H device directly via USB.  
+On Windows, this requires replacing the default FTDI driver with a **libusb-win32 compatible driver**.
 
-![FT232H](./assets/img/projector_4.jpg)
-*Image: By Jürgen Pfundt & Gerald Beck - Own work - 'Beck View' of projector
+⚠️ This change affects only the selected USB device. Other FTDI devices remain untouched if handled correctly.
 
-The circuit diagram:
-![FT232H](./assets/img/beck-view-layout.png)
+---
 
-The FT232H board connects via USB-C to a computer. It transmits opto-coupler signals to the computer, where OpenCV controls the USB camera and processes images.
+### Step 1: Install the FTDI CDM Driver Package
 
-- **OK1 (GPIO C2):** Synchronizes image capture
-- **OK2 (GPIO C3):** Signals end of film
-- **LED (GPIO C1):** Lights up while processing an image
+First, install the official FTDI driver package.  
+This ensures that Windows correctly recognises the FT232H device.
 
-With some adaptions this application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, or at specified intervals (timelapse), or when triggered by a sensor.
+1. Download the **CDM Drivers** from the FTDI website:  
+   https://ftdichip.com/drivers/
 
-You can reassemble the captured images into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
+2. Install the driver package and reboot if requested.
 
-## Project Installation
+At this point, the FT232H should appear in **Device Manager** under:
 
-### Prerequisites
+- *Universal Serial Bus controllers* or  
+- *Ports (COM & LPT)*
 
-Ensure the FT232H Breakout Board is connected via USB to your computer.
+---
 
-### Tools
+### Step 2: Download Zadig
 
-Python 3 and pip must be installed. Upgrade pip to the latest version:
-```bash
-pip3 install --upgrade pip
-```
+Zadig is a tool used to replace Windows USB drivers safely.
 
-### Installation Steps
+1. Download Zadig from the official site:  
+   https://zadig.akeo.ie/
 
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/JuPfu/beck-view-digitalize.git
-   cd beck-view-digitalize
-   ```
+2. No installation is required — simply run `zadig.exe`.
 
-<a id="install_dependencies"></a>
-2. **Install Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+---
 
-### Additional Manual Installation Steps
+### Step 3: Replace the Driver with libusb-win32
 
-Driver installation
-   - For Windows, install the FT232H driver by means of [Zadig](#zadig).
-   - For macOS, install the [libusb](#libusb) library via  [brew](https://brew.sh).
+1. Connect the FT232H device.
+2. Run **Zadig as Administrator**.
+3. In the menu, enable:
+   - **Options → List All Devices**
+4. Select the FT232H device from the dropdown  
+   (typically listed as *FT232H*, *USB Serial Converter*, or similar).
 
-The next chapters give some background about the libraries used and some detailed installation instructions in case of problems.
+⚠️ **Be very careful to select the correct device.**
 
-### Detailed Installation Instructions
+5. In the driver selection box:
+   - Choose **libusb-win32** (not WinUSB, not libusbK)
+6. Click **Replace Driver**.
 
-#### PyFtdi for FT232H
+Wait until Zadig reports success.
 
-PyFtdi aims at providing a user-space driver for popular FTDI devices, implemented in pure Python language.
-Supported FTDI devices include the FT232H Adafruit Breakout board.
+---
 
-In case of problems install PyFtdi for your platform using the [PyFtdi Documentation](https://eblot.github.io/pyftdi/).
+### Step 4: Verify the Driver Installation
 
-<a id="zadig"></a>
-#### Fix Driver with Zadig (Windows)
+Open **Device Manager** and confirm that the FT232H device now appears under:
 
-To fix the FT232H driver on Windows, use [Zadig](https://learn.adafruit.com/circuitpython-on-any-computer-with-ft232h/windows).
+- **libusb-win32 devices**
 
-For troubleshooting, refer to the [Arduino Help Center](https://support.arduino.cc/hc/en-us/articles/4411305694610-Install-or-update-FTDI-drivers).
+If this is the case, Beck-View-Digitize can access the device directly.
 
-<a id="libusb"></a>
-#### libusb for macOS
+---
+
+### Notes and Troubleshooting
+
+- If the device disappears or behaves unexpectedly, unplug and reconnect it.
+- If you need to restore the original FTDI driver, repeat the process in Zadig and select the original driver.
+- Administrator privileges are required to replace USB drivers.
+- Only one application can access the FT232H at a time.
+
+---
+
+### libusb for macOS
 
 Install libusb using Homebrew:
 ```bash
@@ -340,117 +345,33 @@ Expected output:
 /usr/local/Cellar/libusb/1.0.26/share/libusb/ (9 files)
 ```
 
-### Validation
-
-#### Taking a Photograph with a Press of a Button
-
-An easy way to test the application without a modified Super V8 projector at hand is to use the simple
-circuit shown in the following images. Attach the FT232H Breakout board to a USB port of your computer.
-When starting the program supply the device number of your camera via the `-d` option. At the moment you have to  guess
-the device id. Start  with `0` (default if no device id is specified) and increment the device id by `1` until the
-preferred USB camera is activated. Eligible cameras are the builtin camera of your notebook, a connected
-USB-camera or on macOS an IPhone can also be selected, if in the same Wi-Fi.
-
-Ensure everything is set up correctly by taking an image. Each pressing of the left button simulates a signal of an 
-opto-coupler. The `Ft232hConnector` class receives the signal and sends it to your computer. The `DigitizeVideo` class 
-handles the streams of signals. On each signal from the FT232H microcontroller the configured USB-camera is requested to
-take a picture. A press on the right button (end of film) terminates the program.
-
-![Press of a button 1](./assets/img/press_of_a_button_1.jpg)
-
-![Press of a button 2](./assets/img/press_of_a_button_2.jpg)
-
-#### Using a Projector Simulator for Triggering Photographs
-
-A more complex way to simulate a projector is explained in [Beck-View-Projector](https://github.com/JuPfu/beck-view-projector).
-A Raspberry Pi Pico, a SPI Oled display and a potentiometer are used to generate periodic signals which are send to the computer the FT232H controller is connected to. On each event received the beck-view-digitalize program requests a pictures from a
-USB camera attached to the computer. By rotating the potentiometers knob the frequency of the periodic signals emitted can be regulated.
-
-![Start of Simulation](./assets/img/projector_start.jpg)
-*Image: By Jürgen Pfundt & Gerald Beck - Own work - Raspberry Pi Pico used to generate periodic signals which trigger simulate a Super V8 projector
-
-![Simulation_Running](./assets/img/projector_running.jpg)
-*Image: By Jürgen Pfundt & Gerald Beck - Own work - Raspberry Pi Pico used to simulate a Super V8 projector
-
-![Simulation_Running](./assets/img/projector_eof.jpg)
-*Image: By Jürgen Pfundt & Gerald Beck - Own work - Raspberry Pi Pico used to simulate a Super V8 projector
-
-## Ft232HConnector
-
-✅ OK1 Pulses Will Be Detected Reliably
-1. FT232H polling is done in a dedicated, tight, real-time loop 
-
-   The polling thread:
-
-   - runs independently of Python’s main logic
-   - avoids the GIL during critical sections
-   - executes only minimal, branch-predictable work
-   - writes results to a lock-free ring buffer + emits events
-
-   This gives consistent sub-millisecond polling, even while the rest of the program is busy doing I/O or image processing.
+Once this driver is installed, the FT232H is ready for use with Beck-View-Digitize on Windows.
 
 
-2. No more timing jitter from Python callbacks
+![FT232H](./assets/img/projector_1.jpg)
+*Image: By Jürgen Pfundt & Gerald Beck - Own work - Projector with mounted camera
 
-   - the polling thread does only timestamping + state change detection
-   - the main thread consumes events at its own pace
-   - timing data is logged into a C-array, no Python overhead
+![FT232H](./assets/img/projector_2.jpg)
+*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Optocoupler synchronized with rotating shutter.
 
+![FT232H](./assets/img/projector_3.jpg)
+*Image: By Jürgen Pfundt  & Gerald Beck - Own work - Front view with spring damped wooden platform
 
-3. OK1 signal edges are extremely slow from the FT232H perspective
+![FT232H](./assets/img/projector_4.jpg)
+*Image: By Jürgen Pfundt & Gerald Beck - Own work - 'Beck View' of projector
 
-   Even if OK1 toggles once per frame at 24 fps:
-   - 24 pulses per second  →  one pulse every ~41.67 ms
-   - The polling loop runs typically at:
-   
-     200 µs interval  →  5000 polls per second
-   - We sample each OK1 pulse ~200 times before it ends.
-     Effectively no OK1 pulse can be missed unless OS scheduling completely collapses.
+The circuit diagram:
+![FT232H](./assets/img/beck-view-layout.png)
 
+The FT232H board connects via USB-C to a computer. It transmits opto-coupler signals to the computer, where OpenCV controls the USB camera and processes images.
 
-4. Signal debouncing / metastability immunity
-   The dedicated thread is designed to:
-   - detect edges rather than levels
-   - ignore any sub-microsecond glitches
-   - timestamp state transitions precisely
-   
-   This eliminates:
-   - false triggers
-   - double-triggering due to noisy edges
-   - missed pulses due to mid-loop changes
+- **OK1 (GPIO D6):** Synchronizes image capture
+- **OK2 (GPIO D7):** Signals end of film
 
+With some adaptions this application can also be used for other purposes, such as taking pictures with a USB camera when a button is pressed, or at specified intervals (timelapse), or when triggered by a sensor.
 
-5. Thread–subject pipeline is loss-free
-   The emission mechanism ensures:
-   - events are passed to sub.on_next((count, start_cycle)) immediately
-   - the subject hands them off to your Rx pipeline
-   - backpressure is prevented (ring buffer protects against overruns)
-   - There is no blocking, no allocation pressure, no Python overhead in the hot path.
+You can reassemble the captured images into a movie with [Beck-View-Movie](https://github.com/JuPfu/beck-view-movie).
 
-🔥 Expected Performance
-
-On macOS, Linux, or Raspberry Pi Pico host:
-
-|Poll interval|	Polls/sec	|Robustness vs. 24fps|
-|-------------|-------------|--------------------|
-|1 ms	|1000	|Excellent|
-|500 µs	|2000	|Overkill|
-|200 µs	|5000	|Extreme overkill|
-|100 µs	1|0000	|Ridiculous|
-
-Even at 1 ms polling, each OK1 pulse is sampled ~40 times.
-
-🧠 In short
-
-Ft232hConnector:
-- The polling thread guarantees consistent timing
-- No Python-level work slows down detection
-- No jitter; no missed edges
-- The connector becomes effectively real-time
-- 24 fps projectors become trivial to handle
-- You could detect pulses up to hundreds of Hz without stress
-
-✔ OK1 signals will be detected cleanly, every time.
 ## Contributing
 
 Feel free to fork this repository and contribute by submitting pull requests. 
@@ -477,7 +398,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Acknowledgements
 
-- Thanks to the contributors of [NumPy](https://numpy.org/), [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), [PyFtdi](https://eblot.github.io/pyftdi/installation.html), and [Adafruit](https://www.adafruit.com/) for their libraries and support.
+- Thanks to the contributors of [NumPy](https://numpy.org/), [OpenCV](https://opencv.org/), [ReactiveX](https://reactivex.io/), [PyFtdi](https://eblot.github.io/pyftdi/installation.html) for their libraries and support.
 
 ---
 
