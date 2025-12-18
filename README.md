@@ -324,7 +324,7 @@ If this is the case, Beck-View-Digitize can access the device directly.
 
 ---
 
-### libusb for macOS
+## MacOS: Installing the libusb Driver for FT232H
 
 Install libusb using Homebrew:
 ```bash
