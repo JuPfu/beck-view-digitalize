@@ -350,6 +350,96 @@ Expected output:
 
 Once this driver is installed, the FT232H is ready for use with Beck-View-Digitize on Windows.
 
+## Linux: USB Permissions for FT232H (udev Rules)
+
+On Linux, Beck-View-Digitize accesses the FT232H device directly via USB.  
+By default, this requires **root privileges**, unless appropriate **udev rules** are installed.
+
+To allow normal users to access the FT232H device, a custom udev rule must be added.
+
+---
+
+### Step 1: Identify the FT232H USB Device
+
+Connect the FT232H and run:
+
+```bash
+lsusb
+```
+
+Look for an entry similar to:
+
+```bash
+Bus 001 Device 005: ID 0403:6014 Future Technology Devices International, Ltd FT232H
+```
+
+The important values are:
+
+```bash
+Vendor ID: 0403
+Product ID: 6014
+```
+---
+### Step 2: Create or Edit the udev Rules File
+
+Create a new udev rules file or take (maybe edit) the 11-ftdi.rules file in the main directory of this project:
+
+```bash
+sudo nano /etc/udev/rules.d/11-ftdi.rules
+```
+
+Add the following rule:
+
+```bash
+SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6014", MODE="0666", GROUP="plugdev"
+```
+
+Notes:
+* **MODE="0666"** allows read/write access for all users
+* **GROUP="plugdev"** is optional but recommended on most desktop distributions
+If your distribution does not use the plugdev group, you may omit it.
+
+---
+### Step 3: Reload udev Rules
+
+Apply the new rule without rebooting:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Then unplug and reconnect the FT232H device.
+
+---
+
+### Step 4: Verify Permissions
+
+Verify that the device node has the expected permissions:
+```bash
+ls -l /dev/bus/usb/*/*
+```
+
+You should see an entry owned by **root:plugdev** with read/write permissions.
+
+Alternatively, test access directly by running Beck-View-Digitize without sudo.
+
+---
+### Notes and Troubleshooting
+* If access is denied, confirm your user is in the plugdev group:
+    ```bash
+    groups
+    ```
+    Add yourself if needed:
+    ```bash
+    sudo usermod -aG plugdev $USER
+    ```
+    Log out and log back in afterward.
+* If multiple FTDI devices are connected, the rule applies to all FT232H devices.
+* To restrict access to a specific device only, the rule can be extended using ATTR{serial}.
+---
+Once the udev rule is in place, Beck-View-Digitize can access the FT232H device on Linux without elevated privileges.
+
 
 ![FT232H](./assets/img/projector_1.jpg)
 *Image: By Jürgen Pfundt & Gerald Beck - Own work - Projector with mounted camera
