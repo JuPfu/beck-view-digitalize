@@ -193,6 +193,7 @@ cdef class DigitizeVideo:
         # capture settings & buffers
         self.initialize_bracketing()
         self.initialize_camera()
+        self.log_camera_properties()
         self.initialize_threads()
         self.initialize_process_pool()
 
@@ -245,6 +246,8 @@ cdef class DigitizeVideo:
             api = cv2.CAP_DSHOW if self.settings else cv2.CAP_MSMF
         elif platform.system() == "Linux":
             api = cv2.CAP_V4L2
+        elif platform.system() == "Darwin":
+            api = cv2.CAP_AVFOUNDATION
 
         try:
             self.cap = cv2.VideoCapture(self.device_number, api, [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
@@ -264,21 +267,92 @@ cdef class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        # exposure mode toggles for many backends
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-        time.sleep(1)
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+
+        # reset exposure state (works around driver quirks)
+        if platform.system() == "Windows":
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)  # auto
+            time.sleep(0.5)
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # manual
+        else:
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)     # auto
+            time.sleep(0.5)
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)     # manual
+
         if platform.system() == "Windows":
             self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
         else:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, 1.0 / (1 << 7))
+
         self.cap.set(cv2.CAP_PROP_GAIN, 0)
+        self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
         time.sleep(1)
 
         self.compression_level = 4 # relevant for writing PNG-files
 
         # debug/log some properties
         self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
+
+    def log_camera_properties(self) -> None:
+        """
+        Log all relevant OpenCV VideoCapture properties.
+        Useful for debugging backend- and driver-specific behavior.
+        """
+        if not self.cap or not self.cap.isOpened():
+            self.logger.warning("Camera not opened – cannot log properties")
+            return
+
+        # Commonly relevant CAP_PROP_* attributes
+        properties = [
+            ("FRAME_WIDTH",        cv2.CAP_PROP_FRAME_WIDTH),
+            ("FRAME_HEIGHT",       cv2.CAP_PROP_FRAME_HEIGHT),
+            ("FPS",                cv2.CAP_PROP_FPS),
+            ("FOURCC",             cv2.CAP_PROP_FOURCC),
+            ("FORMAT",             cv2.CAP_PROP_FORMAT),
+            ("MODE",               cv2.CAP_PROP_MODE),
+            ("BUFFERSIZE",         cv2.CAP_PROP_BUFFERSIZE),
+
+            ("BRIGHTNESS",         cv2.CAP_PROP_BRIGHTNESS),
+            ("CONTRAST",           cv2.CAP_PROP_CONTRAST),
+            ("SATURATION",         cv2.CAP_PROP_SATURATION),
+            ("HUE",                cv2.CAP_PROP_HUE),
+            ("GAIN",               cv2.CAP_PROP_GAIN),
+
+            ("EXPOSURE",           cv2.CAP_PROP_EXPOSURE),
+            ("AUTO_EXPOSURE",      cv2.CAP_PROP_AUTO_EXPOSURE),
+
+            ("AUTO_WB",            cv2.CAP_PROP_AUTO_WB),
+            ("WB_TEMPERATURE",     cv2.CAP_PROP_WB_TEMPERATURE),
+
+            ("SHARPNESS",          cv2.CAP_PROP_SHARPNESS),
+            ("GAMMA",              cv2.CAP_PROP_GAMMA),
+
+            ("ZOOM",               cv2.CAP_PROP_ZOOM),
+            ("FOCUS",              cv2.CAP_PROP_FOCUS),
+            ("AUTOFOCUS",          cv2.CAP_PROP_AUTOFOCUS),
+
+            ("BACKEND",            cv2.CAP_PROP_BACKEND),
+            ("HW_ACCELERATION",    cv2.CAP_PROP_HW_ACCELERATION),
+        ]
+
+        self.logger.info("===== OpenCV Camera Properties =====")
+
+        for name, prop in properties:
+            try:
+                value = self.cap.get(prop)
+                if value != -1:
+                    if prop == cv2.CAP_PROP_FOURCC:
+                        fourcc = int(value)
+                        fourcc_str = "".join([
+                            chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)
+                        ])
+                        self.logger.info(f"{name:20s}: {fourcc_str} (0x{fourcc:08X})")
+                    else:
+                        self.logger.info(f"{name:20s}: {value}")
+            except Exception as e:
+                self.logger.debug(f"{name:20s}: unsupported ({e})")
+
+        self.logger.info("===================================")
+
 
     def initialize_threads(self) -> None:
         """Create thread pool and subscribe to the signal_subject for captures."""
