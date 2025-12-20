@@ -220,6 +220,7 @@ cdef class Ft232hConnector:
 
                 count += 1
 
+                # trigger frame capture
                 subj.on_next((count, start_cycle))
 
                 work_time = time.perf_counter() - start_cycle

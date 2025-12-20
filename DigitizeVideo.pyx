@@ -494,8 +494,8 @@ cdef class DigitizeVideo:
 
         frame_count, start_cycle = event
 
-        read_time_start = time.perf_counter()
-        self.take_picture(event)
+        # retrieve frame from camera
+        self.take_picture(frame_count)
 
         # If we've completed a chunk, schedule writing to disk
         if (self.processed_frames % self.chunk_size) == 0:
@@ -509,11 +509,12 @@ cdef class DigitizeVideo:
             buffer_index = self.shared_buffers_index
             self.executor.submit(self._post_capture, buffer_index, descriptors)
 
-        capture_duration = time.perf_counter() - read_time_start
+        capture_duration = time.perf_counter() - start_cycle
 
         if (self.processed_frames % 100) == 0:
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
+        # add capture duration to timing statistics
         try:
             if self.processed_frames < self.timing_view.max_frames:
                 buf = self.timing_view.buf
@@ -572,9 +573,9 @@ cdef class DigitizeVideo:
                 self.buffers_in_use[buffer_index] = False
 
 
-    def take_picture(self, descriptor: SubjectDescType) -> None:
+    def take_picture(self, int picture_count) -> None:
         """Capture one (or multiple if bracketing) frames and copy into shared buffer."""
-        frame_count, signal_time = descriptor
+        frame_count = picture_count
 
         frame_multiplier = self.frame_multiplier
         exposures = self.exposures
