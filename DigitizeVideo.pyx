@@ -215,6 +215,7 @@ cdef class DigitizeVideo:
         self.start_time = time.perf_counter()
         self.new_tick = self.start_time
 
+
     def initialize_logging(self) -> None:
         """Configure logging for the application and store a logger on self."""
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -578,6 +579,8 @@ cdef class DigitizeVideo:
         frame_multiplier = self.frame_multiplier
         exposures = self.exposures
         buf_idx = self.shared_buffers_index
+        shm_frames = self._shm_arrays[buf_idx]
+        desc_arr = self._desc_arrays[buf_idx]
         frames_per_buffer = self._frames_per_buffer
         img_bytes = self.img_bytes
 
@@ -590,6 +593,7 @@ cdef class DigitizeVideo:
             success, frame_data = self.cap.read()
 
             if self.bracketing and (bracket_index < (len(exposures) - 1)):
+                # set exposure value for next frame read
                 next_exp, _ = exposures[bracket_index + 1]
                 if not self.set_exposure(next_exp):
                     self.logger.error(f"Could not set exposure to {next_exp} for frame {frame_count}{suffix}")
@@ -597,9 +601,6 @@ cdef class DigitizeVideo:
 
             logical_index = frame_count * frame_multiplier
             frame_index = (logical_index + bracket_index) % frames_per_buffer
-
-            shm_frames = self._shm_arrays[buf_idx]
-            desc_arr = self._desc_arrays[buf_idx]
 
             if success:
                 if not frame_data.flags.c_contiguous or frame_data.dtype != np.uint8:
