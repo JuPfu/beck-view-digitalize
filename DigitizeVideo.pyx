@@ -288,7 +288,7 @@ cdef class DigitizeVideo:
         self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
         time.sleep(1)
 
-        self.compression_level = 4 # relevant for writing PNG-files
+        self.compression_level = 1 # relevant for writing PNG-files
 
         # debug/log some properties
         self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
