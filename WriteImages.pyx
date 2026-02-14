@@ -73,7 +73,7 @@ cdef void _write_png_libpng(const char *c_fname,
     if fp == NULL:
         raise IOError(f"fopen failed for {c_fname!s}")
 
-    png_ptr = png_create_write_struct(b"1.6.40", NULL, NULL, NULL)
+    png_ptr = png_create_write_struct(b"1.6.55", NULL, NULL, NULL)
     if png_ptr == NULL:
         fclose(fp)
         raise MemoryError("png_create_write_struct failed")
@@ -138,7 +138,7 @@ def write_images(bytes shm_name,
                  int height,
                  bytes output_path,
                  int compression_level=1,
-                 int compress_strategy=Z_HUFFMAN_ONLY,
+                 int compress_strategy=1,
                  bint disable_filters=True):
     """
     Worker entrypoint that maps the shared-memory buffer and writes PNG files.
