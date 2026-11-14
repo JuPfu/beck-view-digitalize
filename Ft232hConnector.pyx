@@ -3,18 +3,28 @@
 # distutils: language = c
 
 """
-Modernized Option B FT232H connector for beck-view-digitize.
+Option B FT232H connector for beck-view-digitize.
 
-- Connector owns the FTDI device internally (no Ftdi instance passed).
-- Polls GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
-- Thread-safe timing collection in TimingResult singleton.
-- Provides close() method for clean shutdown.
+- Polls the GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
+- The poller can be stopped (stop()/close()) and always ends with exactly one of
+  on_completed() (EOF, maximum count, USB error) or a silent exit when it was stopped
+  from outside (the party that requests the stop owns the shutdown).
+- Thread-safe timing collection in the TimingResult singleton.
+
+Changes against the previous version
+- stop() really stops the poller (stop event is set and checked) and never tries to join
+  the calling thread.
+- Errors inside the poller (e.g. USB errors) are logged and still end in on_completed(),
+  so the frames captured so far are written to disk instead of being lost.
+- End of film must be seen on several consecutive reads (debounce against glitches on D7).
+- Waiting for OK1 to drop has a timeout and cannot hang forever.
+- One log handler only (no duplicated lines with --gui).
+- The unused SIGINT handler/global 'sigsub' is gone; DigitizeVideo owns signal handling.
 """
 
 import cython
 from cython.view cimport array
 
-import signal
 import logging
 import sys
 import time
@@ -34,15 +44,13 @@ cdef object timing = None  # python singleton (holds PyTimingResult instance)
 # C-level module global (must match .pxd)
 cdef CTimingResult timing_view  # initially NULL
 
+# number of consecutive reads with D7 high that are required to accept "end of film"
+_EOF_CONFIRM_READS = 3
+# seconds OK1 may stay high before an error is logged
+_OK1_RELEASE_TIMEOUT = 2.0
 
-cdef object sigsub = None
+_LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
-def sigint_handler(signum, frame):
-    print("SIGINT captured, graceful exit.")
-    sigsub.on_completed()
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, sigint_handler)
 
 cdef class Ft232hConnector:
     """
@@ -64,10 +72,9 @@ cdef class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-
     def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
         """
-        - ftdi
+        - ftdi: pyftdi Ftdi instance (opened here)
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
@@ -79,11 +86,10 @@ cdef class Ft232hConnector:
         self._initialize_logging()
 
         self.signal_subject = signal_subject
-        sigsub = signal_subject
         self.max_count = max_count + 100
         self._timing_lock = threading.Lock()
 
-        # open FTDI device internally
+        # open FTDI device
         self._ftdi = ftdi
         try:
             self._ftdi.open_from_url("ftdi:///1")
@@ -116,6 +122,11 @@ cdef class Ft232hConnector:
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask, direction=0x0)
         except Exception as e:
             self.logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
+            # do not leave the USB device claimed
+            try:
+                self._ftdi.close()
+            except Exception:
+                pass
             raise
 
         global timing, timing_view
@@ -135,13 +146,16 @@ cdef class Ft232hConnector:
 
     def _initialize_logging(self) -> None:
         """
-        Configure logging for the application.
+        Configure the logger of this module: exactly one handler, no propagation to the root
+        logger (otherwise every line would show up twice when started from the GUI).
         """
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        if self.gui:
-            handler = logging.StreamHandler(sys.stdout)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler(sys.stdout if self.gui else sys.stderr)
+            handler.setFormatter(logging.Formatter(_LOG_FORMAT))
             self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+            self.logger.propagate = False
 
     def _initialize_device(self) -> None:
         """
@@ -167,115 +181,177 @@ cdef class Ft232hConnector:
         self._thread.start()
         self.logger.info("[Ft232hConnector] Ready to receive signals from projector")
 
-    def stop(self, object timeout=None) -> None:
-        """Stop polling thread safely."""
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout)
+    def stop(self, object timeout=5.0) -> None:
+        """
+        Ask the polling thread to stop and wait for it (at most `timeout` seconds).
+
+        Safe to call from any thread, also from the poller thread itself (e.g. when the
+        shutdown is triggered by on_completed()); in that case the thread is not joined.
+        """
+        already_stopped = self._stop_event.is_set()
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout)
+            if thread.is_alive():
+                self.logger.warning("[Ft232hConnector] poller thread did not stop within the timeout")
         self.running = False
-        self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
+        if not already_stopped:  # cleanup() calls stop() and close(): log only once
+            self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
 
     def close(self) -> None:
-        """Stop poller and release FTDI/GPIO safely."""
+        """Stop poller and release GPIO/FTDI safely."""
         try:
             self.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] stop() raised during close: {e}")
         try:
             self._gpio.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] gpio.close() raised: {e}")
         try:
             self._ftdi.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] ftdi.close() raised: {e}")
 
     def signal_input(self):
         self.start()
 
     def _poll_loop(self) -> None:
         """Poll GPIO and publish events to the Subject."""
-        cdef int pins, last_pins, count
-        _ok = self._OK1_mask
-        _eof = self._END_OF_FILM_mask
+        cdef int pins, count, eof_hits, ok_mask, eof_mask, max_count
+        cdef double avg, t1, t2, t3
+        cdef double[:, :] buf
+
+        ok_mask = self._OK1_mask
+        eof_mask = self._END_OF_FILM_mask
+        max_count = self.max_count
         subj = self.signal_subject
         stop_event = self._stop_event
-        LATENCY_THRESHOLD = self.LATENCY_THRESHOLD
-        timing_view = self.timing_view
-        buf = self.timing_view.buf
+        read = self._gpio.read
+        latency_threshold = self.LATENCY_THRESHOLD
+        tv = self.timing_view
+        buf = tv.buf
+        perf = time.perf_counter
+        sleep = time.sleep
 
         count = self.INITIAL_COUNT
-        start_cycle = time.perf_counter()
-        wait_time = start_cycle
+        eof_hits = 0
+        reason = "error"
+
+        start_cycle = perf()
         wait_time_start = start_cycle
 
-        pins = self._gpio.read(1, True)
+        try:
+            pins = read(1, True)
 
-        while (pins & _eof) != _eof and count < self.max_count:
-            # rising edge detection for OK1
-            if (pins & _ok) == _ok:
-                stop_cycle = time.perf_counter()
-                total = stop_cycle - start_cycle
-                start_cycle = stop_cycle
-                wait_time = stop_cycle - wait_time_start
+            while count < max_count:
+                if stop_event.is_set():
+                    reason = "stopped"
+                    break
 
-                count += 1
+                if pins & eof_mask:
+                    # end of film must be confirmed by several consecutive reads
+                    eof_hits += 1
+                    if eof_hits >= _EOF_CONFIRM_READS:
+                        reason = "eof"
+                        break
+                else:
+                    eof_hits = 0
 
-                # trigger frame capture
-                subj.on_next((count, start_cycle))
+                    if pins & ok_mask:
+                        # OK1 is high: new frame
+                        stop_cycle = perf()
+                        total = stop_cycle - start_cycle
+                        start_cycle = stop_cycle
+                        wait_time = stop_cycle - wait_time_start
 
-                work_time = time.perf_counter() - start_cycle
+                        count += 1
 
-                # busy-wait for OK1 to drop
-                latency_start = time.perf_counter()
-                pins = self._gpio.read(1, True)
-                while ((pins & _ok) == _ok):
-                    time.sleep(0)
-                    pins = self._gpio.read(1, True)
-                latency = time.perf_counter() - latency_start
+                        # trigger frame capture (synchronous: returns when the frame is captured)
+                        subj.on_next((count, start_cycle))
 
-                with self._timing_lock:
-                    try:
-                        timing_view.append(
-                            count,
-                            float(time.perf_counter() - start_cycle),
-                            float(work_time),
-                            0.0,
-                            float(latency),
-                            float(wait_time),
-                            float(total)
-                        )
-                    except Exception:
-                        self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
-                        pass
+                        work_time = perf() - start_cycle
 
-                if latency > LATENCY_THRESHOLD:
-                    self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
+                        # wait for OK1 to drop (with timeout, stop and EOF checks)
+                        latency_start = perf()
+                        deadline = latency_start + _OK1_RELEASE_TIMEOUT
+                        timed_out = False
+                        pins = read(1, True)
+                        while pins & ok_mask:
+                            if stop_event.is_set() or (pins & eof_mask):
+                                break
+                            if not timed_out and perf() > deadline:
+                                timed_out = True
+                                self.logger.error(
+                                    f"[Ft232hConnector] OK1 stays high for more than "
+                                    f"{_OK1_RELEASE_TIMEOUT:.1f}s at frame {count} - check the cabling")
+                            sleep(0.001 if timed_out else 0)
+                            pins = read(1, True)
+                        latency = perf() - latency_start
 
-                if count > 3:
-                    # floating average speed based on total cycle time
-                    avg = (buf[count - 3, 6] + buf[count - 2, 6] + buf[count - 1, 6]) / 3.0
-                    if total > (1.5 * avg):
-                        self.logger.warning(f"[Ft232hConnector] Missed trigger ? {total=:.3f}s > {(1.5 * avg):.3f}s) at frame {count}")
-                    elif total < (0.75 * avg):
-                        self.logger.warning(f"[Ft232hConnector] Unexpected short cycle: {total=:.3f}s < {(0.75 * avg):.3f}s) at frame {count}")
+                        with self._timing_lock:
+                            try:
+                                # the capture happens synchronously inside on_next, so 'work'
+                                # is the capture duration and also fills the 'read' column
+                                tv.append(
+                                    count,
+                                    float(perf() - start_cycle),
+                                    float(work_time),
+                                    float(work_time),
+                                    float(latency),
+                                    float(wait_time),
+                                    float(total)
+                                )
+                            except Exception:
+                                self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
 
-                wait_time_start = time.perf_counter()
+                        if latency > latency_threshold:
+                            self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
-            pins = self._gpio.read(1, True)
-            time.sleep(0)
+                        if count > 3:
+                            # typical cycle time: median of the last three totals (a single stall
+                            # must not make the following normal cycles look "too short")
+                            t1 = buf[count - 3, 6]
+                            t2 = buf[count - 2, 6]
+                            t3 = buf[count - 1, 6]
+                            avg = max(min(t1, t2), min(max(t1, t2), t3))
+                            if avg > 0.0:
+                                if total > (1.5 * avg):
+                                    self.logger.warning(f"[Ft232hConnector] Missed trigger ? {total=:.3f}s > {(1.5 * avg):.3f}s) at frame {count}")
+                                elif total < (0.75 * avg):
+                                    self.logger.warning(f"[Ft232hConnector] Unexpected short cycle: {total=:.3f}s < {(0.75 * avg):.3f}s) at frame {count}")
+
+                        wait_time_start = perf()
+
+                pins = read(1, True)
+                sleep(0)
+            else:
+                reason = "max_count"
+
+        except Exception:
+            # e.g. USB error: keep the frames captured so far -> still report completion below
+            self.logger.exception("[Ft232hConnector] polling aborted by an error")
+            reason = "error"
+        finally:
+            self.running = False
 
         # --- END OF FILM ---
-        if (pins & _eof) == _eof:
+        if reason == "eof":
             self.logger.info("[Ft232hConnector] EOF encountered!")
-        else:
+        elif reason == "max_count":
             self.logger.info(f"[Ft232hConnector] count of frames reached or superseeded maximum count = {self.max_count}!")
+        elif reason == "stopped":
+            self.logger.info("[Ft232hConnector] polling stopped on request")
+            return  # whoever requested the stop is responsible for the shutdown
+        else:
+            self.logger.error("[Ft232hConnector] polling ended because of an error - finishing the film")
 
-        # Signal the completion of frame processing and EoF detection
+        # Signal the completion of frame processing (EoF, max count or error)
         try:
             subj.on_completed()
         except Exception as e:
             self.logger.error(f"[Ft232hConnector] on_completed failed: {e}")
-
 
     def log_timing_results(self):
         """
@@ -310,15 +386,10 @@ cdef class Ft232hConnector:
 
 cpdef CTimingResult get_timing_view():
     """
-    Return the C-level TimingResult pointer (may be NULL if not initialized).
-    Caller must not dereference without checking.
+    Return the C-level TimingResult (None if not initialized).
     """
     return timing_view
 
 cpdef object get_timing():
     """Return the Python-level TimingResult singleton (or None)."""
     return timing
-
-
-
-
