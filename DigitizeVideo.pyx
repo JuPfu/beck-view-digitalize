@@ -63,6 +63,8 @@ from Ft232hConnector import get_timing, get_timing_view
 
 from TimingResult cimport TimingResult as CTimingResult
 
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
 
 cdef class DigitizeVideo:
     """
@@ -87,14 +89,14 @@ cdef class DigitizeVideo:
         int height
         bint bracketing
         int frame_multiplier
-        int chunk_size
+        int chunk_size              # images (not film frames) per buffer / per worker task
         bint settings
         bint gui
 
         # RX subject, logger, and completion sync
         object signal_subject       # reactivex Subject (Python)
         object logger               # Python logger
-        object _completion_event    # threading.Event set on subject.on_completed
+        object _completion_event    # threading.Event set when the final write has finished
 
         # camera runtime parameters (after open)
         int img_width
@@ -113,7 +115,7 @@ cdef class DigitizeVideo:
         object signal_observer          # SignalObserver instance
         object photoCellSignalDisposable  # subscription disposable
         object completion_disposable     # subscription for on_completed -> set event
-        object wait_subject             #
+        object wait_subject             # completed when the shutdown is finished
 
         # shared memory buffers for workers
         list shared_buffers            # list of shared_memory.SharedMemory objects
@@ -123,8 +125,8 @@ cdef class DigitizeVideo:
 
         int shared_buffers_index
         list buffers_in_use
-        object buffer_lock             # threading.Lock
-        list processes                 # list of (AsyncResult, shm, buf_idx)
+        object buffer_lock             # threading.Lock, protects buffers_in_use and processes
+        list processes                 # list of (AsyncResult, shm, desc_shm, buf_idx)
         int process_count
         int _frames_per_buffer
 
@@ -133,7 +135,7 @@ cdef class DigitizeVideo:
         int compression_level
         object pool                    # multiprocessing.Pool (worker processes)
 
-        # FTDI connector (Option B): owned by DigitizeVideo
+        # FTDI connector (set by connect())
         object ft232h                  # Ft232hConnector instance
 
         # stats
@@ -153,7 +155,7 @@ cdef class DigitizeVideo:
 
     def __init__(self, args: Namespace, signal_subject: Subject, wait_subject: Subject) -> None:
         """
-        Initialize the DigitizeVideo instance and start the FT232H poller.
+        Initialize the DigitizeVideo instance.
 
         This constructor creates:
          - camera capture object
@@ -183,10 +185,6 @@ cdef class DigitizeVideo:
         # small event we set when the subject completes (EOF)
         self._completion_event = threading.Event()
 
-        # register signal handlers for graceful shutdown (global process signals)
-        signal.signal(signal.SIGINT, self._on_signal)
-        signal.signal(signal.SIGTERM, self._on_signal)
-
         # logging
         self.initialize_logging()
 
@@ -215,16 +213,29 @@ cdef class DigitizeVideo:
         self.start_time = time.perf_counter()
         self.new_tick = self.start_time
 
+        self.register_signal_handlers()
+
 
     def initialize_logging(self) -> None:
-        """Configure logging for the application and store a logger on self."""
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        """
+        Configure logging: one handler for this module, no propagation to the root logger
+        (otherwise every line is printed twice when started from the GUI).
+        """
         self.logger = logging.getLogger(__name__)
-
-        # if program was started from beck-view-gui
-        if self.gui:
-            handler = logging.StreamHandler(sys.stdout)
+        if not self.logger.handlers:
+            # stdout when started from beck-view-gui, stderr otherwise
+            handler = logging.StreamHandler(sys.stdout if self.gui else sys.stderr)
+            handler.setFormatter(logging.Formatter(LOG_FORMAT))
             self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+            self.logger.propagate = False
+
+    def register_signal_handlers(self) -> None:
+        """Graceful shutdown on SIGINT/SIGTERM (and SIGBREAK, which the GUI sends on Windows)."""
+        signal.signal(signal.SIGINT, self._on_signal)
+        signal.signal(signal.SIGTERM, self._on_signal)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, self._on_signal)
 
     def initialize_bracketing(self) -> None:
         """Prepare exposure triplets (or single) depending on platform/flags."""
@@ -361,7 +372,7 @@ cdef class DigitizeVideo:
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(2, cpu_count - 1))
 
         # SignalObserver triggers final_write_to_disk on subject completion.
-        self.signal_observer = SignalObserver(self.final_write_to_disk)
+        self.signal_observer = SignalObserver(self.final_write_to_disk, logging.getLogger(__name__ + ".SignalObserver"))
 
         # Subscribe to subject: capture immediately on incoming events.
         self.photoCellSignalDisposable = self.signal_subject.pipe(
@@ -691,7 +702,7 @@ cdef class DigitizeVideo:
         cdef int count = 0
         cdef int cycle = 1
         cdef int work = 2
-        cdef int read = 3
+        cdef int capture = 3
         cdef int latency = 4
         cdef int wait_time = 5
         cdef int total_work = 6
@@ -700,12 +711,12 @@ cdef class DigitizeVideo:
         rows = self.timing_view.size
 
         with open(filename, "w") as f:
-            f.write("frame,read,cycle,work,latency,wait_time,total_work\n")
+            f.write("frame,capture opencv,work,cycle (work + latency),latency,wait_time,total_work\n")
 
             for i in range(rows):
                 f.write(
-                    f"{buf[i, count]},{buf[i, read]},{buf[i, cycle]},"
-                    f"{buf[i, work]},{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]}\n"
+                    f"{buf[i, count]},{buf[i, capture]},{buf[i, work]},{buf[i, cycle]},"
+                    f"{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]}\n"
                 )
             f.close()
 
@@ -775,13 +786,11 @@ cdef class DigitizeVideo:
                 try:
                     pool.close()
                 except Exception:
-                    # best-effort; move on to join/terminate steps
                     self.logger.debug("pool.close() raised exception (continuing to join/terminate)")
 
                 try:
                     pool.join()
                 except Exception:
-                    # try terminate as a fallback
                     try:
                         pool.terminate()
                         pool.join()
@@ -1065,11 +1074,10 @@ cdef class DigitizeVideo:
 class SignalObserver(Observer):
     """Small Observer adapter to bind final_write_to_disk as completion handler."""
 
-    def __init__(self, final_write_to_disk) -> None:
+    def __init__(self, final_write_to_disk, logger) -> None:
         super().__init__()
         self.final_write_to_disk = final_write_to_disk
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        self.logger = logging.getLogger("SignalObserver")
+        self.logger = logger
 
     def on_next(self, value) -> None:
         # No-op: main pipeline already calls DigitizeVideo.handle_trigger
