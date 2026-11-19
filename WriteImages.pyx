@@ -73,7 +73,7 @@ cdef void _write_png_libpng(const char *c_fname,
     if fp == NULL:
         raise IOError(f"fopen failed for {c_fname!s}")
 
-    png_ptr = png_create_write_struct(b"1.6.55", NULL, NULL, NULL)
+    png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)
     if png_ptr == NULL:
         fclose(fp)
         raise MemoryError("png_create_write_struct failed")
@@ -103,10 +103,9 @@ cdef void _write_png_libpng(const char *c_fname,
 
         # filtering (fastest when disabled)
         if disable_filters:
-            png_set_filter(png_ptr, 0, PNG_FILTER_NONE)
             png_set_filter(png_ptr, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE);
         else:
-            png_set_filter(png_ptr, PNG_ALL_FILTERS, PNG_FILTER_NONE)
+            png_set_filter(png_ptr, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE)
 
         # BGR -> RGB swap (zero-copy)
         png_set_bgr(png_ptr)
