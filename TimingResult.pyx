@@ -14,7 +14,7 @@ cdef class TimingResult:
         arr = np.zeros((max_frames, 7), dtype=np.float64)
 
         # create memoryview
-        self.buf = arr
+        self.buf = arr                        # time spent for the complete previous cycle
 
     cpdef void append(
             self,
