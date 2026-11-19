@@ -3,12 +3,23 @@
 # distutils: language = c
 
 """
-Modernized Option B FT232H connector for beck-view-digitize.
+FT232H connector for beck-view-digitize.
 
-- Connector owns the FTDI device internally (no Ftdi instance passed).
-- Polls GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
-- Thread-safe timing collection in TimingResult singleton.
-- Provides close() method for clean shutdown.
+- Polls the GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
+- The poller can be stopped (stop()/close()) and always ends with exactly one of
+  on_completed() (EOF, maximum count, USB error) or a silent exit when it was stopped
+  from outside (the party that requests the stop owns the shutdown).
+- Thread-safe timing collection in the TimingResult singleton.
+
+Changes against the previous version
+- stop() really stops the poller (stop event is set and checked) and never tries to join
+  the calling thread.
+- Errors inside the poller (e.g. USB errors) are logged and still end in on_completed(),
+  so the frames captured so far are written to disk instead of being lost.
+- End of film must be seen on several consecutive reads (debounce against glitches on D7).
+- Waiting for OK1 to drop has a timeout and cannot hang forever.
+- One log handler only (no duplicated lines with --gui).
+- The unused SIGINT handler/global 'sigsub' is gone; DigitizeVideo owns signal handling.
 """
 
 import cython
@@ -34,6 +45,7 @@ cdef object timing = None  # python singleton (holds PyTimingResult instance)
 # C-level module global (must match .pxd)
 cdef CTimingResult timing_view  # initially NULL
 
+_LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 cdef object sigsub = None
 
@@ -67,7 +79,7 @@ cdef class Ft232hConnector:
 
     def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
         """
-        - ftdi
+        - ftdi: pyftdi Ftdi instance (opened here)
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
@@ -83,7 +95,7 @@ cdef class Ft232hConnector:
         self.max_count = max_count + 100
         self._timing_lock = threading.Lock()
 
-        # open FTDI device internally
+        # open FTDI device
         self._ftdi = ftdi
         try:
             self._ftdi.open_from_url("ftdi:///1")
@@ -116,6 +128,11 @@ cdef class Ft232hConnector:
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask, direction=0x0)
         except Exception as e:
             self.logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
+            # do not leave the USB device claimed
+            try:
+                self._ftdi.close()
+            except Exception:
+                pass
             raise
 
         global timing, timing_view
@@ -135,13 +152,16 @@ cdef class Ft232hConnector:
 
     def _initialize_logging(self) -> None:
         """
-        Configure logging for the application.
+        Configure the logger of this module: exactly one handler, no propagation to the root
+        logger (otherwise every line would show up twice when started from the GUI).
         """
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
-        if self.gui:
-            handler = logging.StreamHandler(sys.stdout)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler(sys.stdout if self.gui else sys.stderr)
+            handler.setFormatter(logging.Formatter(_LOG_FORMAT))
             self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+            self.logger.propagate = False
 
     def _initialize_device(self) -> None:
         """
@@ -175,19 +195,19 @@ cdef class Ft232hConnector:
         self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
 
     def close(self) -> None:
-        """Stop poller and release FTDI/GPIO safely."""
+        """Stop poller and release GPIO/FTDI safely."""
         try:
             self.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] stop() raised during close: {e}")
         try:
             self._gpio.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] gpio.close() raised: {e}")
         try:
             self._ftdi.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"[Ft232hConnector] ftdi.close() raised: {e}")
 
     def signal_input(self):
         self.start()
@@ -237,12 +257,12 @@ cdef class Ft232hConnector:
                     try:
                         timing_view.append(
                             count,
-                            float(time.perf_counter() - start_cycle),
-                            float(work_time),
-                            0.0,
-                            float(latency),
-                            float(wait_time),
-                            float(total)
+                            float(time.perf_counter() - start_cycle), # frame capture + latency
+                            float(work_time),                         # frame capture from polling loop
+                            0.0,                                      # capture duration
+                            float(latency),                           # latency
+                            float(wait_time),                         # wait time
+                            float(total)                              # time spent for the complete previous cycle
                         )
                     except Exception:
                         self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
