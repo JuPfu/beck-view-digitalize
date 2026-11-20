@@ -33,7 +33,6 @@ import threading
 
 import usb
 
-from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioAsyncController
 
 from reactivex import Subject
@@ -77,9 +76,8 @@ cdef class Ft232hConnector:
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
 
-    def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
+    def __init__(self, object signal_subject, int max_count, bint gui):
         """
-        - ftdi: pyftdi Ftdi instance (opened here)
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
@@ -95,33 +93,20 @@ cdef class Ft232hConnector:
         self.max_count = max_count + 100
         self._timing_lock = threading.Lock()
 
-        # open FTDI device
-        self._ftdi = ftdi
-        try:
-            self._ftdi.open_from_url("ftdi:///1")
-        except Exception as e:
-            self.logger.error(f"Could not open FTDI device: {e}")
-            raise
-
-        try:
-            self._ftdi.set_latency_timer(16)
-        except Exception:
-            pass
-
         self._OK1_mask = 1 << 6         # ADBUS 6 (D6)
         self._END_OF_FILM_mask = 1 << 7 # ADBUS 7 (D7)
 
-        # configure GPIO
+        # open FTDI device
         self._gpio = GpioAsyncController()
 
+        # configure GPIO
         try:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                frequency=1000000, # 1 MHz
+                # frequency=1000000, # 1 MHz
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
-            self._gpio.set_frequency(1000000)
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
                                      direction=self._END_OF_FILM_mask | self._OK1_mask)
             self._gpio.write(0x0)
@@ -130,7 +115,7 @@ cdef class Ft232hConnector:
             self.logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
             # do not leave the USB device claimed
             try:
-                self._ftdi.close()
+                self._gpio.close()
             except Exception:
                 pass
             raise
@@ -204,10 +189,6 @@ cdef class Ft232hConnector:
             self._gpio.close()
         except Exception as e:
             self.logger.debug(f"[Ft232hConnector] gpio.close() raised: {e}")
-        try:
-            self._ftdi.close()
-        except Exception as e:
-            self.logger.debug(f"[Ft232hConnector] ftdi.close() raised: {e}")
 
     def signal_input(self):
         self.start()

@@ -52,15 +52,6 @@ def main():
         print(f"Error listing FT232H devices: {e}")
         sys.exit(1)
 
-    try:
-        # open a dedicated ftdi device contained in the list of ftdi devices
-        # URL Scheme
-        # ftdi://[vendor][:[product][:serial|:bus:address|:index]]/interface
-        ftdi.open_from_url("ftdi:///1")
-    except Exception as e:
-        print(f"Error accessing FT232H chip: {e}")
-        sys.exit(1)
-
     from DigitizeVideo import DigitizeVideo
     from Ft232hConnector import Ft232hConnector
 
@@ -90,13 +81,9 @@ def main():
         digitizer = DigitizeVideo(args, optocoupler_signal_subject, wait_subject)
     except Exception as e:
         print(f"[main] Failed to create DigitizeVideo: {e}", file=sys.stderr)
-        try:
-            ftdi.close()
-        except Exception:
-            pass
         sys.exit(1)
 
-    ft232h = Ft232hConnector(ftdi, optocoupler_signal_subject, args.maxcount, args.gui)
+    ft232h = Ft232hConnector(optocoupler_signal_subject, args.maxcount, args.gui)
 
     digitizer.connect(ft232h)
 
