@@ -82,7 +82,7 @@ cdef class Ft232hConnector:
         - max_count: maximum expected frames
         - gui: log to stdout
         """
-        self.LATENCY_THRESHOLD = 0.01
+        self.LATENCY_THRESHOLD = 0.011
         self.INITIAL_COUNT = -1
         self.gui = gui
 
@@ -104,7 +104,7 @@ cdef class Ft232hConnector:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                # frequency=1000000, # 1 MHz
+                #frequency=1000000, # 1 MHz
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,

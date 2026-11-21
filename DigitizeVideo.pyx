@@ -27,8 +27,10 @@ Design notes (Option B):
   OK1 pulse (OK1 is only ~10 ms wide, the projector cycle is ~155 ms).
   Events are queued and processed in order; on_completed is queued behind the last
   event, so final_write_to_disk() always runs after the last queued capture.
-  NOTE: decoupling prevents lost *events*; a slow read still delivers a *late*
-  image. A backlog warning is logged when captures fall behind the projector.
+  NOTE: decoupling prevents lost *events*; a capture that starts late still delivers a *late*
+  image. A warning is logged when a capture starts later than the earliest moment its frame could
+  be selected (trigger + d_min), i.e. when the capture thread is really behind. A capture that is
+  merely waiting for its camera frame (d_min + up to one camera period) is not a backlog.
 
 - Shutdown sequence:
     1) FT232H poller signals EOF by calling subject.on_completed()
@@ -83,6 +85,22 @@ LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 # write_images() gets this number as desc_cols, so both sides always agree on the layout.
 # Suspect captures are written as frameNNNNNx_SUSPECT.png.
 DESCRIPTOR_COLUMNS = 4
+
+# d_min: earliest delay after the trigger at which a camera frame is taken as "the current film
+# frame". A frame that arrives sooner was exposed while the rotating shutter still covered the lens
+# (exposure + sensor read-out + USB transfer + driver all lie between exposure and arrival).
+# The default is a deliberately cautious placeholder: one camera period at 30 fps (33 ms) plus the
+# exposure (8 ms). It is NOT calibrated. Determine the real value with d_min_from_images.py and pass it
+# as capture_min_delay_ms. It belongs to the camera setup (camera, resolution, exposure, fps, USB,
+# computer), not to the film or the projector speed.
+DEFAULT_CAPTURE_MIN_DELAY_MS = 40.0
+
+# width of the shutter blade in degrees (the lens is covered by it during film transport)
+DEFAULT_SHUTTER_DEGREES = 70.0
+
+# A capture that starts later than this (s) after the earliest moment its frame could be selected
+# (trigger + d_min) is logged: the capture thread is behind. About one camera period.
+CAPTURE_START_LAG_WARN_S = 0.035
 
 
 cdef class DigitizeVideo:
@@ -143,17 +161,20 @@ cdef class DigitizeVideo:
         object _frame_cond              # threading.Condition protecting the ring
         object _cap_lock                # serializes cap.grab()/retrieve() and cap.set()
         long _grab_seq                  # sequence number of the newest frame
-        double capture_window           # s after trigger in which the film is at rest
+        double capture_min_delay        # s: d_min, earliest arrival after the trigger that counts
+        double capture_window           # s after d_min within which a frame must arrive
+        double open_fraction            # share of a projector cycle with the lens open
+        bint _min_delay_is_default      # True: d_min was not configured (uncalibrated default)
+        object _trig_hist               # last trigger timestamps (cycle estimate)
+        long _budget_warned_at          # film frame of the last budget warning
         double capture_timeout          # s: longest wait for a frame after a trigger
         int bracket_settle_frames       # frames to skip after an exposure change
         int ring_size
         long suspect_count
-        object capture_info             # film frame -> [delay_ms of first bracket, suspect 0/1]
+        object capture_info             # film frame -> (delay_ms of first bracket, suspect 0/1, work_ms)
 
         # decoupling of capture from the poller thread
         object capture_scheduler        # EventLoopScheduler: single "capture" thread
-        object _pending_lock            # protects _pending
-        int _pending                    # events queued or in progress on the capture thread
 
         # shared memory buffers for workers
         list shared_buffers            # list of shared_memory.SharedMemory objects
@@ -219,7 +240,18 @@ cdef class DigitizeVideo:
 
         # frame selection (optional attributes of args; defaults are placeholders to be tuned
         # to the real rest time of the film frame in front of the camera)
+        min_delay_ms = getattr(args, "capture_min_delay_ms", None)
+        self._min_delay_is_default = min_delay_ms is None
+        if min_delay_ms is None:
+            min_delay_ms = DEFAULT_CAPTURE_MIN_DELAY_MS
+        self.capture_min_delay = max(0.0, float(min_delay_ms)) / 1000.0
+        # capture_window_ms is counted from d_min: a frame arriving later than d_min + window is LATE
+        # (60 ms = one camera period plus jitter; it only trips when the camera stalls)
         self.capture_window = float(getattr(args, "capture_window_ms", 60.0)) / 1000.0
+        shutter_deg = float(getattr(args, "shutter_degrees", DEFAULT_SHUTTER_DEGREES))
+        self.open_fraction = min(0.95, max(0.05, (360.0 - shutter_deg) / 360.0))
+        self._trig_hist = deque(maxlen=9)
+        self._budget_warned_at = -1000
         self.capture_timeout = float(getattr(args, "capture_timeout_ms", 150.0)) / 1000.0
         self.bracket_settle_frames = int(getattr(args, "bracket_settle_frames", 2))
         self.ring_size = int(getattr(args, "frame_ring_size", 12))
@@ -385,9 +417,15 @@ cdef class DigitizeVideo:
             self.logger.error("Grabber: camera delivers no frames (check camera / settings)")
         else:
             self.logger.info(
-                f"Grabber running; capture window {self.capture_window * 1000:.0f} ms, "
+                f"Grabber running; d_min {self.capture_min_delay * 1000:.0f} ms, "
+                f"window after d_min {self.capture_window * 1000:.0f} ms, "
                 f"timeout {self.capture_timeout * 1000:.0f} ms, ring of {self._frame_ring.maxlen} frames"
             )
+            if self._min_delay_is_default:
+                self.logger.warning(
+                    f"d_min = {self.capture_min_delay * 1000:.0f} ms is the uncalibrated default - "
+                    f"determine the real value with d_min_from_images.py and pass capture_min_delay_ms"
+                )
 
     def _grab_loop(self) -> None:
         """Grabber thread: read the camera continuously and keep the newest frames with their arrival time."""
@@ -522,18 +560,15 @@ cdef class DigitizeVideo:
         self.signal_observer = SignalObserver(self.final_write_to_disk, logging.getLogger(__name__ + ".SignalObserver"))
 
         # Capture runs on its own thread, so cap.read() can never block the FT232H poller.
-        self._pending = 0
-        self._pending_lock = threading.Lock()
         self.capture_scheduler = EventLoopScheduler(
             thread_factory=lambda target: threading.Thread(target=target, name="capture", daemon=True)
         )
 
         # Subscribe to subject:
-        #  1) do_action runs on the poller thread and only counts the event (microseconds),
-        #  2) observe_on hands the event (and later on_completed) over to the capture thread,
-        #  3) map runs the actual capture there, one event after the other, in order.
+        #  1) observe_on hands the event (and later on_completed) over to the capture thread,
+        #     the poller thread only enqueues it (microseconds),
+        #  2) map runs the actual capture there, one event after the other, in order.
         self.photoCellSignalDisposable = self.signal_subject.pipe(
-            ops.do_action(on_next=self._event_queued),
             ops.observe_on(self.capture_scheduler),
             ops.map(self._capture_safe),
         ).subscribe(self.signal_observer)
@@ -547,18 +582,6 @@ cdef class DigitizeVideo:
             except Exception:
                 pass
 
-    def _event_queued(self, event) -> None:
-        """Runs on the poller thread: count the event and warn if the capture thread falls behind."""
-        with self._pending_lock:
-            self._pending += 1
-            pending = self._pending
-        if pending > 1:
-            # one event is already being captured; this one has to wait for it
-            self.logger.warning(
-                f"[Capture] backlog: {pending - 1} trigger(s) waiting for the capture thread "
-                f"(frame {event[0]}) - captures are falling behind the projector"
-            )
-
     def _capture_safe(self, event):
         """
         Runs on the capture thread: capture one trigger event.
@@ -569,9 +592,6 @@ cdef class DigitizeVideo:
             self.handle_trigger(event)
         except Exception:
             self.logger.exception(f"[Capture] capture failed for event {event!r}")
-        finally:
-            with self._pending_lock:
-                self._pending -= 1
         return None
 
     cpdef connect(self, Ft232hConnector conn):
@@ -775,20 +795,60 @@ cdef class DigitizeVideo:
                 self.buffers_in_use[buffer_index] = False
 
 
+    def _check_budget(self, double trigger_ts, long frame_count) -> None:
+        """
+        Warn (at most once per 100 film frames) if no camera frame is guaranteed to fall into the
+        time the lens is open. Uses the measured projector cycle (median of the last trigger
+        intervals), the shutter width and the measured camera frame period.
+        The check is cautious: the lens is assumed to be open open_fraction * cycle after the
+        trigger, and a frame needs d_min + one camera period (+ 3 ms jitter) to be guaranteed.
+        """
+        hist = self._trig_hist
+        hist.append(trigger_ts)
+        n = len(hist)
+        if n < 6:
+            return
+        ts = list(hist)
+        cycles = sorted([ts[i + 1] - ts[i] for i in range(n - 1)])
+        cycle = cycles[(n - 1) // 2]
+
+        with self._frame_cond:
+            arr = [e[1] for e in self._frame_ring]
+        if len(arr) < 4:
+            return
+        periods = sorted([arr[i + 1] - arr[i] for i in range(len(arr) - 1)])
+        period = periods[(len(arr) - 1) // 2]
+
+        t_open = self.open_fraction * cycle
+        need = self.capture_min_delay + period + 0.003
+        if need > t_open and (frame_count - self._budget_warned_at) >= 100:
+            self._budget_warned_at = frame_count
+            self.logger.warning(
+                f"[Capture] rest window too short: cycle {cycle * 1000:.0f} ms, lens open about "
+                f"{t_open * 1000:.0f} ms, but d_min {self.capture_min_delay * 1000:.0f} ms + camera period "
+                f"{period * 1000:.0f} ms + 3 ms = {need * 1000:.0f} ms - no frame is guaranteed to be "
+                f"captured while the film is at rest (slow the projector down, use a faster camera, "
+                f"or lower exposure/d_min)"
+            )
+
     def take_picture(self, int picture_count, double trigger_ts) -> None:
         """
         Select the frame(s) that belong to one trigger and copy them into the shared buffer.
 
-        Bracket 0: the first camera frame that arrived at or after the trigger (trigger_ts is the
-        poller's perf_counter() stamp). If that frame arrived within capture_window after the trigger
-        the film was at rest and the capture is fine. Otherwise the best available frame is used
-        and flagged SUSPECT:
-          - LATE   : first frame after the trigger, but it arrived after the window
-          - STALE  : no frame after the trigger within capture_timeout; newest frame from before it
+        Bracket 0: the first camera frame that arrived at or after trigger + d_min (trigger_ts is the
+        poller's perf_counter() stamp, d_min = capture_min_delay). A frame that arrives sooner was
+        exposed while the shutter still covered the lens and is never taken. If the chosen frame
+        arrived no later than d_min + capture_window the capture is fine. Otherwise the best
+        available frame is used and flagged SUSPECT:
+          - LATE   : first frame after d_min, but it arrived after d_min + window
+          - STALE  : no frame after d_min within capture_timeout; newest frame from before it
           - NOFRAME: the camera delivered nothing at all; a blank image is written
+        capture_info records per film frame: delay of the chosen frame after the trigger, the suspect
+        flag and capture_work_ms (arrival of the chosen frame -> image in the shared buffer, i.e. the
+        real processing time, as opposed to the latency trigger -> buffer in column "capture opencv").
         Further brackets: after an exposure change the next `bracket_settle_frames` frames are
         skipped (the new exposure needs a frame or two to take effect). They are judged against the
-        same window, which is usually missed - the film moves on after the window.
+        same latest-arrival limit (d_min + window), which is usually missed - the film moves on.
         """
         frame_count = picture_count
 
@@ -799,22 +859,35 @@ cdef class DigitizeVideo:
         desc_arr = self._desc_arrays[buf_idx]
         frames_per_buffer = self._frames_per_buffer
         img_bytes = self.img_bytes
-        window = self.capture_window
+        min_delay = self.capture_min_delay
+        late_limit = min_delay + self.capture_window     # latest acceptable arrival after the trigger
         timeout = self.capture_timeout
         n_brackets = len(exposures)
+
+        self._check_budget(trigger_ts, frame_count)
 
         cdef np.uint8_t[:, :, :] src_mv
         cdef np.uint8_t[:, :, :] dst_mv
         cdef unsigned char* src_ptr
         cdef unsigned char* dst_ptr
 
-        min_ts = trigger_ts
+        min_ts = trigger_ts + min_delay
         min_seq = 0
-        # deadline for the first bracket is relative to the trigger; if the capture thread runs late
+        # deadline for the first bracket is relative to d_min; if the capture thread runs late
         # the frame is usually already in the ring and returned at once
-        deadline = trigger_ts + timeout
+        deadline = min_ts + timeout
         first_delay_ms = None
+        first_work_ms = None
         any_suspect = False
+
+        # Is the capture thread behind? Waiting for the camera frame is normal and does not count;
+        # only a capture that STARTS after trigger + d_min is late.
+        start_lag = time.perf_counter() - min_ts
+        if start_lag > CAPTURE_START_LAG_WARN_S:
+            self.logger.warning(
+                f"[Capture] capture of frame {frame_count} started {start_lag * 1000:.0f} ms after "
+                f"trigger + d_min - the capture thread is behind"
+            )
 
         for bracket_index, (exp_val, suffix) in enumerate(exposures):
             entry = self._wait_frame(min_ts, min_seq, deadline)
@@ -822,17 +895,20 @@ cdef class DigitizeVideo:
             status = "ok"
             if entry is not None:
                 frame_data = entry[2]
-                delay = entry[1] - trigger_ts
-                if delay > window:
+                frame_ts = entry[1]
+                delay = frame_ts - trigger_ts
+                if delay > late_limit:
                     status = "LATE"
             else:
                 latest = self._latest_frame()
                 if latest is not None:
                     frame_data = latest[2]
-                    delay = latest[1] - trigger_ts          # negative: frame is older than the trigger
+                    frame_ts = latest[1]
+                    delay = frame_ts - trigger_ts           # negative: frame is older than the trigger
                     status = "STALE"
                 else:
                     frame_data = None
+                    frame_ts = float("nan")
                     delay = float("nan")
                     status = "NOFRAME"
 
@@ -845,7 +921,8 @@ cdef class DigitizeVideo:
                 self.suspect_count += 1
                 self.logger.warning(
                     f"[Capture] SUSPECT frame {frame_count}{suffix}: {status}, "
-                    f"delay {delay * 1000:.1f} ms (window {window * 1000:.0f} ms), exposure {exp_val}"
+                    f"delay {delay * 1000:.1f} ms (d_min {min_delay * 1000:.0f} ms, latest {late_limit * 1000:.0f} ms), "
+                    f"exposure {exp_val}"
                 )
 
             if self.bracketing and (bracket_index < (n_brackets - 1)):
@@ -875,6 +952,10 @@ cdef class DigitizeVideo:
 
             memcpy(dst_ptr, src_ptr, img_bytes)
 
+            if first_work_ms is None:
+                # processing time: arrival of the chosen camera frame -> image in the shared buffer
+                first_work_ms = (time.perf_counter() - frame_ts) * 1000.0
+
             desc_arr[frame_index, 0] = np.uint32(img_bytes)
             desc_arr[frame_index, 1] = np.uint32(frame_count)
             desc_arr[frame_index, 2] = np.uint32(bracket_index)
@@ -886,8 +967,8 @@ cdef class DigitizeVideo:
 
             self.processed_frames += 1
 
-        # delay (first bracket) and suspect flag per film frame for the timing CSV
-        self.capture_info[frame_count] = (first_delay_ms, 1 if any_suspect else 0)
+        # delay (first bracket), suspect flag and processing time per film frame for the timing CSV
+        self.capture_info[frame_count] = (first_delay_ms, 1 if any_suspect else 0, first_work_ms)
 
         if self.bracketing:
             first_exp, _ = exposures[0]
@@ -969,20 +1050,22 @@ cdef class DigitizeVideo:
 
         with open(filename, "w") as f:
             f.write("frame,capture opencv,work,cycle (work + latency),latency,wait_time,total_work,"
-                    "frame_delay_ms,suspect\n")
+                    "frame_delay_ms,suspect,capture_work_ms\n")
 
             for i in range(rows):
                 info = self.capture_info.get(int(buf[i, count]))
                 if info is not None:
                     delay_ms = "" if info[0] != info[0] else f"{info[0]:.3f}"   # nan -> empty
                     suspect = info[1]
+                    work_ms = "" if (info[2] is None or info[2] != info[2]) else f"{info[2]:.3f}"
                 else:
                     delay_ms = ""      # no capture for this row (e.g. trigger not processed)
                     suspect = ""
+                    work_ms = ""
                 f.write(
                     f"{buf[i, count]},{buf[i, capture]},{buf[i, work]},{buf[i, cycle]},"
                     f"{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]},"
-                    f"{delay_ms},{suspect}\n"
+                    f"{delay_ms},{suspect},{work_ms}\n"
                 )
 
     def wait_for_completion(self, timeout: float = None) -> bool:
