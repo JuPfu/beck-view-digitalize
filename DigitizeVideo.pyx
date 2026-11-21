@@ -19,10 +19,21 @@ Design notes (Option B):
   maintains shared memory buffers which are handed to worker processes, and
   writes frames via WriteImages (process pool).
 
+- Capture is decoupled from the poller:
+  The poller thread (Ft232hConnector) only publishes (count, timestamp) events.
+  The subscription hops over to a dedicated single-thread scheduler
+  (observe_on(EventLoopScheduler)), so camera reads (cap.read()) never block the
+  poller. A slow read can therefore no longer make the poller overlook the next
+  OK1 pulse (OK1 is only ~10 ms wide, the projector cycle is ~155 ms).
+  Events are queued and processed in order; on_completed is queued behind the last
+  event, so final_write_to_disk() always runs after the last queued capture.
+  NOTE: decoupling prevents lost *events*; a slow read still delivers a *late*
+  image. A backlog warning is logged when captures fall behind the projector.
+
 - Shutdown sequence:
     1) FT232H poller signals EOF by calling subject.on_completed()
-    2) DigitizeVideo sees the on_completed event (completion_event) and starts
-       final_write_to_disk() to flush remaining frames to disk.
+    2) The completion is delivered on the capture thread after all queued captures
+       and starts final_write_to_disk() to flush remaining frames to disk.
     3) After final write finishes, the Connector is closed, pools are closed,
        shared memory is unlinked, and the program exits gracefully.
 """
@@ -40,6 +51,7 @@ from libc.string cimport memcpy
 import platform
 import logging
 import multiprocessing
+from collections import deque
 from multiprocessing import shared_memory
 import concurrent.futures
 import threading
@@ -53,6 +65,7 @@ from typing import List
 
 import cv2
 from reactivex import operators as ops, Observer
+from reactivex.scheduler import EventLoopScheduler
 from reactivex.subject import Subject
 
 from TypeDefinitions import ImgDescType, SubjectDescType
@@ -64,6 +77,12 @@ from Ft232hConnector import get_timing, get_timing_view
 from TimingResult cimport TimingResult as CTimingResult
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+# Number of uint32 columns per frame in the descriptor shared memory handed to WriteImages:
+#   0 = bytes per image, 1 = film frame number, 2 = bracket index
+# Set to 4 as soon as write_images() reads column 3 (1 = suspect capture) and appends a
+# marker such as "_SUSPECT" to the file name. With 3 the flag is only logged / written to the CSV.
+DESCRIPTOR_COLUMNS = 3
 
 
 cdef class DigitizeVideo:
@@ -116,6 +135,25 @@ cdef class DigitizeVideo:
         object photoCellSignalDisposable  # subscription disposable
         object completion_disposable     # subscription for on_completed -> set event
         object wait_subject             # completed when the shutdown is finished
+
+        # continuous camera reader ("grabber") and frame selection
+        object _grab_thread             # thread that reads the camera all the time
+        object _grab_stop               # threading.Event: ask the grabber to end
+        object _frame_ring              # deque of (seq, arrival_time, frame), oldest first
+        object _frame_cond              # threading.Condition protecting the ring
+        object _cap_lock                # serializes cap.grab()/retrieve() and cap.set()
+        long _grab_seq                  # sequence number of the newest frame
+        double capture_window           # s after trigger in which the film is at rest
+        double capture_timeout          # s: longest wait for a frame after a trigger
+        int bracket_settle_frames       # frames to skip after an exposure change
+        int ring_size
+        long suspect_count
+        object capture_info             # film frame -> [delay_ms of first bracket, suspect 0/1]
+
+        # decoupling of capture from the poller thread
+        object capture_scheduler        # EventLoopScheduler: single "capture" thread
+        object _pending_lock            # protects _pending
+        int _pending                    # events queued or in progress on the capture thread
 
         # shared memory buffers for workers
         list shared_buffers            # list of shared_memory.SharedMemory objects
@@ -179,6 +217,15 @@ cdef class DigitizeVideo:
         self.settings = bool(args.settings)
         self.gui = bool(args.gui)
 
+        # frame selection (optional attributes of args; defaults are placeholders to be tuned
+        # to the real rest time of the film frame in front of the camera)
+        self.capture_window = float(getattr(args, "capture_window_ms", 60.0)) / 1000.0
+        self.capture_timeout = float(getattr(args, "capture_timeout_ms", 150.0)) / 1000.0
+        self.bracket_settle_frames = int(getattr(args, "bracket_settle_frames", 2))
+        self.ring_size = int(getattr(args, "frame_ring_size", 12))
+        self.suspect_count = 0
+        self.capture_info = {}
+
         # subject to receive signals from FT232H connector
         self.signal_subject = signal_subject
 
@@ -192,6 +239,7 @@ cdef class DigitizeVideo:
         self.initialize_bracketing()
         self.initialize_camera()
         self.log_camera_properties()
+        self.initialize_grabber()
         self.initialize_threads()
         self.initialize_process_pool()
 
@@ -304,6 +352,105 @@ cdef class DigitizeVideo:
         # debug/log some properties
         self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
 
+    def initialize_grabber(self) -> None:
+        """
+        Start the thread that reads the camera continuously.
+
+        Every frame is stamped with time.perf_counter() right after cap.grab() returned
+        (same clock as the trigger timestamp of the FT232H poller) and kept in a short ring.
+        A trigger then picks the first frame that arrived after it, see _wait_frame().
+        Because the camera is drained all the time, there is no stale driver queue and no
+        long first read. The method returns after a few warm-up frames have arrived.
+        """
+        warmup_frames = 5
+
+        self._frame_ring = deque(maxlen=max(4, self.ring_size))
+        self._frame_cond = threading.Condition()
+        self._cap_lock = threading.Lock()
+        self._grab_stop = threading.Event()
+        self._grab_seq = 0
+
+        self._grab_thread = threading.Thread(target=self._grab_loop, name="grabber", daemon=True)
+        self._grab_thread.start()
+
+        deadline = time.perf_counter() + 5.0
+        with self._frame_cond:
+            while self._grab_seq < warmup_frames:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                self._frame_cond.wait(remaining)
+
+        if self._grab_seq < warmup_frames:
+            self.logger.error("Grabber: camera delivers no frames (check camera / settings)")
+        else:
+            self.logger.info(
+                f"Grabber running; capture window {self.capture_window * 1000:.0f} ms, "
+                f"timeout {self.capture_timeout * 1000:.0f} ms, ring of {self._frame_ring.maxlen} frames"
+            )
+
+    def _grab_loop(self) -> None:
+        """Grabber thread: read the camera continuously and keep the newest frames with their arrival time."""
+        cap = self.cap
+        cond = self._frame_cond
+        ring = self._frame_ring
+        failures = 0
+
+        while not self._grab_stop.is_set():
+            ok = False
+            frame = None
+            ts = 0.0
+            try:
+                with self._cap_lock:
+                    ok = cap.grab()
+                    ts = time.perf_counter()          # arrival time of the frame
+                    if ok:
+                        ok, frame = cap.retrieve()    # decode after the timestamp was taken
+            except Exception as e:
+                ok = False
+                if failures % 100 == 0:
+                    self.logger.error(f"Grabber: camera read raised {e}")
+
+            if not ok or frame is None:
+                failures += 1
+                if failures == 1 or failures % 200 == 0:
+                    self.logger.warning(f"Grabber: camera read failed ({failures} in a row)")
+                time.sleep(0.005)
+                continue
+            failures = 0
+
+            if not frame.flags.c_contiguous or frame.dtype != np.uint8:
+                frame = np.ascontiguousarray(frame, dtype=np.uint8)
+
+            with cond:
+                self._grab_seq += 1
+                ring.append((self._grab_seq, ts, frame))
+                cond.notify_all()
+
+    def _wait_frame(self, double min_ts, long min_seq, double deadline):
+        """
+        Return the oldest ring entry (seq, arrival_time, frame) that arrived at or after min_ts and
+        has a sequence number >= min_seq. Waits until `deadline` (perf_counter time) for it.
+        A frame that is already in the ring is returned immediately, also when the capture thread
+        runs late. Returns None if no such frame exists in time.
+        """
+        with self._frame_cond:
+            while True:
+                for entry in self._frame_ring:          # oldest first
+                    if entry[0] >= min_seq and entry[1] >= min_ts:
+                        return entry
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    return None
+                self._frame_cond.wait(remaining)
+
+    def _latest_frame(self):
+        """Newest ring entry or None."""
+        with self._frame_cond:
+            # no negative index: wraparound=False is set for this module
+            n = len(self._frame_ring)
+            return self._frame_ring[n - 1] if n > 0 else None
+
     def log_camera_properties(self) -> None:
         """
         Log all relevant OpenCV VideoCapture properties.
@@ -374,9 +521,21 @@ cdef class DigitizeVideo:
         # SignalObserver triggers final_write_to_disk on subject completion.
         self.signal_observer = SignalObserver(self.final_write_to_disk, logging.getLogger(__name__ + ".SignalObserver"))
 
-        # Subscribe to subject: capture immediately on incoming events.
+        # Capture runs on its own thread, so cap.read() can never block the FT232H poller.
+        self._pending = 0
+        self._pending_lock = threading.Lock()
+        self.capture_scheduler = EventLoopScheduler(
+            thread_factory=lambda target: threading.Thread(target=target, name="capture", daemon=True)
+        )
+
+        # Subscribe to subject:
+        #  1) do_action runs on the poller thread and only counts the event (microseconds),
+        #  2) observe_on hands the event (and later on_completed) over to the capture thread,
+        #  3) map runs the actual capture there, one event after the other, in order.
         self.photoCellSignalDisposable = self.signal_subject.pipe(
-            ops.map(lambda event: self.handle_trigger(event))
+            ops.do_action(on_next=self._event_queued),
+            ops.observe_on(self.capture_scheduler),
+            ops.map(self._capture_safe),
         ).subscribe(self.signal_observer)
 
         # Also subscribe only for completion to set a local event we can wait on.
@@ -387,6 +546,33 @@ cdef class DigitizeVideo:
                 self._completion_event.set()
             except Exception:
                 pass
+
+    def _event_queued(self, event) -> None:
+        """Runs on the poller thread: count the event and warn if the capture thread falls behind."""
+        with self._pending_lock:
+            self._pending += 1
+            pending = self._pending
+        if pending > 1:
+            # one event is already being captured; this one has to wait for it
+            self.logger.warning(
+                f"[Capture] backlog: {pending - 1} trigger(s) waiting for the capture thread "
+                f"(frame {event[0]}) - captures are falling behind the projector"
+            )
+
+    def _capture_safe(self, event):
+        """
+        Runs on the capture thread: capture one trigger event.
+        Exceptions are logged and swallowed; an exception escaping from map() would terminate
+        the whole subscription and silently stop all further captures.
+        """
+        try:
+            self.handle_trigger(event)
+        except Exception:
+            self.logger.exception(f"[Capture] capture failed for event {event!r}")
+        finally:
+            with self._pending_lock:
+                self._pending -= 1
+        return None
 
     cpdef connect(self, Ft232hConnector conn):
         """
@@ -406,8 +592,9 @@ cdef class DigitizeVideo:
             self.logger.error(f"DigitizeVideo.connect: could not obtain timing_view: {e}")
 
     cpdef bint set_exposure(self, double exp_val):
-        """Set camera exposure; return True on success."""
-        return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
+        """Set camera exposure; return True on success (serialized with the grabber thread)."""
+        with self._cap_lock:
+            return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
 
     def shm_to_uint8_4d(self, buf, Py_ssize_t frames, int h, int w):
         """
@@ -450,9 +637,9 @@ cdef class DigitizeVideo:
             arr = self.shm_to_uint8_4d(shm.buf, frames_per_buffer, self.img_height, self.img_width)
             self._shm_arrays.append(arr)
 
-            desc_nbytes = frames_per_buffer * 3 * np.dtype(np.uint32).itemsize
+            desc_nbytes = frames_per_buffer * DESCRIPTOR_COLUMNS * np.dtype(np.uint32).itemsize
             dshm = shared_memory.SharedMemory(create=True, size=desc_nbytes)
-            desc_arr = np.ndarray((frames_per_buffer, 3), dtype=np.uint32, buffer=dshm.buf)
+            desc_arr = np.ndarray((frames_per_buffer, DESCRIPTOR_COLUMNS), dtype=np.uint32, buffer=dshm.buf)
             desc_arr.fill(0)
             self._desc_shms.append(dshm)
             self._desc_arrays.append(desc_arr)
@@ -505,8 +692,8 @@ cdef class DigitizeVideo:
 
         frame_count, start_cycle = event
 
-        # retrieve frame from camera
-        self.take_picture(frame_count)
+        # pick the frame(s) belonging to this trigger from the grabber ring
+        self.take_picture(frame_count, start_cycle)
 
         # If we've completed a chunk, schedule writing to disk
         if (self.processed_frames % self.chunk_size) == 0:
@@ -525,18 +712,21 @@ cdef class DigitizeVideo:
         if (self.processed_frames % 100) == 0:
             self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
 
-        # add capture duration to timing statistics
+        # add capture duration (trigger -> image in buffer, incl. time spent in the queue)
+        # to the timing statistics. The row index is the film frame number: the poller appends
+        # row <count> for every trigger. (Using processed_frames here was off by one row, and
+        # off by a factor of 3 with bracketing, because it is incremented in take_picture().)
         try:
-            if self.processed_frames < self.timing_view.max_frames:
+            if frame_count < self.timing_view.max_frames:
                 buf = self.timing_view.buf
-                buf[self.processed_frames, 3] = capture_duration
+                buf[frame_count, 3] = capture_duration
             else:
                 self.logger.error(
-                    f"Timing buffer overflow at frame {self.processed_frames}, "
+                    f"Timing buffer overflow at frame {frame_count}, "
                     f"max={self.timing_view.max_frames}"
                 )
         except Exception:
-            self.logger.error(f"Could not add {capture_duration=} for frame {self.processed_frames} to self.timing_view")
+            self.logger.error(f"Could not add {capture_duration=} for frame {frame_count} to self.timing_view")
             pass
 
 
@@ -584,8 +774,21 @@ cdef class DigitizeVideo:
                 self.buffers_in_use[buffer_index] = False
 
 
-    def take_picture(self, int picture_count) -> None:
-        """Capture one (or multiple if bracketing) frames and copy into shared buffer."""
+    def take_picture(self, int picture_count, double trigger_ts) -> None:
+        """
+        Select the frame(s) that belong to one trigger and copy them into the shared buffer.
+
+        Bracket 0: the first camera frame that arrived at or after the trigger (trigger_ts is the
+        poller's perf_counter() stamp). If that frame arrived within capture_window after the trigger
+        the film was at rest and the capture is fine. Otherwise the best available frame is used
+        and flagged SUSPECT:
+          - LATE   : first frame after the trigger, but it arrived after the window
+          - STALE  : no frame after the trigger within capture_timeout; newest frame from before it
+          - NOFRAME: the camera delivered nothing at all; a blank image is written
+        Further brackets: after an exposure change the next `bracket_settle_frames` frames are
+        skipped (the new exposure needs a frame or two to take effect). They are judged against the
+        same window, which is usually missed - the film moves on after the window.
+        """
         frame_count = picture_count
 
         frame_multiplier = self.frame_multiplier
@@ -595,31 +798,74 @@ cdef class DigitizeVideo:
         desc_arr = self._desc_arrays[buf_idx]
         frames_per_buffer = self._frames_per_buffer
         img_bytes = self.img_bytes
+        window = self.capture_window
+        timeout = self.capture_timeout
+        n_brackets = len(exposures)
 
         cdef np.uint8_t[:, :, :] src_mv
         cdef np.uint8_t[:, :, :] dst_mv
         cdef unsigned char* src_ptr
         cdef unsigned char* dst_ptr
 
-        for bracket_index, (exp_val, suffix) in enumerate(exposures):
-            success, frame_data = self.cap.read()
+        min_ts = trigger_ts
+        min_seq = 0
+        # deadline for the first bracket is relative to the trigger; if the capture thread runs late
+        # the frame is usually already in the ring and returned at once
+        deadline = trigger_ts + timeout
+        first_delay_ms = None
+        any_suspect = False
 
-            if self.bracketing and (bracket_index < (len(exposures) - 1)):
-                # set exposure value for next frame read
+        for bracket_index, (exp_val, suffix) in enumerate(exposures):
+            entry = self._wait_frame(min_ts, min_seq, deadline)
+
+            status = "ok"
+            if entry is not None:
+                frame_data = entry[2]
+                delay = entry[1] - trigger_ts
+                if delay > window:
+                    status = "LATE"
+            else:
+                latest = self._latest_frame()
+                if latest is not None:
+                    frame_data = latest[2]
+                    delay = latest[1] - trigger_ts          # negative: frame is older than the trigger
+                    status = "STALE"
+                else:
+                    frame_data = None
+                    delay = float("nan")
+                    status = "NOFRAME"
+
+            suspect = status != "ok"
+            if first_delay_ms is None:
+                first_delay_ms = delay * 1000.0
+
+            if suspect:
+                any_suspect = True
+                self.suspect_count += 1
+                self.logger.warning(
+                    f"[Capture] SUSPECT frame {frame_count}{suffix}: {status}, "
+                    f"delay {delay * 1000:.1f} ms (window {window * 1000:.0f} ms), exposure {exp_val}"
+                )
+
+            if self.bracketing and (bracket_index < (n_brackets - 1)):
+                # change the exposure for the next bracket; the next usable frame is the first one
+                # that arrives after `settle` further frames
                 next_exp, _ = exposures[bracket_index + 1]
                 if not self.set_exposure(next_exp):
                     self.logger.error(f"Could not set exposure to {next_exp} for frame {frame_count}{suffix}")
-                time.sleep(0.01)
+                latest = self._latest_frame()
+                latest_seq = latest[0] if latest is not None else 0
+                min_seq = latest_seq + 1 + self.bracket_settle_frames
+                min_ts = time.perf_counter()
+                deadline = min_ts + timeout
 
             logical_index = frame_count * frame_multiplier
             frame_index = (logical_index + bracket_index) % frames_per_buffer
 
-            if success:
-                if not frame_data.flags.c_contiguous or frame_data.dtype != np.uint8:
-                    frame_data = np.ascontiguousarray(frame_data, dtype=np.uint8)
+            if frame_data is not None:
                 src_mv = frame_data
             else:
-                self.logger.error(f"Read error at frame {frame_count}{suffix}, exposure {exp_val}")
+                self.logger.error(f"No camera frame for frame {frame_count}{suffix}, writing blank image")
                 src_mv = self.blank_frame
 
             dst_mv = shm_frames[frame_index]
@@ -631,11 +877,16 @@ cdef class DigitizeVideo:
             desc_arr[frame_index, 0] = np.uint32(img_bytes)
             desc_arr[frame_index, 1] = np.uint32(frame_count)
             desc_arr[frame_index, 2] = np.uint32(bracket_index)
+            if DESCRIPTOR_COLUMNS > 3:
+                desc_arr[frame_index, 3] = np.uint32(1 if suspect else 0)
 
             with self.img_desc_lock:
                 self.img_desc.append((img_bytes, frame_count, suffix))
 
             self.processed_frames += 1
+
+        # delay (first bracket) and suspect flag per film frame for the timing CSV
+        self.capture_info[frame_count] = (first_delay_ms, 1 if any_suspect else 0)
 
         if self.bracketing:
             first_exp, _ = exposures[0]
@@ -685,6 +936,10 @@ cdef class DigitizeVideo:
         self.logger.info(f"Total saved images (incl. exposures): {self.processed_frames}")
         self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info(f"Average FPS: {average_fps:.2f}")
+        if self.suspect_count:
+            self.logger.warning(f"SUSPECT captures: {self.suspect_count} (see log and CSV column 'suspect')")
+        else:
+            self.logger.info("SUSPECT captures: 0")
 
         time_now  = datetime.now()
         fname = str(self.output_path / f"timing_{time_now.strftime('%Y_%m_%d_%H_%M_%S')}_{self.processed_frames:05d}.csv")
@@ -711,14 +966,22 @@ cdef class DigitizeVideo:
         rows = self.timing_view.size
 
         with open(filename, "w") as f:
-            f.write("frame,capture opencv,work,cycle (work + latency),latency,wait_time,total_work\n")
+            f.write("frame,capture opencv,work,cycle (work + latency),latency,wait_time,total_work,"
+                    "frame_delay_ms,suspect\n")
 
             for i in range(rows):
+                info = self.capture_info.get(int(buf[i, count]))
+                if info is not None:
+                    delay_ms = "" if info[0] != info[0] else f"{info[0]:.3f}"   # nan -> empty
+                    suspect = info[1]
+                else:
+                    delay_ms = ""      # no capture for this row (e.g. trigger not processed)
+                    suspect = ""
                 f.write(
                     f"{buf[i, count]},{buf[i, capture]},{buf[i, work]},{buf[i, cycle]},"
-                    f"{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]}\n"
+                    f"{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]},"
+                    f"{delay_ms},{suspect}\n"
                 )
-            f.close()
 
     def wait_for_completion(self, timeout: float = None) -> bool:
         """
@@ -811,6 +1074,30 @@ cdef class DigitizeVideo:
                         pass
             except Exception:
                 self.logger.exception(f"Error disposing {attr}")
+
+        # 4b) Stop the capture thread's event loop (cleanup() normally runs on that very thread,
+        #     dispose() only flags it for shutdown and does not join)
+        try:
+            sched = getattr(self, "capture_scheduler", None)
+            if sched is not None:
+                sched.dispose()
+        except Exception:
+            self.logger.debug("capture_scheduler.dispose() raised (ignored)")
+
+        # 4c) Stop the grabber before the camera is released
+        try:
+            stop_ev = getattr(self, "_grab_stop", None)
+            if stop_ev is not None:
+                stop_ev.set()
+            gt = getattr(self, "_grab_thread", None)
+            if gt is not None and gt is not threading.current_thread():
+                gt.join(2.0)
+            ring = getattr(self, "_frame_ring", None)
+            if ring is not None:
+                with self._frame_cond:
+                    ring.clear()
+        except Exception:
+            self.logger.exception("Error stopping grabber")
 
         # 5) Release camera (if present)
         try:
