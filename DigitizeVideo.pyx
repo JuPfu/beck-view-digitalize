@@ -87,13 +87,17 @@ LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 DESCRIPTOR_COLUMNS = 4
 
 # d_min: earliest delay after the trigger at which a camera frame is taken as "the current film
-# frame". A frame that arrives sooner was exposed while the rotating shutter still covered the lens
-# (exposure + sensor read-out + USB transfer + driver all lie between exposure and arrival).
-# The default is a deliberately cautious placeholder: one camera period at 30 fps (33 ms) plus the
-# exposure (8 ms). It is NOT calibrated. Determine the real value with d_min_from_images.py and pass it
-# as capture_min_delay_ms. It belongs to the camera setup (camera, resolution, exposure, fps, USB,
-# computer), not to the film or the projector speed.
-DEFAULT_CAPTURE_MIN_DELAY_MS = 40.0
+# frame". A frame that arrives sooner was exposed while the rotating shutter still covered the lens.
+# d_min = E (exposure) + R (sensor read-out, a rolling shutter exposes the rows one after the other)
+#         + transfer and driver time of the camera.
+# The default is an UNCALIBRATED upper estimate: E 8 ms + R <= one camera period (33 ms) + transfer
+# <= 33 ms = about 75 ms. Errors are not symmetric: a d_min that is too small silently lets frames
+# through that were still (partly) covered; a d_min that is too large only costs margin of the open
+# phase, which is ample at slow projector speeds (see _check_budget, it warns when the margin is
+# gone). Determine the real value with d_min_from_images.py and pass it as capture_min_delay_ms. It
+# belongs to the camera setup (camera, resolution, exposure, fps, USB, computer), not to the film or
+# the projector speed.
+DEFAULT_CAPTURE_MIN_DELAY_MS = 75.0
 
 # width of the shutter blade in degrees (the lens is covered by it during film transport)
 DEFAULT_SHUTTER_DEGREES = 70.0
@@ -164,6 +168,11 @@ cdef class DigitizeVideo:
         double capture_min_delay        # s: d_min, earliest arrival after the trigger that counts
         double capture_window           # s after d_min within which a frame must arrive
         double open_fraction            # share of a projector cycle with the lens open
+        double capture_readout          # s: sensor read-out time R of the camera; < 0: use one camera period
+        bint _readout_is_default        # True: R was not configured (conservative default)
+        double max_exposure             # s: longest exposure time E in use
+        double _usable_window           # s: T_open - E - R from the live cycle; < 0: not known yet
+        bint _default_dmin_warned       # the "uncalibrated d_min at this speed" warning was logged
         bint _min_delay_is_default      # True: d_min was not configured (uncalibrated default)
         object _trig_hist               # last trigger timestamps (cycle estimate)
         long _budget_warned_at          # film frame of the last budget warning
@@ -250,6 +259,14 @@ cdef class DigitizeVideo:
         self.capture_window = float(getattr(args, "capture_window_ms", 60.0)) / 1000.0
         shutter_deg = float(getattr(args, "shutter_degrees", DEFAULT_SHUTTER_DEGREES))
         self.open_fraction = min(0.95, max(0.05, (360.0 - shutter_deg) / 360.0))
+        # R: time the (rolling shutter) sensor needs to read out all rows. Not configured -> the
+        # measured camera frame period is used (R cannot be longer), which is cautious.
+        readout_ms = getattr(args, "capture_readout_ms", None)
+        self._readout_is_default = readout_ms is None
+        self.capture_readout = -1.0 if readout_ms is None else max(0.0, float(readout_ms)) / 1000.0
+        self._usable_window = -1.0
+        self._default_dmin_warned = False
+        self.max_exposure = 0.0
         self._trig_hist = deque(maxlen=9)
         self._budget_warned_at = -1000
         self.capture_timeout = float(getattr(args, "capture_timeout_ms", 150.0)) / 1000.0
@@ -269,6 +286,7 @@ cdef class DigitizeVideo:
 
         # capture settings & buffers
         self.initialize_bracketing()
+        self.max_exposure = self._max_exposure_s()
         self.initialize_camera()
         self.log_camera_properties()
         self.initialize_grabber()
@@ -316,6 +334,14 @@ cdef class DigitizeVideo:
         signal.signal(signal.SIGTERM, self._on_signal)
         if hasattr(signal, "SIGBREAK"):
             signal.signal(signal.SIGBREAK, self._on_signal)
+
+    def _max_exposure_s(self) -> float:
+        """Longest exposure time E in seconds (Linux/macOS: seconds, Windows: log2 of seconds)."""
+        e = 0.0
+        for exp_val, _ in self.exposures:
+            v = float(exp_val)
+            e = max(e, v if v > 0 else 2.0 ** v)
+        return e
 
     def initialize_bracketing(self) -> None:
         """Prepare exposure triplets (or single) depending on platform/flags."""
@@ -421,6 +447,17 @@ cdef class DigitizeVideo:
                 f"window after d_min {self.capture_window * 1000:.0f} ms, "
                 f"timeout {self.capture_timeout * 1000:.0f} ms, ring of {self._frame_ring.maxlen} frames"
             )
+            self.logger.info(
+                f"Rest window model: exposure E {self.max_exposure * 1000:.1f} ms, sensor read-out R "
+                + ("= one camera period (not configured)" if self._readout_is_default
+                   else f"{self.capture_readout * 1000:.1f} ms")
+                + f", lens open {self.open_fraction * 100:.0f} % of the cycle"
+            )
+            if self._readout_is_default:
+                self.logger.warning(
+                    "capture_readout_ms not set: assuming the cautious worst case (read-out = one camera "
+                    "period). Measure it with d_min_from_images.py and pass capture_readout_ms"
+                )
             if self._min_delay_is_default:
                 self.logger.warning(
                     f"d_min = {self.capture_min_delay * 1000:.0f} ms is the uncalibrated default - "
@@ -554,7 +591,7 @@ cdef class DigitizeVideo:
     def initialize_threads(self) -> None:
         """Create thread pool and subscribe to the signal_subject for captures."""
         cpu_count = multiprocessing.cpu_count()
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(2, cpu_count - 1))
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(2, cpu_count - 2))
 
         # SignalObserver triggers final_write_to_disk on subject completion.
         self.signal_observer = SignalObserver(self.final_write_to_disk, logging.getLogger(__name__ + ".SignalObserver"))
@@ -797,11 +834,16 @@ cdef class DigitizeVideo:
 
     def _check_budget(self, double trigger_ts, long frame_count) -> None:
         """
-        Warn (at most once per 100 film frames) if no camera frame is guaranteed to fall into the
-        time the lens is open. Uses the measured projector cycle (median of the last trigger
-        intervals), the shutter width and the measured camera frame period.
-        The check is cautious: the lens is assumed to be open open_fraction * cycle after the
-        trigger, and a frame needs d_min + one camera period (+ 3 ms jitter) to be guaranteed.
+        Estimate the time window in which a camera frame may ARRIVE so that its whole exposure fell
+        into the time the lens was open, and warn if a frame is not guaranteed to land in it.
+
+        The exposure of a frame (E, plus R because the rows of a rolling shutter sensor are exposed one
+        after the other) must lie within the open time T_open = open_fraction * cycle. Transfer,
+        decoding and copying may happen later, also while the shutter is closed again. Frames arrive
+        between d_min and d_min + W, where W = T_open - E - R. The free-running camera delivers one
+        frame per period p, so a frame is only guaranteed if W >= p (+ 3 ms jitter).
+        The cycle is the median of the last trigger intervals, p the median camera frame interval.
+        The result W is stored in self._usable_window for the LATE decision in take_picture().
         """
         hist = self._trig_hist
         hist.append(trigger_ts)
@@ -819,16 +861,37 @@ cdef class DigitizeVideo:
         periods = sorted([arr[i + 1] - arr[i] for i in range(len(arr) - 1)])
         period = periods[(len(arr) - 1) // 2]
 
+        readout = period if self.capture_readout < 0 else self.capture_readout
         t_open = self.open_fraction * cycle
-        need = self.capture_min_delay + period + 0.003
-        if need > t_open and (frame_count - self._budget_warned_at) >= 100:
-            self._budget_warned_at = frame_count
+        usable = t_open - self.max_exposure - readout
+        self._usable_window = usable
+
+        # The uncalibrated default d_min is only safe while the open phase leaves ample room: d_min may
+        # exceed the true value by at most W - p without letting late frames through.
+        if self._min_delay_is_default and not self._default_dmin_warned and usable - period < 0.040:
+            self._default_dmin_warned = True
             self.logger.warning(
-                f"[Capture] rest window too short: cycle {cycle * 1000:.0f} ms, lens open about "
-                f"{t_open * 1000:.0f} ms, but d_min {self.capture_min_delay * 1000:.0f} ms + camera period "
-                f"{period * 1000:.0f} ms + 3 ms = {need * 1000:.0f} ms - no frame is guaranteed to be "
-                f"captured while the film is at rest (slow the projector down, use a faster camera, "
-                f"or lower exposure/d_min)"
+                f"[Capture] uncalibrated d_min ({self.capture_min_delay * 1000:.0f} ms) at a cycle of "
+                f"{cycle * 1000:.0f} ms: only {max(usable - period, 0.0) * 1000:.0f} ms of slack in the open phase, "
+                f"so a d_min that is too large can let frames through that were partly covered by the closing "
+                f"shutter, a too small one frames that were still covered. Calibrate d_min "
+                f"(d_min_from_images.py) before digitizing at this speed"
+            )
+
+        if usable < period + 0.003 and (frame_count - self._budget_warned_at) >= 100:
+            self._budget_warned_at = frame_count
+            share = max(0.0, min(1.0, usable / period))
+            self.logger.warning(
+                f"[Capture] rest window short: cycle {cycle * 1000:.0f} ms, lens open about "
+                f"{t_open * 1000:.0f} ms - exposure {self.max_exposure * 1000:.1f} ms - read-out "
+                f"{readout * 1000:.0f} ms leaves {max(usable, 0.0) * 1000:.0f} ms for a camera frame to "
+                f"arrive in, but one camera period ({period * 1000:.0f} ms + 3 ms) is needed to guarantee one: "
+                + (f"only about {share * 100:.0f} % of the triggers can get a frame exposed while the film is at rest "
+                   if share < 1.0 else
+                   "the 3 ms margin for timestamp jitter is missing, so a few triggers may miss the rest window ")
+                + f"(slow the projector down, shorten the exposure, use a faster camera"
+                + (", or measure the real read-out time: capture_readout_ms" if self._readout_is_default else "")
+                + ")"
             )
 
     def take_picture(self, int picture_count, double trigger_ts) -> None:
@@ -838,9 +901,11 @@ cdef class DigitizeVideo:
         Bracket 0: the first camera frame that arrived at or after trigger + d_min (trigger_ts is the
         poller's perf_counter() stamp, d_min = capture_min_delay). A frame that arrives sooner was
         exposed while the shutter still covered the lens and is never taken. If the chosen frame
-        arrived no later than d_min + capture_window the capture is fine. Otherwise the best
-        available frame is used and flagged SUSPECT:
-          - LATE   : first frame after d_min, but it arrived after d_min + window
+        arrived no later than d_min + min(capture_window, T_open - E - R) the capture is fine (the
+        second term, from _check_budget(), is the time left in the open phase after exposure and
+        read-out; a frame arriving later was partly exposed while the shutter was closing).
+        Otherwise the best available frame is used and flagged SUSPECT:
+          - LATE   : first frame after d_min, but it arrived after that limit
           - STALE  : no frame after d_min within capture_timeout; newest frame from before it
           - NOFRAME: the camera delivered nothing at all; a blank image is written
         capture_info records per film frame: delay of the chosen frame after the trigger, the suspect
@@ -848,7 +913,7 @@ cdef class DigitizeVideo:
         real processing time, as opposed to the latency trigger -> buffer in column "capture opencv").
         Further brackets: after an exposure change the next `bracket_settle_frames` frames are
         skipped (the new exposure needs a frame or two to take effect). They are judged against the
-        same latest-arrival limit (d_min + window), which is usually missed - the film moves on.
+        same latest-arrival limit, which is usually missed - the film moves on.
         """
         frame_count = picture_count
 
@@ -860,11 +925,15 @@ cdef class DigitizeVideo:
         frames_per_buffer = self._frames_per_buffer
         img_bytes = self.img_bytes
         min_delay = self.capture_min_delay
-        late_limit = min_delay + self.capture_window     # latest acceptable arrival after the trigger
         timeout = self.capture_timeout
         n_brackets = len(exposures)
 
         self._check_budget(trigger_ts, frame_count)
+        # latest acceptable arrival after the trigger: capped by the stall window and, once the live
+        # cycle is known, by what is left of the open phase after exposure and read-out
+        usable = self._usable_window
+        late_limit = min_delay + (self.capture_window if usable < 0
+                                  else min(self.capture_window, max(usable, 0.0)))
 
         cdef np.uint8_t[:, :, :] src_mv
         cdef np.uint8_t[:, :, :] dst_mv
