@@ -79,10 +79,10 @@ from TimingResult cimport TimingResult as CTimingResult
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 # Number of uint32 columns per frame in the descriptor shared memory handed to WriteImages:
-#   0 = bytes per image, 1 = film frame number, 2 = bracket index
-# Set to 4 as soon as write_images() reads column 3 (1 = suspect capture) and appends a
-# marker such as "_SUSPECT" to the file name. With 3 the flag is only logged / written to the CSV.
-DESCRIPTOR_COLUMNS = 3
+#   0 = bytes per image, 1 = film frame number, 2 = bracket index, 3 = suspect flag (1 = suspect)
+# write_images() gets this number as desc_cols, so both sides always agree on the layout.
+# Suspect captures are written as frameNNNNNx_SUSPECT.png.
+DESCRIPTOR_COLUMNS = 4
 
 
 cdef class DigitizeVideo:
@@ -762,6 +762,7 @@ cdef class DigitizeVideo:
             result = self.pool.apply_async(
                 write_images,
                 args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
+                kwds={"desc_cols": DESCRIPTOR_COLUMNS},
                 error_callback=process_error_callback
             )
 
@@ -915,7 +916,8 @@ cdef class DigitizeVideo:
                 desc_name = (<str>desc_shm.name).encode('utf-8')
                 frames_total = self._frames_per_buffer
 
-                write_images(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level)
+                write_images(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level,
+                             desc_cols=DESCRIPTOR_COLUMNS)
 
                 # clear descriptor buffer
                 desc_arr = self._desc_arrays[current_buf]

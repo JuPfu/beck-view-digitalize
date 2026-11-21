@@ -10,6 +10,12 @@ This implementation:
  - uses multiprocessing.shared_memory as the image transport (shape: frames, H, W, 3 or 4)
 
 Requires a matching WriteImages.pxd that declares the libpng symbols used here.
+
+Descriptor shared memory (uint32, shape: frames, desc_cols):
+    column 0 = bytes per image (0 = slot unused), column 1 = film frame number,
+    column 2 = bracket index, column 3 (only if desc_cols >= 4) = 1 if the capture is SUSPECT
+    (the frame was not captured inside the rest window of the film, see DigitizeVideo).
+Suspect images get the marker "_SUSPECT" in the file name, e.g. frame00012a_SUSPECT.png.
 """
 
 import os
@@ -138,7 +144,8 @@ def write_images(bytes shm_name,
                  bytes output_path,
                  int compression_level=1,
                  int compress_strategy=1,
-                 bint disable_filters=True):
+                 bint disable_filters=True,
+                 int desc_cols=4):
     """
     Worker entrypoint that maps the shared-memory buffer and writes PNG files.
 
@@ -147,6 +154,8 @@ def write_images(bytes shm_name,
     - compression_level: libpng 0..9 (lower = faster)
     - compress_strategy: zlib strategy (e.g. Z_HUFFMAN_ONLY); default is 1 (sane default)
     - disable_filters: if True sets PNG_FILTER_NONE (fastest)
+    - desc_cols: number of uint32 columns of the descriptor array (3 = no suspect flag,
+      4 = column 3 holds the suspect flag). Must match the layout created by DigitizeVideo.
 
     Behavior:
     - For each frame: if the numpy view is C-contiguous we take its address (zero-copy).
@@ -160,6 +169,7 @@ def write_images(bytes shm_name,
 
     cdef int i
     cdef int img_bytes, frame_count, bracket_index
+    cdef bint suspect
     cdef int stride = width * 3
     cdef uint8_t *data_ptr = NULL
 
@@ -172,6 +182,9 @@ def write_images(bytes shm_name,
 
     cdef np.uint8_t[:, :, :] mv
 
+    if desc_cols < 3:
+        raise ValueError(f"write_images: desc_cols must be >= 3, got {desc_cols}")
+
     logger.debug(f"write_images: frames_total={frames_total} width={width} height={height} base={base}")
 
     # Attach shared memory
@@ -182,7 +195,7 @@ def write_images(bytes shm_name,
         buf = np.ndarray((frames_total, height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
         try:
-            desc = np.ndarray((frames_total, 3), dtype=np.uint32, buffer=desc_shm.buf)
+            desc = np.ndarray((frames_total, desc_cols), dtype=np.uint32, buffer=desc_shm.buf)
         except Exception:
             desc_shm.close()
             raise
@@ -194,6 +207,7 @@ def write_images(bytes shm_name,
 
             frame_count = int(desc[i, 1])
             bracket_index = int(desc[i, 2])
+            suspect = (desc_cols > 3) and (int(desc[i, 3]) != 0)
 
             # suffix from bracket_index (fallback to 'a'.. if out of range)
             if 0 <= bracket_index < len(suffix_map):
@@ -201,7 +215,9 @@ def write_images(bytes shm_name,
             else:
                 suffix = 'a'
 
-            fname = os.path.join(base, f"frame{frame_count:05d}{suffix}.png")
+            # capture outside the rest window of the film: mark it in the file name
+            marker = "_SUSPECT" if suspect else ""
+            fname = os.path.join(base, f"frame{frame_count:05d}{suffix}{marker}.png")
             c_fname = fname.encode('utf-8')
 
             # get slice
@@ -226,6 +242,8 @@ def write_images(bytes shm_name,
                 contig = None
 
         desc[:, 0] = 0
+        if desc_cols > 3:
+            desc[:, 3] = 0
     finally:
         # drop numpy views explicitly
         try:
