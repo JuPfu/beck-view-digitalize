@@ -97,7 +97,7 @@ DESCRIPTOR_COLUMNS = 4
 # gone). Determine the real value with d_min_from_images.py and pass it as capture_min_delay_ms. It
 # belongs to the camera setup (camera, resolution, exposure, fps, USB, computer), not to the film or
 # the projector speed.
-DEFAULT_CAPTURE_MIN_DELAY_MS = 75.0
+DEFAULT_CAPTURE_MIN_DELAY_MS = 60.0
 
 # width of the shutter blade in degrees (the lens is covered by it during film transport)
 DEFAULT_SHUTTER_DEGREES = 70.0
@@ -373,9 +373,14 @@ cdef class DigitizeVideo:
             self.logger.error(f"DigitizeVideo.initialize_camera: could not find a camera: {e}")
 
         time.sleep(1)
+        if platform.system() == "Linux":
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         # set preferred resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         # warm up
         _, _ = self.cap.read()
         self.img_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
@@ -383,8 +388,6 @@ cdef class DigitizeVideo:
 
         # various capture tuning
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # reset exposure state (works around driver quirks)
         if platform.system() == "Windows":
