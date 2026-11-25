@@ -209,6 +209,8 @@ cdef class Ft232hConnector:
         wait_time = start_cycle
         wait_time_start = start_cycle
 
+        SKIP_S = 0.002 # OK signal duration is 10ms - 0.002ms wakes up early enough
+
         pins = self._gpio.read(1, True)
 
         while (pins & _eof) != _eof and count < self.max_count:
@@ -225,6 +227,9 @@ cdef class Ft232hConnector:
                 subj.on_next((count, start_cycle))
 
                 work_time = time.perf_counter() - start_cycle
+
+                # duration of OK signal if fixed - instead of polling first sleep a while which also releases the GIL
+                time.sleep(max(0.0, SKIP_S - work_time))
 
                 # busy-wait for OK1 to drop
                 latency_start = time.perf_counter()
