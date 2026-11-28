@@ -3,7 +3,7 @@
 # distutils: language = c
 
 """
-Option B FT232H connector for beck-view-digitize.
+FT232H connector for beck-view-digitize.
 
 - Polls the GPIO pins on a dedicated thread and publishes events via a reactivex Subject.
 - The poller can be stopped (stop()/close()) and always ends with exactly one of
@@ -25,6 +25,7 @@ Changes against the previous version
 import cython
 from cython.view cimport array
 
+import signal
 import logging
 import sys
 import time
@@ -32,7 +33,6 @@ import threading
 
 import usb
 
-from pyftdi.ftdi import Ftdi
 from pyftdi.gpio import GpioAsyncController
 
 from reactivex import Subject
@@ -44,13 +44,16 @@ cdef object timing = None  # python singleton (holds PyTimingResult instance)
 # C-level module global (must match .pxd)
 cdef CTimingResult timing_view  # initially NULL
 
-# number of consecutive reads with D7 high that are required to accept "end of film"
-_EOF_CONFIRM_READS = 3
-# seconds OK1 may stay high before an error is logged
-_OK1_RELEASE_TIMEOUT = 2.0
-
 _LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
+cdef object sigsub = None
+
+def sigint_handler(signum, frame):
+    print("SIGINT captured, graceful exit.")
+    sigsub.on_completed()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, sigint_handler)
 
 cdef class Ft232hConnector:
     """
@@ -72,50 +75,38 @@ cdef class Ft232hConnector:
     # 180-m-Cassette about 43.600 frames (±50 frames due to exposure and cut tolerance at start and end)
     # 250-m-Cassette about 60.000 frames (±50 frames due to exposure and cut tolerance at start and end)
 
-    def __init__(self, object ftdi, object signal_subject, int max_count, bint gui):
+
+    def __init__(self, object signal_subject, int max_count, bint gui):
         """
-        - ftdi: pyftdi Ftdi instance (opened here)
         - signal_subject: reactivex Subject for on_next/on_completed
         - max_count: maximum expected frames
         - gui: log to stdout
         """
-        self.LATENCY_THRESHOLD = 0.01
+        self.LATENCY_THRESHOLD = 0.011
         self.INITIAL_COUNT = -1
         self.gui = gui
 
         self._initialize_logging()
 
         self.signal_subject = signal_subject
+        sigsub = signal_subject
         self.max_count = max_count + 100
         self._timing_lock = threading.Lock()
-
-        # open FTDI device
-        self._ftdi = ftdi
-        try:
-            self._ftdi.open_from_url("ftdi:///1")
-        except Exception as e:
-            self.logger.error(f"Could not open FTDI device: {e}")
-            raise
-
-        try:
-            self._ftdi.set_latency_timer(16)
-        except Exception:
-            pass
 
         self._OK1_mask = 1 << 6         # ADBUS 6 (D6)
         self._END_OF_FILM_mask = 1 << 7 # ADBUS 7 (D7)
 
-        # configure GPIO
+        # open FTDI device
         self._gpio = GpioAsyncController()
 
+        # configure GPIO
         try:
             self._gpio.configure(
                 'ftdi:///1',
                 direction=0x0,
-                frequency=1000000, # 1 MHz
+                #frequency=1000000, # 1 MHz
                 initial=self._OK1_mask | self._END_OF_FILM_mask
             )
-            self._gpio.set_frequency(1000000)
             self._gpio.set_direction(pins=self._END_OF_FILM_mask | self._OK1_mask,
                                      direction=self._END_OF_FILM_mask | self._OK1_mask)
             self._gpio.write(0x0)
@@ -124,7 +115,7 @@ cdef class Ft232hConnector:
             self.logger.error(f"[Ft232hConnector] gpio configure/setup failed: {e}")
             # do not leave the USB device claimed
             try:
-                self._ftdi.close()
+                self._gpio.close()
             except Exception:
                 pass
             raise
@@ -181,23 +172,12 @@ cdef class Ft232hConnector:
         self._thread.start()
         self.logger.info("[Ft232hConnector] Ready to receive signals from projector")
 
-    def stop(self, object timeout=5.0) -> None:
-        """
-        Ask the polling thread to stop and wait for it (at most `timeout` seconds).
-
-        Safe to call from any thread, also from the poller thread itself (e.g. when the
-        shutdown is triggered by on_completed()); in that case the thread is not joined.
-        """
-        already_stopped = self._stop_event.is_set()
-        self._stop_event.set()
-        thread = self._thread
-        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout)
-            if thread.is_alive():
-                self.logger.warning("[Ft232hConnector] poller thread did not stop within the timeout")
+    def stop(self, object timeout=None) -> None:
+        """Stop polling thread safely."""
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout)
         self.running = False
-        if not already_stopped:  # cleanup() calls stop() and close(): log only once
-            self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
+        self.logger.info("[Ft232hConnector] Stopped receiving signals from projector")
 
     def close(self) -> None:
         """Stop poller and release GPIO/FTDI safely."""
@@ -209,149 +189,99 @@ cdef class Ft232hConnector:
             self._gpio.close()
         except Exception as e:
             self.logger.debug(f"[Ft232hConnector] gpio.close() raised: {e}")
-        try:
-            self._ftdi.close()
-        except Exception as e:
-            self.logger.debug(f"[Ft232hConnector] ftdi.close() raised: {e}")
 
     def signal_input(self):
         self.start()
 
     def _poll_loop(self) -> None:
         """Poll GPIO and publish events to the Subject."""
-        cdef int pins, count, eof_hits, ok_mask, eof_mask, max_count
-        cdef double avg, t1, t2, t3
-        cdef double[:, :] buf
-
-        ok_mask = self._OK1_mask
-        eof_mask = self._END_OF_FILM_mask
-        max_count = self.max_count
+        cdef int pins, last_pins, count
+        _ok = self._OK1_mask
+        _eof = self._END_OF_FILM_mask
         subj = self.signal_subject
         stop_event = self._stop_event
-        read = self._gpio.read
-        latency_threshold = self.LATENCY_THRESHOLD
-        tv = self.timing_view
-        buf = tv.buf
-        perf = time.perf_counter
-        sleep = time.sleep
+        LATENCY_THRESHOLD = self.LATENCY_THRESHOLD
+        timing_view = self.timing_view
+        buf = self.timing_view.buf
 
         count = self.INITIAL_COUNT
-        eof_hits = 0
-        reason = "error"
-
-        start_cycle = perf()
+        start_cycle = time.perf_counter()
+        wait_time = start_cycle
         wait_time_start = start_cycle
 
-        try:
-            pins = read(1, True)
+        SKIP_S = 0.002 # OK signal duration is 10ms - 0.002ms wakes up early enough
 
-            while count < max_count:
-                if stop_event.is_set():
-                    reason = "stopped"
-                    break
+        pins = self._gpio.read(1, True)
 
-                if pins & eof_mask:
-                    # end of film must be confirmed by several consecutive reads
-                    eof_hits += 1
-                    if eof_hits >= _EOF_CONFIRM_READS:
-                        reason = "eof"
-                        break
-                else:
-                    eof_hits = 0
+        while (pins & _eof) != _eof and count < self.max_count:
+            # rising edge detection for OK1
+            if (pins & _ok) == _ok:
+                stop_cycle = time.perf_counter()
+                total = stop_cycle - start_cycle
+                start_cycle = stop_cycle
+                wait_time = stop_cycle - wait_time_start
 
-                    if pins & ok_mask:
-                        # OK1 is high: new frame
-                        stop_cycle = perf()
-                        total = stop_cycle - start_cycle
-                        start_cycle = stop_cycle
-                        wait_time = stop_cycle - wait_time_start
+                count += 1
 
-                        count += 1
+                # trigger frame capture
+                subj.on_next((count, start_cycle))
 
-                        # trigger frame capture (synchronous: returns when the frame is captured)
-                        subj.on_next((count, start_cycle))
+                work_time = time.perf_counter() - start_cycle
 
-                        work_time = perf() - start_cycle
+                # duration of OK signal if fixed - instead of polling first sleep a while which also releases the GIL
+                time.sleep(max(0.0, SKIP_S - work_time))
 
-                        # wait for OK1 to drop (with timeout, stop and EOF checks)
-                        latency_start = perf()
-                        deadline = latency_start + _OK1_RELEASE_TIMEOUT
-                        timed_out = False
-                        pins = read(1, True)
-                        while pins & ok_mask:
-                            if stop_event.is_set() or (pins & eof_mask):
-                                break
-                            if not timed_out and perf() > deadline:
-                                timed_out = True
-                                self.logger.error(
-                                    f"[Ft232hConnector] OK1 stays high for more than "
-                                    f"{_OK1_RELEASE_TIMEOUT:.1f}s at frame {count} - check the cabling")
-                            sleep(0.001 if timed_out else 0)
-                            pins = read(1, True)
-                        latency = perf() - latency_start
+                # busy-wait for OK1 to drop
+                latency_start = time.perf_counter()
+                pins = self._gpio.read(1, True)
+                while ((pins & _ok) == _ok):
+                    time.sleep(0)
+                    pins = self._gpio.read(1, True)
+                latency = time.perf_counter() - latency_start
 
-                        with self._timing_lock:
-                            try:
-                                # the capture happens synchronously inside on_next, so 'work'
-                                # is the capture duration and also fills the 'read' column
-                                tv.append(
-                                    count,
-                                    float(perf() - start_cycle),
-                                    float(work_time),
-                                    float(work_time),
-                                    float(latency),
-                                    float(wait_time),
-                                    float(total)
-                                )
-                            except Exception:
-                                self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
+                with self._timing_lock:
+                    try:
+                        timing_view.append(
+                            count,
+                            float(time.perf_counter() - start_cycle), # frame capture + latency
+                            float(work_time),                         # frame capture from polling loop
+                            0.0,                                      # capture duration
+                            float(latency),                           # latency
+                            float(wait_time),                         # wait time
+                            float(total)                              # time spent for the complete previous cycle
+                        )
+                    except Exception:
+                        self.logger.warning(f"[Ft232hConnector] Could not add data to timing_view {count=}")
+                        pass
 
-                        if latency > latency_threshold:
-                            self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
+                if latency > LATENCY_THRESHOLD:
+                    self.logger.warning(f"[Ft232hConnector] High latency {latency:.6f}s for frame {count}")
 
-                        if count > 3:
-                            # typical cycle time: median of the last three totals (a single stall
-                            # must not make the following normal cycles look "too short")
-                            t1 = buf[count - 3, 6]
-                            t2 = buf[count - 2, 6]
-                            t3 = buf[count - 1, 6]
-                            avg = max(min(t1, t2), min(max(t1, t2), t3))
-                            if avg > 0.0:
-                                if total > (1.5 * avg):
-                                    self.logger.warning(f"[Ft232hConnector] Missed trigger ? {total=:.3f}s > {(1.5 * avg):.3f}s) at frame {count}")
-                                elif total < (0.75 * avg):
-                                    self.logger.warning(f"[Ft232hConnector] Unexpected short cycle: {total=:.3f}s < {(0.75 * avg):.3f}s) at frame {count}")
+                if count > 3:
+                    # floating average speed based on total cycle time
+                    avg = (buf[count - 3, 6] + buf[count - 2, 6] + buf[count - 1, 6]) / 3.0
+                    if total > (1.5 * avg):
+                        self.logger.warning(f"[Ft232hConnector] Missed trigger ? {total=:.3f}s > {(1.5 * avg):.3f}s) at frame {count}")
+                    elif total < (0.75 * avg):
+                        self.logger.warning(f"[Ft232hConnector] Unexpected short cycle: {total=:.3f}s < {(0.75 * avg):.3f}s) at frame {count}")
 
-                        wait_time_start = perf()
+                wait_time_start = time.perf_counter()
 
-                pins = read(1, True)
-                sleep(0)
-            else:
-                reason = "max_count"
-
-        except Exception:
-            # e.g. USB error: keep the frames captured so far -> still report completion below
-            self.logger.exception("[Ft232hConnector] polling aborted by an error")
-            reason = "error"
-        finally:
-            self.running = False
+            pins = self._gpio.read(1, True)
+            time.sleep(0)
 
         # --- END OF FILM ---
-        if reason == "eof":
+        if (pins & _eof) == _eof:
             self.logger.info("[Ft232hConnector] EOF encountered!")
-        elif reason == "max_count":
-            self.logger.info(f"[Ft232hConnector] count of frames reached or superseeded maximum count = {self.max_count}!")
-        elif reason == "stopped":
-            self.logger.info("[Ft232hConnector] polling stopped on request")
-            return  # whoever requested the stop is responsible for the shutdown
         else:
-            self.logger.error("[Ft232hConnector] polling ended because of an error - finishing the film")
+            self.logger.info(f"[Ft232hConnector] count of frames reached or superseeded maximum count = {self.max_count}!")
 
-        # Signal the completion of frame processing (EoF, max count or error)
+        # Signal the completion of frame processing and EoF detection
         try:
             subj.on_completed()
         except Exception as e:
             self.logger.error(f"[Ft232hConnector] on_completed failed: {e}")
+
 
     def log_timing_results(self):
         """
@@ -386,10 +316,15 @@ cdef class Ft232hConnector:
 
 cpdef CTimingResult get_timing_view():
     """
-    Return the C-level TimingResult (None if not initialized).
+    Return the C-level TimingResult pointer (may be NULL if not initialized).
+    Caller must not dereference without checking.
     """
     return timing_view
 
 cpdef object get_timing():
     """Return the Python-level TimingResult singleton (or None)."""
     return timing
+
+
+
+

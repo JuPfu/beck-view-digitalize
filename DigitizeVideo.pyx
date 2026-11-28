@@ -7,27 +7,37 @@
 DigitizeVideo - top-level capture & orchestration for beck-view-digitize.
 
 Design notes (Option B):
-- Ft232hConnector owns the FTDI device and the poller thread. After the connector has been
-  created, call DigitizeVideo.connect(connector): that gives DigitizeVideo the timing data and
-  the handle it needs to stop and close the connector during shutdown.
+- Ft232hConnector is treated as the owner of the FTDI device and the poller.
+  DigitizeVideo will attempt to instantiate a Connector in the "Option B"
+  constructor form:
+      Ft232hConnector(signal_subject, max_count, gui)
+  If that constructor isn't available (older connector), DigitizeVideo will
+  create and open a pyftdi.Ftdi() instance and pass it into the older API:
+      Ft232hConnector(ftdi, signal_subject, max_count, gui)
 
-- DigitizeVideo subscribes to the signal_subject for incoming frame events, captures every
-  frame into a shared memory buffer and hands full buffers to a pool of worker processes
-  (WriteImages.write_images).
+- DigitizeVideo subscribes to the signal_subject for incoming frame events,
+  maintains shared memory buffers which are handed to worker processes, and
+  writes frames via WriteImages (process pool).
 
-- Buffer hand-over (all on the poller thread, so it is race free):
-    * handle_trigger() runs synchronously inside subject.on_next(), i.e. on the poller thread.
-    * When a buffer is full it is marked busy, the next free buffer is selected and made the
-      capture target *before* the full buffer is submitted to the pool. A buffer that is in
-      use by a worker is never written to.
-    * If no buffer is free the capture waits (and logs) instead of overwriting data.
+- Capture is decoupled from the poller:
+  The poller thread (Ft232hConnector) only publishes (count, timestamp) events.
+  The subscription hops over to a dedicated single-thread scheduler
+  (observe_on(EventLoopScheduler)), so camera reads (cap.read()) never block the
+  poller. A slow read can therefore no longer make the poller overlook the next
+  OK1 pulse (OK1 is only ~10 ms wide, the projector cycle is ~155 ms).
+  Events are queued and processed in order; on_completed is queued behind the last
+  event, so final_write_to_disk() always runs after the last queued capture.
+  NOTE: decoupling prevents lost *events*; a capture that starts late still delivers a *late*
+  image. A warning is logged when a capture starts later than the earliest moment its frame could
+  be selected (trigger + d_min), i.e. when the capture thread is really behind. A capture that is
+  merely waiting for its camera frame (d_min + up to one camera period) is not a backlog.
 
 - Shutdown sequence:
-    1) The poller signals EOF (or an error) by calling subject.on_completed()
-    2) final_write_to_disk() writes the remaining frames, the timing CSV and runs cleanup()
-    3) cleanup() stops the connector, waits for the workers, closes the pool, releases the
-       camera and unlinks the shared memory. Finally wait_subject completes.
-  The same path is used for SIGINT/SIGTERM (SIGBREAK on Windows).
+    1) FT232H poller signals EOF by calling subject.on_completed()
+    2) The completion is delivered on the capture thread after all queued captures
+       and starts final_write_to_disk() to flush remaining frames to disk.
+    3) After final write finishes, the Connector is closed, pools are closed,
+       shared memory is unlinked, and the program exits gracefully.
 """
 
 import cython
@@ -40,11 +50,12 @@ from datetime import datetime
 
 from libc.string cimport memcpy
 
-import gc
 import platform
 import logging
 import multiprocessing
+from collections import deque
 from multiprocessing import shared_memory
+import concurrent.futures
 import threading
 import time
 import signal
@@ -53,8 +64,10 @@ from argparse import Namespace
 from pathlib import Path
 from typing import List
 
+
 import cv2
 from reactivex import operators as ops, Observer
+from reactivex.scheduler import EventLoopScheduler
 from reactivex.subject import Subject
 
 from TypeDefinitions import ImgDescType, SubjectDescType
@@ -65,15 +78,33 @@ from Ft232hConnector import get_timing, get_timing_view
 
 from TimingResult cimport TimingResult as CTimingResult
 
-# Time the camera needs after a changed exposure before the next frame is read. The value is
-# a guess; verify with a test film that frames a/b/c of a bracketing series really differ in
-# brightness by about one stop each (increase the value if not).
-EXPOSURE_SETTLE_SECONDS = 0.01
-
-# While the capture waits for a free buffer, an error is logged this often (seconds)
-BUFFER_WAIT_LOG_INTERVAL = 5.0
-
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+# Number of uint32 columns per frame in the descriptor shared memory handed to WriteImages:
+#   0 = bytes per image, 1 = film frame number, 2 = bracket index, 3 = suspect flag (1 = suspect)
+# write_images() gets this number as desc_cols, so both sides always agree on the layout.
+# Suspect captures are written as frameNNNNNx_SUSPECT.png.
+DESCRIPTOR_COLUMNS = 4
+
+# d_min: earliest delay after the trigger at which a camera frame is taken as "the current film
+# frame". A frame that arrives sooner was exposed while the rotating shutter still covered the lens.
+# d_min = E (exposure) + R (sensor read-out, a rolling shutter exposes the rows one after the other)
+#         + transfer and driver time of the camera.
+# The default is an UNCALIBRATED upper estimate: E 8 ms + R <= one camera period (33 ms) + transfer
+# <= 33 ms = about 75 ms. Errors are not symmetric: a d_min that is too small silently lets frames
+# through that were still (partly) covered; a d_min that is too large only costs margin of the open
+# phase, which is ample at slow projector speeds (see _check_budget, it warns when the margin is
+# gone). Determine the real value with d_min_from_images.py and pass it as capture_min_delay_ms. It
+# belongs to the camera setup (camera, resolution, exposure, fps, USB, computer), not to the film or
+# the projector speed.
+DEFAULT_CAPTURE_MIN_DELAY_MS = 60.0
+
+# width of the shutter blade in degrees (the lens is covered by it during film transport)
+DEFAULT_SHUTTER_DEGREES = 70.0
+
+# A capture that starts later than this (s) after the earliest moment its frame could be selected
+# (trigger + d_min) is logged: the capture thread is behind. About one camera period.
+CAPTURE_START_LAG_WARN_S = 0.035
 
 
 cdef class DigitizeVideo:
@@ -100,6 +131,8 @@ cdef class DigitizeVideo:
         bint bracketing
         int frame_multiplier
         int chunk_size              # images (not film frames) per buffer / per worker task
+        int camera_fps              # fps of camera
+        int capture_min_delay_ms    # delay after capture trigger is recognized
         bint settings
         bint gui
 
@@ -113,18 +146,46 @@ cdef class DigitizeVideo:
         int img_height
         int img_bytes               # bytes per frame (w*h*3)
 
-        # capture state
-        object capture_lock         # held while a frame is captured; final write waits for it
-        long _pending_images        # images in the current buffer that were not handed to a worker yet
+        # per-frame bookkeeping
+        list img_desc               # list for lightweight logging descriptors
+        object img_desc_lock        # threading.Lock
 
         # blank frame to copy on read errors
         np.ndarray blank_frame
 
-        # Rx objects
+        # thread/process pools and related objects
+        object executor                 # ThreadPoolExecutor (python object)
         object signal_observer          # SignalObserver instance
         object photoCellSignalDisposable  # subscription disposable
-        object completion_disposable     # kept for compatibility, may be None
+        object completion_disposable     # subscription for on_completed -> set event
         object wait_subject             # completed when the shutdown is finished
+
+        # continuous camera reader ("grabber") and frame selection
+        object _grab_thread             # thread that reads the camera all the time
+        object _grab_stop               # threading.Event: ask the grabber to end
+        object _frame_ring              # deque of (seq, arrival_time, frame), oldest first
+        object _frame_cond              # threading.Condition protecting the ring
+        object _cap_lock                # serializes cap.grab()/retrieve() and cap.set()
+        long _grab_seq                  # sequence number of the newest frame
+        double capture_min_delay        # s: d_min, earliest arrival after the trigger that counts
+        double capture_window           # s after d_min within which a frame must arrive
+        double open_fraction            # share of a projector cycle with the lens open
+        double capture_readout          # s: sensor read-out time R of the camera; < 0: use one camera period
+        bint _readout_is_default        # True: R was not configured (conservative default)
+        double max_exposure             # s: longest exposure time E in use
+        double _usable_window           # s: T_open - E - R from the live cycle; < 0: not known yet
+        bint _default_dmin_warned       # the "uncalibrated d_min at this speed" warning was logged
+        bint _min_delay_is_default      # True: d_min was not configured (uncalibrated default)
+        object _trig_hist               # last trigger timestamps (cycle estimate)
+        long _budget_warned_at          # film frame of the last budget warning
+        double capture_timeout          # s: longest wait for a frame after a trigger
+        int bracket_settle_frames       # frames to skip after an exposure change
+        int ring_size
+        long suspect_count
+        object capture_info             # film frame -> (delay_ms of first bracket, suspect 0/1, work_ms)
+
+        # decoupling of capture from the poller thread
+        object capture_scheduler        # EventLoopScheduler: single "capture" thread
 
         # shared memory buffers for workers
         list shared_buffers            # list of shared_memory.SharedMemory objects
@@ -132,7 +193,7 @@ cdef class DigitizeVideo:
         list _desc_shms                # descriptor shared_memory objects
         list _desc_arrays              # numpy descriptor arrays (per buffer)
 
-        int shared_buffers_index       # buffer the capture currently writes into
+        int shared_buffers_index
         list buffers_in_use
         object buffer_lock             # threading.Lock, protects buffers_in_use and processes
         list processes                 # list of (AsyncResult, shm, desc_shm, buf_idx)
@@ -166,9 +227,13 @@ cdef class DigitizeVideo:
         """
         Initialize the DigitizeVideo instance.
 
-        This constructor creates the camera capture object, the shared memory buffers, the
-        worker pool and subscribes to the signal subject. The FT232H poller itself belongs to
-        the Ft232hConnector; call connect() after the connector has been created.
+        This constructor creates:
+         - camera capture object
+         - shared memory buffers and worker pool
+         - FT232H connector (Option B), starts poller, and subscribes to subject
+
+        The method blocks very briefly while opening camera and setting properties
+        but returns quickly; the FTDI poller runs in its own thread.
         """
         np.import_array()
 
@@ -180,58 +245,77 @@ cdef class DigitizeVideo:
         self.height = args.height
         self.bracketing = bool(args.bracketing)
         self.frame_multiplier = 3 if self.bracketing else 1
-        # a chunk holds complete exposure series; at least one series (avoids chunk_size == 0)
-        self.chunk_size = max(self.frame_multiplier,
-                              args.chunk_size - (args.chunk_size % self.frame_multiplier))
+        self.chunk_size = args.chunk_size - (args.chunk_size % self.frame_multiplier)
+        self.camera_fps = args.camera_fps
         self.settings = bool(args.settings)
         self.gui = bool(args.gui)
 
-        # subject to receive signals from FT232H connector / completed when we are done
-        self.signal_subject = signal_subject
-        self.wait_subject = wait_subject
+        # frame selection (optional attributes of args; defaults are placeholders to be tuned
+        # to the real rest time of the film frame in front of the camera)
+        min_delay_ms = getattr(args, "capture_min_delay_ms", None)
+        self._min_delay_is_default = min_delay_ms is None
+        if min_delay_ms is None:
+            min_delay_ms = DEFAULT_CAPTURE_MIN_DELAY_MS
+        self.capture_min_delay = max(0.0, float(min_delay_ms)) / 1000.0
+        # capture_window_ms is counted from d_min: a frame arriving later than d_min + window is LATE
+        # (60 ms = one camera period plus jitter; it only trips when the camera stalls)
+        self.capture_window = float(getattr(args, "capture_window_ms", 60.0)) / 1000.0
+        shutter_deg = float(getattr(args, "shutter_degrees", DEFAULT_SHUTTER_DEGREES))
+        self.open_fraction = min(0.95, max(0.05, (360.0 - shutter_deg) / 360.0))
+        # R: time the (rolling shutter) sensor needs to read out all rows. Not configured -> the
+        # measured camera frame period is used (R cannot be longer), which is cautious.
+        readout_ms = getattr(args, "capture_readout_ms", None)
+        self._readout_is_default = readout_ms is None
+        self.capture_readout = -1.0 if readout_ms is None else max(0.0, float(readout_ms)) / 1000.0
+        self._usable_window = -1.0
+        self._default_dmin_warned = False
+        self.max_exposure = 0.0
+        self._trig_hist = deque(maxlen=9)
+        self._budget_warned_at = -1000
+        self.capture_timeout = float(getattr(args, "capture_timeout_ms", 150.0)) / 1000.0
+        self.bracket_settle_frames = int(getattr(args, "bracket_settle_frames", 2))
+        self.ring_size = int(getattr(args, "frame_ring_size", 12))
+        self.suspect_count = 0
+        self.capture_info = {}
 
-        # administration (before anything can fail or any signal can arrive)
+        # subject to receive signals from FT232H connector
+        self.signal_subject = signal_subject
+
+        # small event we set when the subject completes (EOF)
         self._completion_event = threading.Event()
-        self.capture_lock = threading.Lock()
-        self.buffer_lock = threading.Lock()
-        self.processes = []
-        self._pending_images = 0
-        self.ft232h = None
-        self.timing = None
-        self.timing_view = None
-        self._final_write_done = False
-        self._cleaned_up = False
-        self.processed_frames = 0
 
         # logging
         self.initialize_logging()
 
-        # the GUI allows to choose a directory that does not exist yet
-        self.output_path.mkdir(parents=True, exist_ok=True)
-
         # capture settings & buffers
         self.initialize_bracketing()
+        self.max_exposure = self._max_exposure_s()
         self.initialize_camera()
         self.log_camera_properties()
+        self.initialize_grabber()
+        self.initialize_threads()
+        self.initialize_process_pool()
 
-        try:
-            self.initialize_process_pool()
-            self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
+        # bookkeeping
+        self.img_desc = []
+        self.img_desc_lock = threading.Lock()
+        self.blank_frame = np.zeros((self.img_height, self.img_width, 3), dtype=np.uint8)
 
-            # stats
-            self.start_time = time.perf_counter()
-            self.new_tick = self.start_time
+        # administration
+        self.wait_subject = wait_subject
+        self._final_write_done = False
+        self._cleaned_up = False
 
-            # everything is ready: now accept signals and frame events
-            self.register_signal_handlers()
-            self.initialize_threads()
-        except Exception:
-            self.logger.exception("Initialization failed - releasing resources")
-            try:
-                self.cleanup()
-            except Exception:
-                pass
-            raise
+        # timing singleton from connector module (may be None until connector created)
+        self.timing = None
+
+        # stats
+        self.processed_frames = 0
+        self.start_time = time.perf_counter()
+        self.new_tick = self.start_time
+
+        self.register_signal_handlers()
+
 
     def initialize_logging(self) -> None:
         """
@@ -253,6 +337,14 @@ cdef class DigitizeVideo:
         signal.signal(signal.SIGTERM, self._on_signal)
         if hasattr(signal, "SIGBREAK"):
             signal.signal(signal.SIGBREAK, self._on_signal)
+
+    def _max_exposure_s(self) -> float:
+        """Longest exposure time E in seconds (Linux/macOS: seconds, Windows: log2 of seconds)."""
+        e = 0.0
+        for exp_val, _ in self.exposures:
+            v = float(exp_val)
+            e = max(e, v if v > 0 else 2.0 ** v)
+        return e
 
     def initialize_bracketing(self) -> None:
         """Prepare exposure triplets (or single) depending on platform/flags."""
@@ -281,34 +373,24 @@ cdef class DigitizeVideo:
         try:
             self.cap = cv2.VideoCapture(self.device_number, api, [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
         except Exception as e:
-            self.logger.error(f"DigitizeVideo.initialize_camera: could not open camera {self.device_number}: {e}")
-            raise
-
-        if self.cap is None or not self.cap.isOpened():
-            raise RuntimeError(f"Camera with device number {self.device_number} could not be opened "
-                               f"(capture backend {api})")
+            self.logger.error(f"DigitizeVideo.initialize_camera: could not find a camera: {e}")
 
         time.sleep(1)
+        if platform.system() == "Linux":
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         # set preferred resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self.cap.set(cv2.CAP_PROP_FPS, self.camera_fps)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         # warm up
-        ok, _ = self.cap.read()
-        if not ok:
-            self.logger.warning("DigitizeVideo.initialize_camera: warm-up read failed")
+        _, _ = self.cap.read()
         self.img_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) + 0.5)
         self.img_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) + 0.5)
 
-        if self.img_width <= 0 or self.img_height <= 0:
-            raise RuntimeError(f"Camera reports an invalid resolution {self.img_width}x{self.img_height}")
-        if self.img_width != self.width or self.img_height != self.height:
-            self.logger.warning(f"Camera delivers {self.img_width}x{self.img_height} instead of the "
-                                f"requested {self.width}x{self.height}")
-
         # various capture tuning
         self.cap.set(cv2.CAP_PROP_FORMAT, -1)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # reset exposure state (works around driver quirks)
         if platform.system() == "Windows":
@@ -333,6 +415,122 @@ cdef class DigitizeVideo:
 
         # debug/log some properties
         self.logger.debug(f"Camera properties: width={self.img_width} height={self.img_height} fps={self.cap.get(cv2.CAP_PROP_FPS)}")
+
+    def initialize_grabber(self) -> None:
+        """
+        Start the thread that reads the camera continuously.
+
+        Every frame is stamped with time.perf_counter() right after cap.grab() returned
+        (same clock as the trigger timestamp of the FT232H poller) and kept in a short ring.
+        A trigger then picks the first frame that arrived after it, see _wait_frame().
+        Because the camera is drained all the time, there is no stale driver queue and no
+        long first read. The method returns after a few warm-up frames have arrived.
+        """
+        warmup_frames = 5
+
+        self._frame_ring = deque(maxlen=max(4, self.ring_size))
+        self._frame_cond = threading.Condition()
+        self._cap_lock = threading.Lock()
+        self._grab_stop = threading.Event()
+        self._grab_seq = 0
+
+        self._grab_thread = threading.Thread(target=self._grab_loop, name="grabber", daemon=True)
+        self._grab_thread.start()
+
+        deadline = time.perf_counter() + 5.0
+        with self._frame_cond:
+            while self._grab_seq < warmup_frames:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                self._frame_cond.wait(remaining)
+
+        if self._grab_seq < warmup_frames:
+            self.logger.error("Grabber: camera delivers no frames (check camera / settings)")
+        else:
+            self.logger.info(
+                f"Grabber running; d_min {self.capture_min_delay * 1000:.0f} ms, "
+                f"window after d_min {self.capture_window * 1000:.0f} ms, "
+                f"timeout {self.capture_timeout * 1000:.0f} ms, ring of {self._frame_ring.maxlen} frames"
+            )
+            self.logger.info(
+                f"Rest window model: exposure E {self.max_exposure * 1000:.1f} ms, sensor read-out R "
+                + ("= one camera period (not configured)" if self._readout_is_default
+                   else f"{self.capture_readout * 1000:.1f} ms")
+                + f", lens open {self.open_fraction * 100:.0f} % of the cycle"
+            )
+            if self._readout_is_default:
+                self.logger.warning(
+                    "capture_readout_ms not set: assuming the cautious worst case (read-out = one camera "
+                    "period). Measure it with d_min_from_images.py and pass capture_readout_ms"
+                )
+            if self._min_delay_is_default:
+                self.logger.warning(
+                    f"d_min = {self.capture_min_delay * 1000:.0f} ms is the uncalibrated default - "
+                    f"determine the real value with d_min_from_images.py and pass capture_min_delay_ms"
+                )
+
+    def _grab_loop(self) -> None:
+        """Grabber thread: read the camera continuously and keep the newest frames with their arrival time."""
+        cap = self.cap
+        cond = self._frame_cond
+        ring = self._frame_ring
+        failures = 0
+
+        while not self._grab_stop.is_set():
+            ok = False
+            frame = None
+            ts = 0.0
+            try:
+                with self._cap_lock:
+                    ok = cap.grab()
+                    ts = time.perf_counter()          # arrival time of the frame
+                    if ok:
+                        ok, frame = cap.retrieve()    # decode after the timestamp was taken
+            except Exception as e:
+                ok = False
+                if failures % 100 == 0:
+                    self.logger.error(f"Grabber: camera read raised {e}")
+
+            if not ok or frame is None:
+                failures += 1
+                if failures == 1 or failures % 200 == 0:
+                    self.logger.warning(f"Grabber: camera read failed ({failures} in a row)")
+                time.sleep(0.005)
+                continue
+            failures = 0
+
+            if not frame.flags.c_contiguous or frame.dtype != np.uint8:
+                frame = np.ascontiguousarray(frame, dtype=np.uint8)
+
+            with cond:
+                self._grab_seq += 1
+                ring.append((self._grab_seq, ts, frame))
+                cond.notify_all()
+
+    def _wait_frame(self, double min_ts, long min_seq, double deadline):
+        """
+        Return the oldest ring entry (seq, arrival_time, frame) that arrived at or after min_ts and
+        has a sequence number >= min_seq. Waits until `deadline` (perf_counter time) for it.
+        A frame that is already in the ring is returned immediately, also when the capture thread
+        runs late. Returns None if no such frame exists in time.
+        """
+        with self._frame_cond:
+            while True:
+                for entry in self._frame_ring:          # oldest first
+                    if entry[0] >= min_seq and entry[1] >= min_ts:
+                        return entry
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    return None
+                self._frame_cond.wait(remaining)
+
+    def _latest_frame(self):
+        """Newest ring entry or None."""
+        with self._frame_cond:
+            # no negative index: wraparound=False is set for this module
+            n = len(self._frame_ring)
+            return self._frame_ring[n - 1] if n > 0 else None
 
     def log_camera_properties(self) -> None:
         """
@@ -395,42 +593,71 @@ cdef class DigitizeVideo:
 
         self.logger.info("===================================")
 
+
     def initialize_threads(self) -> None:
-        """
-        Subscribe to the signal_subject.
+        """Create thread pool and subscribe to the signal_subject for captures."""
+        cpu_count = multiprocessing.cpu_count()
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(2, cpu_count - 2))
 
-        The pipeline calls handle_trigger() for every event on the poller thread. The observer
-        starts the final write when the subject completes (EOF) or fails.
-        """
-        self.signal_observer = SignalObserver(self.final_write_to_disk,
-                                              logging.getLogger(__name__ + ".SignalObserver"))
+        # SignalObserver triggers final_write_to_disk on subject completion.
+        self.signal_observer = SignalObserver(self.final_write_to_disk, logging.getLogger(__name__ + ".SignalObserver"))
 
+        # Capture runs on its own thread, so cap.read() can never block the FT232H poller.
+        self.capture_scheduler = EventLoopScheduler(
+            thread_factory=lambda target: threading.Thread(target=target, name="capture", daemon=True)
+        )
+
+        # Subscribe to subject:
+        #  1) observe_on hands the event (and later on_completed) over to the capture thread,
+        #     the poller thread only enqueues it (microseconds),
+        #  2) map runs the actual capture there, one event after the other, in order.
         self.photoCellSignalDisposable = self.signal_subject.pipe(
-            ops.map(lambda event: self.handle_trigger(event))
+            ops.observe_on(self.capture_scheduler),
+            ops.map(self._capture_safe),
         ).subscribe(self.signal_observer)
+
+        # Also subscribe only for completion to set a local event we can wait on.
+        # Keep disposable to remove subscription during cleanup.
+        def _on_completed():
+            # set event for waiting thread(s)
+            try:
+                self._completion_event.set()
+            except Exception:
+                pass
+
+    def _capture_safe(self, event):
+        """
+        Runs on the capture thread: capture one trigger event.
+        Exceptions are logged and swallowed; an exception escaping from map() would terminate
+        the whole subscription and silently stop all further captures.
+        """
+        try:
+            self.handle_trigger(event)
+        except Exception:
+            self.logger.exception(f"[Capture] capture failed for event {event!r}")
+        return None
 
     cpdef connect(self, Ft232hConnector conn):
         """
         Call this after Ft232hConnector is created.
-
-        Remembers the connector (it is stopped and closed during cleanup) and stores the
-        C-level timing reference.
+        Stores both Python-level and C-level timing references.
         """
-        self.ft232h = conn
         try:
+            # prefer Python-level safe accessor
             py_tv = get_timing()
             if py_tv is None:
-                raise RuntimeError("the timing singleton has not been created yet")
-            self.timing = py_tv
-            self.timing_view = <CTimingResult?> py_tv  # checked cast
+                # fallback to requesting from connector instance (safer if connector created now)
+                py_tv = conn.get_timing()
+            self.timing_view = <CTimingResult> py_tv  # store C-typed reference
         except Exception as e:
             # keep the attribute None on failure
             self.timing_view = None
             self.logger.error(f"DigitizeVideo.connect: could not obtain timing_view: {e}")
 
     cpdef bint set_exposure(self, double exp_val):
-        """Set camera exposure; return True on success."""
-        return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
+        """Set camera exposure; return True on success (serialized with the grabber thread)."""
+        with self._cap_lock:
+            return bool(self.cap.set(cv2.CAP_PROP_EXPOSURE, exp_val))
 
     def shm_to_uint8_4d(self, buf, Py_ssize_t frames, int h, int w):
         """
@@ -442,10 +669,7 @@ cdef class DigitizeVideo:
 
     def initialize_process_pool(self) -> None:
         """
-        Create a multiprocessing pool and pre-allocate the shared memory buffers.
-
-        One buffer holds exactly `chunk_size` images, the number of images that are handed to a
-        worker in one task (this is the "Anzahl Bilder pro Prozess" setting of the GUI).
+            Create a multiprocessing pool (forkserver) and pre-allocate shared memory buffers.
         """
 
         self.img_bytes = self.img_width * self.img_height * 3
@@ -463,7 +687,7 @@ cdef class DigitizeVideo:
         self.process_count = max(2, multiprocessing.cpu_count() - 1)
         self.pool = ctx.Pool(self.process_count)
 
-        frames_per_buffer = int(self.chunk_size)
+        frames_per_buffer = int(self.chunk_size * self.frame_multiplier)
 
         # Shared memory allocation
         self.shared_buffers = [shared_memory.SharedMemory(create=True, size=(frames_per_buffer * self.img_bytes)) for _ in range(self.process_count)]
@@ -476,15 +700,16 @@ cdef class DigitizeVideo:
             arr = self.shm_to_uint8_4d(shm.buf, frames_per_buffer, self.img_height, self.img_width)
             self._shm_arrays.append(arr)
 
-            desc_nbytes = frames_per_buffer * 3 * np.dtype(np.uint32).itemsize
+            desc_nbytes = frames_per_buffer * DESCRIPTOR_COLUMNS * np.dtype(np.uint32).itemsize
             dshm = shared_memory.SharedMemory(create=True, size=desc_nbytes)
-            desc_arr = np.ndarray((frames_per_buffer, 3), dtype=np.uint32, buffer=dshm.buf)
+            desc_arr = np.ndarray((frames_per_buffer, DESCRIPTOR_COLUMNS), dtype=np.uint32, buffer=dshm.buf)
             desc_arr.fill(0)
             self._desc_shms.append(dshm)
             self._desc_arrays.append(desc_arr)
 
         self.shared_buffers_index = 0
         self.buffers_in_use = [False] * self.process_count
+        self.buffer_lock = threading.Lock()
         self.processes = []
         self._frames_per_buffer = frames_per_buffer
 
@@ -493,210 +718,307 @@ cdef class DigitizeVideo:
     # ---------------------------
     def _cleanup_finished_processes(self) -> None:
         """
-        Reap finished worker tasks and give their buffers back.
-
-        Every finished entry is removed from self.processes under the lock, so exactly one
-        caller handles it (this runs on the poller thread and, during shutdown, possibly on
-        another thread). The descriptors are cleared *before* the buffer is released: once it
-        is released the capture may write fresh descriptors into it.
+        Check child processes for completion.
+        Properly close/unlink SHM and clear descriptor arrays safely.
         """
-        ready = []
         still = []
-        with self.buffer_lock:
-            for entry in self.processes:
-                if entry[0].ready():
-                    ready.append(entry)
-                else:
-                    still.append(entry)
-            self.processes = still
 
-        for res, shm, desc_shm, buf_idx in ready:
-            try:
-                # re-raise worker exceptions here so we can log them
-                res.get()
-            except Exception as e:
-                # Log the worker error, but still reclaim the buffer so the pipeline continues
-                self.logger.error(f"Child process failed: {e}")
+        for res, shm, desc_shm, buf_idx in self.processes:
+            if res.ready():
+                try:
+                    # re-raise worker exceptions here so we can log them
+                    res.get()
+                except Exception as e:
+                    # Log the worker error, but still reclaim the buffer so the pipeline continues
+                    self.logger.error(f"Child process failed: {e}")
 
-            try:
-                self._desc_arrays[buf_idx].fill(0)
-            except Exception:
-                # best-effort only (arrays are released during cleanup)
-                pass
+                # mark buffer as free for reuse (under lock)
+                with self.buffer_lock:
+                    self.buffers_in_use[buf_idx] = False
+
+                # Clear descriptor array now that worker consumed it
+                # (desc arrays are pre-allocated and reused; do NOT close/unlink here)
+                try:
+                    self._desc_arrays[buf_idx].fill(0)
+                except Exception:
+                    # best-effort only
+                    pass
+            else:
+                still.append((res, shm, desc_shm, buf_idx))
+        self.processes = still
+
+    def handle_trigger(self, event: SubjectDescType) -> None:
+        """
+        Called for each optocoupler event. Grabs frames and fills the current shared buffer.
+        """
+        cdef double[:, :] buf
+
+        frame_count, start_cycle = event
+
+        # pick the frame(s) belonging to this trigger from the grabber ring
+        self.take_picture(frame_count, start_cycle)
+
+        # If we've completed a chunk, schedule writing to disk
+        if (self.processed_frames % self.chunk_size) == 0:
+            with self.img_desc_lock:
+                descriptors = list(self.img_desc)
+                self.img_desc = []
 
             with self.buffer_lock:
-                self.buffers_in_use[buf_idx] = False
+                self.buffers_in_use[self.shared_buffers_index] = True
 
-    def _acquire_free_buffer(self, int current):
-        """
-        Return the index of a free buffer (not `current`), waiting for the workers if necessary.
-        Returns None when the program is shutting down.
-        """
-        cdef int i, cand
-        waited_since = None
-        last_log = 0.0
+            buffer_index = self.shared_buffers_index
+            self.executor.submit(self._post_capture, buffer_index, descriptors)
 
-        while True:
-            self._cleanup_finished_processes()
+        capture_duration = time.perf_counter() - start_cycle
 
+        if (self.processed_frames % 100) == 0:
+            self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
+
+        # add capture duration (trigger -> image in buffer, incl. time spent in the queue)
+        # to the timing statistics. The row index is the film frame number: the poller appends
+        # row <count> for every trigger. (Using processed_frames here was off by one row, and
+        # off by a factor of 3 with bracketing, because it is incremented in take_picture().)
+        try:
+            if frame_count < self.timing_view.max_frames:
+                buf = self.timing_view.buf
+                buf[frame_count, 3] = capture_duration
+            else:
+                self.logger.error(
+                    f"Timing buffer overflow at frame {frame_count}, "
+                    f"max={self.timing_view.max_frames}"
+                )
+        except Exception:
+            self.logger.error(f"Could not add {capture_duration=} for frame {frame_count} to self.timing_view")
+            pass
+
+
+    def _post_capture(self, buffer_index: int, descriptors: List[ImgDescType]) -> None:
+        """Run in a threadpool: find a free buffer and schedule worker to write it."""
+        self._cleanup_finished_processes()
+
+        next_buf = None
+        while next_buf is None:
             with self.buffer_lock:
-                for i in range(1, self.process_count):
-                    cand = (current + i) % self.process_count
+                for i in range(self.process_count):
+                    cand = (buffer_index + 1 + i) % self.process_count
                     if not self.buffers_in_use[cand]:
-                        return cand
-
-            if self._final_write_done:
-                return None
-
-            now = time.perf_counter()
-            if waited_since is None:
-                waited_since = now
-                last_log = now
-                self.logger.warning("All shared buffers busy; capture waits for the writer processes "
-                                    "(frames may be missed - consider a larger/smaller chunk size)")
-            elif now - last_log > BUFFER_WAIT_LOG_INTERVAL:
-                last_log = now
-                self.logger.error(f"Still waiting for a free buffer after {now - waited_since:.1f}s - "
-                                  f"are the writer processes alive and is the disk writable?")
-            time.sleep(0.005)
-
-    def _write_buffer_sync(self, int buffer_index) -> None:
-        """Write one buffer in the calling process (used for the final partial buffer and as fallback)."""
-        shm = self.shared_buffers[buffer_index]
-        desc_shm = self._desc_shms[buffer_index]
-        write_images(shm.name.encode('utf-8'), desc_shm.name.encode('utf-8'),
-                     self._frames_per_buffer, self.img_width, self.img_height,
-                     self.output_path_b, self.compression_level)
-        self._desc_arrays[buffer_index].fill(0)
-
-    def _flush_current_buffer(self):
-        """
-        The current buffer is full: switch capture to the next free buffer and hand the full
-        one to the worker pool. Runs on the poller thread (the only one that captures).
-
-        Order matters: the capture target is switched *before* the full buffer is submitted,
-        and the full buffer is marked busy before the switch.
-        """
-        cdef int buffer_index = self.shared_buffers_index
-
-        with self.buffer_lock:
-            self.buffers_in_use[buffer_index] = True
-
-        next_buf = self._acquire_free_buffer(buffer_index)
-        if next_buf is None:
-            # shutting down: the images stay pending, final_write_to_disk() writes this buffer
-            return False
+                        next_buf = cand
+                        break
+            if next_buf is None:
+                self._cleanup_finished_processes()
+                self.logger.warning("All shared buffers busy; waiting...")
+                time.sleep(0.01)
 
         self.shared_buffers_index = next_buf
-        self._pending_images = 0
 
         try:
             shm = self.shared_buffers[buffer_index]
             desc_shm = self._desc_shms[buffer_index]
+            shm_name = (<str>shm.name).encode('utf-8')
+            desc_name = (<str>desc_shm.name).encode('utf-8')
+            frames_total = self._frames_per_buffer
 
             def process_error_callback(error):
                 self.logger.error(f"Error in child process: {error}")
 
             result = self.pool.apply_async(
                 write_images,
-                args=(shm.name.encode('utf-8'), desc_shm.name.encode('utf-8'), self._frames_per_buffer,
-                      self.img_width, self.img_height, self.output_path_b, self.compression_level),
+                args=(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level),
+                kwds={"desc_cols": DESCRIPTOR_COLUMNS},
                 error_callback=process_error_callback
             )
 
             with self.buffer_lock:
                 self.processes.append((result, shm, desc_shm, buffer_index))
-            return True
 
         except Exception as e:
-            self.logger.error(f"Error during apply_async ({e}); writing the buffer in this process")
-            try:
-                self._write_buffer_sync(buffer_index)
-            except Exception:
-                self.logger.exception("Synchronous write failed, images of this chunk are lost")
-            finally:
-                with self.buffer_lock:
-                    self.buffers_in_use[buffer_index] = False
-            return False
+            self.logger.error(f"Error during apply_async: {e}")
+            with self.buffer_lock:
+                self.buffers_in_use[buffer_index] = False
 
-    def handle_trigger(self, event: SubjectDescType) -> None:
-        """
-        Called for each optocoupler event (synchronously on the poller thread).
 
-        An exception here must never escape: reactivex would end the subscription and silently
-        drop all further events (including the completion that starts the final write).
+    def _check_budget(self, double trigger_ts, long frame_count) -> None:
         """
-        if self._final_write_done:
+        Estimate the time window in which a camera frame may ARRIVE so that its whole exposure fell
+        into the time the lens was open, and warn if a frame is not guaranteed to land in it.
+
+        The exposure of a frame (E, plus R because the rows of a rolling shutter sensor are exposed one
+        after the other) must lie within the open time T_open = open_fraction * cycle. Transfer,
+        decoding and copying may happen later, also while the shutter is closed again. Frames arrive
+        between d_min and d_min + W, where W = T_open - E - R. The free-running camera delivers one
+        frame per period p, so a frame is only guaranteed if W >= p (+ 3 ms jitter).
+        The cycle is the median of the last trigger intervals, p the median camera frame interval.
+        The result W is stored in self._usable_window for the LATE decision in take_picture().
+        """
+        hist = self._trig_hist
+        hist.append(trigger_ts)
+        n = len(hist)
+        if n < 6:
             return
-        try:
-            with self.capture_lock:
-                # re-check: the final write may have started while we waited for the lock
-                if self._final_write_done:
-                    return
-                self._capture_frame(event)
-        except Exception:
-            self.logger.exception(f"[Capture] unhandled error while capturing {event!r}")
+        ts = list(hist)
+        cycles = sorted([ts[i + 1] - ts[i] for i in range(n - 1)])
+        cycle = cycles[(n - 1) // 2]
 
-    def _capture_frame(self, event) -> None:
-        frame_count, start_cycle = event
+        with self._frame_cond:
+            arr = [e[1] for e in self._frame_ring]
+        if len(arr) < 4:
+            return
+        periods = sorted([arr[i + 1] - arr[i] for i in range(len(arr) - 1)])
+        period = periods[(len(arr) - 1) // 2]
 
-        # retrieve frame(s) from camera
-        self.take_picture(frame_count)
+        readout = period if self.capture_readout < 0 else self.capture_readout
+        t_open = self.open_fraction * cycle
+        usable = t_open - self.max_exposure - readout
+        self._usable_window = usable
 
-        # If we've completed a chunk, schedule writing to disk
-        if (self.processed_frames % self.chunk_size) == 0:
-            self._flush_current_buffer()
+        # The uncalibrated default d_min is only safe while the open phase leaves ample room: d_min may
+        # exceed the true value by at most W - p without letting late frames through.
+        if self._min_delay_is_default and not self._default_dmin_warned and usable - period < 0.040:
+            self._default_dmin_warned = True
+            self.logger.warning(
+                f"[Capture] uncalibrated d_min ({self.capture_min_delay * 1000:.0f} ms) at a cycle of "
+                f"{cycle * 1000:.0f} ms: only {max(usable - period, 0.0) * 1000:.0f} ms of slack in the open phase, "
+                f"so a d_min that is too large can let frames through that were partly covered by the closing "
+                f"shutter, a too small one frames that were still covered. Calibrate d_min "
+                f"(d_min_from_images.py) before digitizing at this speed"
+            )
 
-        if (frame_count % 100) == 0:
-            capture_duration = time.perf_counter() - start_cycle
-            self.logger.info(f"[Capture] Frame {frame_count} ({self.processed_frames}) took {capture_duration*1000:.2f} ms")
+        if usable < period + 0.003 and (frame_count - self._budget_warned_at) >= 100:
+            self._budget_warned_at = frame_count
+            share = max(0.0, min(1.0, usable / period))
+            self.logger.warning(
+                f"[Capture] rest window short: cycle {cycle * 1000:.0f} ms, lens open about "
+                f"{t_open * 1000:.0f} ms - exposure {self.max_exposure * 1000:.1f} ms - read-out "
+                f"{readout * 1000:.0f} ms leaves {max(usable, 0.0) * 1000:.0f} ms for a camera frame to "
+                f"arrive in, but one camera period ({period * 1000:.0f} ms + 3 ms) is needed to guarantee one: "
+                + (f"only about {share * 100:.0f} % of the triggers can get a frame exposed while the film is at rest "
+                   if share < 1.0 else
+                   "the 3 ms margin for timestamp jitter is missing, so a few triggers may miss the rest window ")
+                + f"(slow the projector down, shorten the exposure, use a faster camera"
+                + (", or measure the real read-out time: capture_readout_ms" if self._readout_is_default else "")
+                + ")"
+            )
 
-    def take_picture(self, int picture_count) -> None:
-        """Capture one (or multiple if bracketing) frames and copy into shared buffer."""
+    def take_picture(self, int picture_count, double trigger_ts) -> None:
+        """
+        Select the frame(s) that belong to one trigger and copy them into the shared buffer.
+
+        Bracket 0: the first camera frame that arrived at or after trigger + d_min (trigger_ts is the
+        poller's perf_counter() stamp, d_min = capture_min_delay). A frame that arrives sooner was
+        exposed while the shutter still covered the lens and is never taken. If the chosen frame
+        arrived no later than d_min + min(capture_window, T_open - E - R) the capture is fine (the
+        second term, from _check_budget(), is the time left in the open phase after exposure and
+        read-out; a frame arriving later was partly exposed while the shutter was closing).
+        Otherwise the best available frame is used and flagged SUSPECT:
+          - LATE   : first frame after d_min, but it arrived after that limit
+          - STALE  : no frame after d_min within capture_timeout; newest frame from before it
+          - NOFRAME: the camera delivered nothing at all; a blank image is written
+        capture_info records per film frame: delay of the chosen frame after the trigger, the suspect
+        flag and capture_work_ms (arrival of the chosen frame -> image in the shared buffer, i.e. the
+        real processing time, as opposed to the latency trigger -> buffer in column "capture opencv").
+        Further brackets: after an exposure change the next `bracket_settle_frames` frames are
+        skipped (the new exposure needs a frame or two to take effect). They are judged against the
+        same latest-arrival limit, which is usually missed - the film moves on.
+        """
+        frame_count = picture_count
+
+        frame_multiplier = self.frame_multiplier
+        exposures = self.exposures
+        buf_idx = self.shared_buffers_index
+        shm_frames = self._shm_arrays[buf_idx]
+        desc_arr = self._desc_arrays[buf_idx]
+        frames_per_buffer = self._frames_per_buffer
+        img_bytes = self.img_bytes
+        min_delay = self.capture_min_delay
+        timeout = self.capture_timeout
+        n_brackets = len(exposures)
+
+        self._check_budget(trigger_ts, frame_count)
+        # latest acceptable arrival after the trigger: capped by the stall window and, once the live
+        # cycle is known, by what is left of the open phase after exposure and read-out
+        usable = self._usable_window
+        late_limit = min_delay + (self.capture_window if usable < 0
+                                  else min(self.capture_window, max(usable, 0.0)))
+
         cdef np.uint8_t[:, :, :] src_mv
         cdef np.uint8_t[:, :, :] dst_mv
-        cdef np.uint32_t[:, :] desc_mv
         cdef unsigned char* src_ptr
         cdef unsigned char* dst_ptr
-        cdef Py_ssize_t frame_index
-        cdef int img_bytes = self.img_bytes
-        cdef int frames_per_buffer = self._frames_per_buffer
 
-        frame_count = picture_count
-        exposures = self.exposures
-        n_exposures = len(exposures)
-        shm_frames = self._shm_arrays[self.shared_buffers_index]
-        desc_mv = self._desc_arrays[self.shared_buffers_index]
-        expected_shape = (self.img_height, self.img_width, 3)
+        min_ts = trigger_ts + min_delay
+        min_seq = 0
+        # deadline for the first bracket is relative to d_min; if the capture thread runs late
+        # the frame is usually already in the ring and returned at once
+        deadline = min_ts + timeout
+        first_delay_ms = None
+        first_work_ms = None
+        any_suspect = False
+
+        # Is the capture thread behind? Waiting for the camera frame is normal and does not count;
+        # only a capture that STARTS after trigger + d_min is late.
+        start_lag = time.perf_counter() - min_ts
+        if start_lag > CAPTURE_START_LAG_WARN_S:
+            self.logger.warning(
+                f"[Capture] capture of frame {frame_count} started {start_lag * 1000:.0f} ms after "
+                f"trigger + d_min - the capture thread is behind"
+            )
 
         for bracket_index, (exp_val, suffix) in enumerate(exposures):
-            try:
-                success, frame_data = self.cap.read()
-            except Exception:
-                # treated like success == False: a blank frame keeps the numbering free of gaps
-                self.logger.exception(f"cap.read() raised at frame {frame_count}{suffix}")
-                success, frame_data = False, None
+            entry = self._wait_frame(min_ts, min_seq, deadline)
 
-            if self.bracketing and (bracket_index < (n_exposures - 1)):
-                # set exposure value for next frame read
-                next_exp = exposures[bracket_index + 1][0]
+            status = "ok"
+            if entry is not None:
+                frame_data = entry[2]
+                frame_ts = entry[1]
+                delay = frame_ts - trigger_ts
+                if delay > late_limit:
+                    status = "LATE"
+            else:
+                latest = self._latest_frame()
+                if latest is not None:
+                    frame_data = latest[2]
+                    frame_ts = latest[1]
+                    delay = frame_ts - trigger_ts           # negative: frame is older than the trigger
+                    status = "STALE"
+                else:
+                    frame_data = None
+                    frame_ts = float("nan")
+                    delay = float("nan")
+                    status = "NOFRAME"
+
+            suspect = status != "ok"
+            if first_delay_ms is None:
+                first_delay_ms = delay * 1000.0
+
+            if suspect:
+                any_suspect = True
+                self.suspect_count += 1
+                self.logger.warning(
+                    f"[Capture] SUSPECT frame {frame_count}{suffix}: {status}, "
+                    f"delay {delay * 1000:.1f} ms (d_min {min_delay * 1000:.0f} ms, latest {late_limit * 1000:.0f} ms), "
+                    f"exposure {exp_val}"
+                )
+
+            if self.bracketing and (bracket_index < (n_brackets - 1)):
+                # change the exposure for the next bracket; the next usable frame is the first one
+                # that arrives after `settle` further frames
+                next_exp, _ = exposures[bracket_index + 1]
                 if not self.set_exposure(next_exp):
                     self.logger.error(f"Could not set exposure to {next_exp} for frame {frame_count}{suffix}")
-                time.sleep(EXPOSURE_SETTLE_SECONDS)
+                latest = self._latest_frame()
+                latest_seq = latest[0] if latest is not None else 0
+                min_seq = latest_seq + 1 + self.bracket_settle_frames
+                min_ts = time.perf_counter()
+                deadline = min_ts + timeout
 
-            # position inside the buffer: images are written one after the other and the buffer
-            # is handed over after exactly frames_per_buffer images
-            frame_index = self.processed_frames % frames_per_buffer
+            logical_index = frame_count * frame_multiplier
+            frame_index = (logical_index + bracket_index) % frames_per_buffer
 
-            # the size is checked: a frame with another size would make memcpy read past its end
-            if success and frame_data is not None and frame_data.shape == expected_shape:
-                if frame_data.dtype != np.uint8 or not frame_data.flags.c_contiguous:
-                    frame_data = np.ascontiguousarray(frame_data, dtype=np.uint8)
+            if frame_data is not None:
                 src_mv = frame_data
             else:
-                got = None if frame_data is None else frame_data.shape
-                self.logger.error(f"Read error at frame {frame_count}{suffix}, exposure {exp_val} "
-                                  f"(success={success}, shape={got}, expected {expected_shape})")
+                self.logger.error(f"No camera frame for frame {frame_count}{suffix}, writing blank image")
                 src_mv = self.blank_frame
 
             dst_mv = shm_frames[frame_index]
@@ -705,129 +1027,141 @@ cdef class DigitizeVideo:
 
             memcpy(dst_ptr, src_ptr, img_bytes)
 
-            desc_mv[frame_index, 0] = img_bytes
-            desc_mv[frame_index, 1] = frame_count
-            desc_mv[frame_index, 2] = bracket_index
+            if first_work_ms is None:
+                # processing time: arrival of the chosen camera frame -> image in the shared buffer
+                first_work_ms = (time.perf_counter() - frame_ts) * 1000.0
+
+            desc_arr[frame_index, 0] = np.uint32(img_bytes)
+            desc_arr[frame_index, 1] = np.uint32(frame_count)
+            desc_arr[frame_index, 2] = np.uint32(bracket_index)
+            if DESCRIPTOR_COLUMNS > 3:
+                desc_arr[frame_index, 3] = np.uint32(1 if suspect else 0)
+
+            with self.img_desc_lock:
+                self.img_desc.append((img_bytes, frame_count, suffix))
 
             self.processed_frames += 1
-            self._pending_images += 1
+
+        # delay (first bracket), suspect flag and processing time per film frame for the timing CSV
+        self.capture_info[frame_count] = (first_delay_ms, 1 if any_suspect else 0, first_work_ms)
 
         if self.bracketing:
-            first_exp = exposures[0][0]
+            first_exp, _ = exposures[0]
             self.set_exposure(first_exp)
-
-    # ---------------------------
-    # Shutdown
-    # ---------------------------
-    def _write_remaining_images(self) -> None:
-        """Write the images of the last, partially filled buffer."""
-        if self._pending_images <= 0:
-            return
-        self.logger.info(f"Writing the remaining {self._pending_images} images")
-        self._write_buffer_sync(self.shared_buffers_index)
-        self._pending_images = 0
 
     def final_write_to_disk(self) -> None:
         """
-        Write the remaining images and the timing CSV, then clean up and complete wait_subject.
-
-        Idempotent: only the first caller does the work; later callers return at once (use
-        wait_for_completion() to wait for the end). Every step is protected so that
-        wait_subject is always completed and the main program cannot hang.
+        Trigger final write for remaining images and wait for workers to finish.
+        This is idempotent and safe to call multiple times.
         """
+
         if self._final_write_done:
             return
 
-        # no new captures from now on
         self._final_write_done = True
 
-        try:
-            # wait for a capture that is in progress, then write what is left in the buffer
-            with self.capture_lock:
-                try:
-                    self._write_remaining_images()
-                except Exception:
-                    self.logger.exception("Error while writing the remaining images")
+        if self.img_desc:
+            current_buf = self.shared_buffers_index
+            with self.buffer_lock:
+                self.buffers_in_use[current_buf] = True
 
-            # log statistics and save timing
-            elapsed_time = time.perf_counter() - self.start_time
-            average_fps = (self.processed_frames / elapsed_time) if elapsed_time > 0 else 0.0
-            self.logger.info("------- End of Film ---------")
-            self.logger.info(f"Total saved images (incl. exposures): {self.processed_frames}")
-            self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
-            self.logger.info(f"Average FPS: {average_fps:.2f}")
+            try:
+                shm = self.shared_buffers[current_buf]
+                desc_shm = self._desc_shms[current_buf]
+                shm_name = (<str>shm.name).encode('utf-8')
+                desc_name = (<str>desc_shm.name).encode('utf-8')
+                frames_total = self._frames_per_buffer
 
-            time_now = datetime.now()
-            fname = str(self.output_path / f"timing_{time_now.strftime('%Y_%m_%d_%H_%M_%S')}_{self.processed_frames:05d}.csv")
-            self.logger.info(f"CSV file to be opened: {fname}")
-            try:
-                self.write_timing_csv(fname)
-            except Exception:
-                self.logger.exception("Could not write the timing CSV")
-        except Exception:
-            self.logger.exception("Error in final_write_to_disk")
-        finally:
-            try:
-                self.cleanup()
-            except Exception:
-                self.logger.exception("Error during cleanup")
-            finally:
-                self._completion_event.set()
-                # signal completion to main
-                try:
-                    self.wait_subject.on_completed()
-                except Exception:
-                    self.logger.exception("wait_subject.on_completed() failed")
+                write_images(shm_name, desc_name, frames_total, self.img_width, self.img_height, self.output_path_b, self.compression_level,
+                             desc_cols=DESCRIPTOR_COLUMNS)
+
+                # clear descriptor buffer
+                desc_arr = self._desc_arrays[current_buf]
+                desc_arr.fill(0)
+            except Exception as e:
+                self.logger.error(f"Error during final apply_async: {e}")
+                with self.buffer_lock:
+                    self.buffers_in_use[current_buf] = False
+
+            self.img_desc = []
+
+            time.sleep(3.0)
+
+        # log statistics and save timing
+        elapsed_time = time.perf_counter() - self.start_time
+        average_fps = (self.processed_frames / elapsed_time) if elapsed_time > 0 else 0.0
+        self.logger.info("------- End of Film ---------")
+        self.logger.info(f"Total saved images (incl. exposures): {self.processed_frames}")
+        self.logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
+        self.logger.info(f"Average FPS: {average_fps:.2f}")
+        if self.suspect_count:
+            self.logger.warning(f"SUSPECT captures: {self.suspect_count} (see log and CSV column 'suspect')")
+        else:
+            self.logger.info("SUSPECT captures: 0")
+
+        time_now  = datetime.now()
+        fname = str(self.output_path / f"timing_{time_now.strftime('%Y_%m_%d_%H_%M_%S')}_{self.processed_frames:05d}.csv")
+        self.logger.info(f"CSV file to be opened: {fname}")
+        self.write_timing_csv(fname)
+
+        # final cleanup
+        self.cleanup()
+
+        # signal completion to main
+        self.wait_subject.on_completed()
 
     cpdef write_timing_csv(self, str filename):
         cdef int i
-        cdef int rows
         cdef int count = 0
         cdef int cycle = 1
         cdef int work = 2
-        cdef int read = 3
+        cdef int capture = 3
         cdef int latency = 4
         cdef int wait_time = 5
         cdef int total_work = 6
-        cdef double[:, :] buf
-        cdef CTimingResult tv = self.timing_view
 
-        if tv is None:
-            tv = get_timing_view()
-        if tv is None:
-            self.logger.warning("No timing data available - CSV file not written")
-            return
-
-        buf = tv.buf
-        rows = tv.size
+        buf = self.timing_view.buf
+        rows = self.timing_view.size
 
         with open(filename, "w") as f:
-            f.write("frame,read,cycle,work,latency,wait_time,total_work\n")
+            f.write("frame,capture opencv,work,cycle (work + latency),latency,wait_time,total_work,"
+                    "frame_delay_ms,suspect,capture_work_ms\n")
 
             for i in range(rows):
+                info = self.capture_info.get(int(buf[i, count]))
+                if info is not None:
+                    delay_ms = "" if info[0] != info[0] else f"{info[0]:.3f}"   # nan -> empty
+                    suspect = info[1]
+                    work_ms = "" if (info[2] is None or info[2] != info[2]) else f"{info[2]:.3f}"
+                else:
+                    delay_ms = ""      # no capture for this row (e.g. trigger not processed)
+                    suspect = ""
+                    work_ms = ""
                 f.write(
-                    f"{buf[i, count]},{buf[i, read]},{buf[i, cycle]},"
-                    f"{buf[i, work]},{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]}\n"
+                    f"{buf[i, count]},{buf[i, capture]},{buf[i, work]},{buf[i, cycle]},"
+                    f"{buf[i, latency]},{buf[i, wait_time]},{buf[i, total_work]},"
+                    f"{delay_ms},{suspect},{work_ms}\n"
                 )
 
     def wait_for_completion(self, timeout: float = None) -> bool:
         """
-        Block until the final write and the cleanup are finished or until `timeout` seconds.
-        Returns True if the shutdown finished, False if timed out.
+        Block until the FT232H signals completion (subject.on_completed) or until `timeout` seconds.
+        Returns True if completion event was seen, False if timed out.
         """
         return self._completion_event.wait(timeout)
 
     def cleanup(self, timeout_wait_for_workers: float = 2.0) -> None:
         """
-        Idempotent cleanup.
-        - stop the ft232h poller (if connected)
-        - reap finished pool tasks, wait briefly for outstanding ones
-        - close/join pool (waits for the remaining tasks)
-        - dispose Rx subscriptions, release camera
+        Simplified, idempotent cleanup.
+        - stop ft232h poller (if present)
+        - shutdown executor (if present)
+        - reap finished pool tasks non-blocking for up to timeout_wait_for_workers
+        - close/join pool
+        - dispose Rx disposables, release camera
         - release memoryviews, close+unlink shared memory
-        - final gc and close the FTDI connector
+        - final gc and close FTDI
         """
-        if self._cleaned_up:
+        if getattr(self, "_cleaned_up", False):
             self.logger.info("cleanup() already ran — skipping")
             return
         self._cleaned_up = True
@@ -835,107 +1169,301 @@ cdef class DigitizeVideo:
         self.logger.info("Cleaning up ...")
 
         # 0) Stop FTDI poller early to avoid new events
-        ft = self.ft232h
-        if ft is not None:
-            try:
-                ft.stop()
-            except Exception:
-                self.logger.exception("Error stopping ft232h in cleanup")
-
-        # 1) Reap finished worker results, wait briefly for outstanding ones
-        t0 = time.time()
-        remaining = 0
         try:
-            while True:
-                self._cleanup_finished_processes()
-                with self.buffer_lock:
-                    remaining = len(self.processes)
-                if remaining == 0:
-                    break
+            ft = getattr(self, "ft232h", None)
+            if ft is not None:
+                stop = getattr(ft, "stop", None)
+                if callable(stop):
+                    stop()
+        except Exception:
+            self.logger.exception("Error stopping ft232h in cleanup")
+
+        # 1) Shutdown thread executor (if any)
+        try:
+            executor = getattr(self, "executor", None)
+            if executor is not None:
+                executor.shutdown(wait=True)
+        except Exception:
+            self.logger.exception("Error shutting down executor")
+
+        # 2) Reap finished worker results (non-blocking), wait briefly for outstanding ones
+        t0 = time.time()
+        try:
+            while self.processes:
+                try:
+                    self._final_cleanup_finished_processes()
+                except Exception:
+                    self.logger.exception("_final_cleanup_finished_processes failed")
                 if time.time() - t0 > timeout_wait_for_workers:
-                    self.logger.warning(f"{remaining} worker task(s) still running - waiting in pool.join()")
+                    self.logger.warning("Timeout waiting for worker processes to finish")
                     break
+                # short sleep to avoid busy loop; small so we remain responsive
                 time.sleep(0.05)
         except Exception:
             self.logger.exception("Error while waiting for child processes")
 
-        # 2) Close & join multiprocessing pool (waits for the remaining tasks)
-        pool = self.pool
-        if pool is not None:
-            try:
-                pool.close()
-            except Exception:
-                self.logger.debug("pool.close() raised exception (continuing to join/terminate)")
-            try:
-                pool.join()
-            except Exception:
+        # 3) Close & join multiprocessing pool (if any)
+        try:
+            pool = getattr(self, "pool", None)
+            if pool is not None:
                 try:
-                    pool.terminate()
+                    pool.close()
+                except Exception:
+                    self.logger.debug("pool.close() raised exception (continuing to join/terminate)")
+
+                try:
                     pool.join()
                 except Exception:
-                    self.logger.exception("Could not terminate/join multiprocessing pool")
-            # log the result of tasks that finished while joining
-            try:
-                self._cleanup_finished_processes()
-            except Exception:
-                self.logger.exception("Error reaping worker results")
+                    try:
+                        pool.terminate()
+                        pool.join()
+                    except Exception:
+                        self.logger.exception("Could not terminate/join multiprocessing pool")
+        except Exception:
+            self.logger.exception("Error cleaning up pool")
 
-        # 3) Dispose Rx subscriptions
-        for disp in (self.photoCellSignalDisposable, self.completion_disposable):
-            if disp is not None:
+        # 4) Dispose Rx subscriptions (if any)
+        for attr in ("photoCellSignalDisposable", "completion_disposable"):
+            try:
+                disp = getattr(self, attr, None)
+                if disp is not None:
+                    try:
+                        # many disposables implement dispose; if not, ignore errors
+                        disp.dispose()
+                    except Exception:
+                        pass
+            except Exception:
+                self.logger.exception(f"Error disposing {attr}")
+
+        # 4b) Stop the capture thread's event loop (cleanup() normally runs on that very thread,
+        #     dispose() only flags it for shutdown and does not join)
+        try:
+            sched = getattr(self, "capture_scheduler", None)
+            if sched is not None:
+                sched.dispose()
+        except Exception:
+            self.logger.debug("capture_scheduler.dispose() raised (ignored)")
+
+        # 4c) Stop the grabber before the camera is released
+        try:
+            stop_ev = getattr(self, "_grab_stop", None)
+            if stop_ev is not None:
+                stop_ev.set()
+            gt = getattr(self, "_grab_thread", None)
+            if gt is not None and gt is not threading.current_thread():
+                gt.join(2.0)
+            ring = getattr(self, "_frame_ring", None)
+            if ring is not None:
+                with self._frame_cond:
+                    ring.clear()
+        except Exception:
+            self.logger.exception("Error stopping grabber")
+
+        # 5) Release camera (if present)
+        try:
+            cap = getattr(self, "cap", None)
+            if cap is not None:
                 try:
-                    disp.dispose()
+                    cap.release()
                 except Exception:
-                    pass
+                    self.logger.exception("Error releasing camera")
+        except Exception:
+            self.logger.exception("Error releasing camera (outer)")
 
-        # 4) Release camera
-        cap = self.cap
-        if cap is not None:
+        # 6) Drop memoryview references in parent (allow unlink)
+        try:
+            # clear lists that hold numpy/memoryview references
             try:
-                cap.release()
+                self._shm_arrays[:] = []
             except Exception:
-                self.logger.exception("Error releasing camera")
+                self._shm_arrays = []
+            try:
+                self._desc_arrays[:] = []
+            except Exception:
+                self._desc_arrays = []
 
-        # 5) Drop memoryview references in parent (allow unlink)
-        self._shm_arrays = []
-        self._desc_arrays = []
-        self.processes = []
+            try:
+                self.img_desc = []
+            except Exception:
+                pass
 
-        # 6) Force GC now to free exported views
-        gc.collect()
-        time.sleep(0.02)
+            # ensure processes emptied (we reaped above), drop references anyway
+            try:
+                self.processes = []
+            except Exception:
+                pass
+        except Exception:
+            self.logger.exception("Error clearing local memoryview references")
 
-        # 7) Close & unlink all SharedMemory objects with retries
+        # 7) Force GC now to free exported views (one short collect)
+        try:
+            import gc
+            gc.collect()
+            time.sleep(0.02)
+        except Exception:
+            pass
+
+        # 8) Close & unlink all SharedMemory objects with retries
         for list_name in ("shared_buffers", "_desc_shms"):
-            lst = self.shared_buffers if list_name == "shared_buffers" else self._desc_shms
+            lst = getattr(self, list_name, None)
             if not lst:
                 continue
-            for shm in list(lst):
+            # copy to avoid concurrent mutation
+            try:
+                items = list(lst)
+            except Exception:
+                items = lst[:]
+            for shm in items:
                 try:
                     self._close_and_unlink_shm_with_retries(shm, retries=5, sleep=0.02)
                 except Exception:
                     self.logger.exception(f"Failed close/unlink for an entry in {list_name}")
 
-        # 8) Clear those lists (remove references to SharedMemory objects)
-        self.shared_buffers = []
-        self._desc_shms = []
+        # 9) Clear those lists (remove references to SharedMemory objects)
+        try:
+            self.shared_buffers = []
+        except Exception:
+            pass
+        try:
+            self._desc_shms = []
+        except Exception:
+            pass
 
-        # 9) Final GC + short sleep to let runtime finalize destructors
-        gc.collect()
-        time.sleep(0.02)
+        # 10) Final GC + short sleep to let runtime finalize destructors
+        try:
+            import gc
+            gc.collect()
+            time.sleep(0.02)
+        except Exception:
+            pass
 
-        # 10) Close FTDI connector last (best-effort)
-        if ft is not None:
-            try:
-                ft.close()
-            except Exception:
-                self.logger.exception("Error closing ft232h at end of cleanup")
+        # 11) Close FTDI connector last (best-effort)
+        try:
+            ft = getattr(self, "ft232h", None)
+            if ft is not None:
+                try:
+                    close = getattr(ft, "close", None)
+                    if callable(close):
+                        close()
+                    else:
+                        stop = getattr(ft, "stop", None)
+                        if callable(stop):
+                            stop()
+                except Exception:
+                    self.logger.exception("Error closing ft232h at end of cleanup")
+        except Exception:
+            pass
 
         self.logger.info("Cleanup complete.")
 
+
     def _final_cleanup_finished_processes(self) -> None:
-        """Kept for compatibility: reaping is done by _cleanup_finished_processes()."""
-        self._cleanup_finished_processes()
+        """
+        Reap finished worker ApplyResult entries in self.processes.
+
+        Each entry is expected to be a tuple:
+            (apply_result, shm_frame, desc_shm, buf_idx)
+
+        - Non-blocking: only process items where apply_result.ready() == True
+        - Close/unlink shared memory and mark buffer free under buffer_lock
+        - Remove reaped entries from self.processes
+        """
+        try:
+            procs_copy = list(self.processes)
+        except Exception:
+            # nothing we can do
+            return
+
+        for entry in procs_copy:
+            # Validate tuple shape
+            if not isinstance(entry, tuple) or len(entry) < 1:
+                # unexpected; remove defensively
+                try:
+                    self.processes.remove(entry)
+                except Exception:
+                    pass
+                continue
+
+            apply_res = entry[0]
+            shm_frame = entry[1] if len(entry) > 1 else None
+            desc_shm  = entry[2] if len(entry) > 2 else None
+            buf_idx   = entry[3] if len(entry) > 3 else None
+
+            # Only touch finished results
+            try:
+                ready_callable = getattr(apply_res, "ready", None)
+                finished = bool(ready_callable()) if callable(ready_callable) else False
+            except Exception:
+                finished = False
+
+            if not finished:
+                continue
+
+            # collect/raise worker exceptions (non-blocking since ready() was True)
+            try:
+                apply_res.get()
+            except Exception as e:
+                self.logger.error(f"Worker raised exception: {e}")
+
+            # mark buffer free for reuse
+            if buf_idx is not None:
+                try:
+                    with self.buffer_lock:
+                        if 0 <= buf_idx < len(self.buffers_in_use):
+                            self.buffers_in_use[buf_idx] = False
+                except Exception:
+                    self.logger.debug(f"Could not mark buffer {buf_idx} free")
+
+            # clear descriptor array if present
+            try:
+                if buf_idx is not None and 0 <= buf_idx < len(self._desc_arrays):
+                    try:
+                        self._desc_arrays[buf_idx].fill(0)
+                    except Exception:
+                        self.logger.debug("Could not clear descriptor array (likely already released)")
+            except Exception:
+                pass
+
+            # close+unlink shared memory objects (best-effort)
+            for shm_obj in (shm_frame, desc_shm):
+                if shm_obj is None:
+                    continue
+                try:
+                    self._close_and_unlink_shm_with_retries(shm_obj, retries=3, sleep=0.02)
+                except Exception:
+                    self.logger.exception("Error closing/unlinking a shared memory object")
+
+                # remove from global lists if present
+                try:
+                    if hasattr(self, "shared_buffers") and shm_obj in self.shared_buffers:
+                        try:
+                            self.shared_buffers.remove(shm_obj)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "_desc_shms") and shm_obj in self._desc_shms:
+                        try:
+                            self._desc_shms.remove(shm_obj)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # finally remove entry from live processes
+            try:
+                if entry in self.processes:
+                    self.processes.remove(entry)
+            except Exception:
+                pass
+
+        # log remaining
+        try:
+            self.logger.info(f"_cleanup_finished_processes: remaining processes: {len(self.processes)}")
+        except Exception:
+            pass
+
 
     def _close_and_unlink_shm_with_retries(self, shm_obj, retries=5, sleep=0.05):
         """
@@ -948,6 +1476,7 @@ cdef class DigitizeVideo:
                     shm_obj.close()
                 except BufferError:
                     # memoryview still exported in this process; try GC and retry
+                    import gc
                     gc.collect()
                     time.sleep(sleep)
                     continue
@@ -970,25 +1499,27 @@ cdef class DigitizeVideo:
         except Exception:
             self.logger.debug(f"_close_and_unlink_shm_with_retries: final unlink failed for {name}")
 
+
     def _on_signal(self, signum: int, frame) -> None:
-        """Process-level signal handler for graceful shutdown (SIGINT/SIGTERM/SIGBREAK)."""
-        try:
-            name = signal.Signals(signum).name
-        except Exception:
-            name = str(signum)
+        """Process-level signal handler for graceful shutdown (SIGINT/SIGTERM)."""
+        name = signal.Signals(signum).name
         self.logger.warning(f"Signal {name} received, stopping...")
         try:
-            # writes the remaining frames, stops and closes the connector, cleans up
+            # ensure final frames are written and connector stopped
             self.final_write_to_disk()
-            # if another thread (e.g. the poller at EOF) is already doing the final write, wait for it
-            self._completion_event.wait(60.0)
         except Exception:
-            self.logger.exception("Error during shutdown after signal")
+            pass
+        # wait a moment and exit
+        try:
+            if hasattr(self, 'ft232h') and self.ft232h is not None and hasattr(self.ft232h, "close"):
+                self.ft232h.close()
+        except Exception:
+            pass
         sys.exit(1)
 
 
 class SignalObserver(Observer):
-    """Small Observer adapter to bind final_write_to_disk as completion/error handler."""
+    """Small Observer adapter to bind final_write_to_disk as completion handler."""
 
     def __init__(self, final_write_to_disk, logger) -> None:
         super().__init__()
@@ -1000,16 +1531,11 @@ class SignalObserver(Observer):
         return None
 
     def on_error(self, error) -> None:
-        # whatever went wrong upstream: save what has been captured so far
-        self.logger.error(f"Signal observer error: {error!r}")
-        self._finish()
+        self.logger.error(f"Signal observer error: {error}")
 
     def on_completed(self) -> None:
-        # Called when the FT232H connector signals EOF via subject.on_completed()
-        self._finish()
-
-    def _finish(self) -> None:
+        # Called when FT232H connector signals EOF via subject.on_completed()
         try:
             self.final_write_to_disk()
         except Exception:
-            self.logger.exception("final_write_to_disk failed")
+            pass
