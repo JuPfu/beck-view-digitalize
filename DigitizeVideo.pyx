@@ -247,7 +247,6 @@ cdef class DigitizeVideo:
         self.frame_multiplier = 3 if self.bracketing else 1
         self.chunk_size = args.chunk_size - (args.chunk_size % self.frame_multiplier)
         self.camera_fps = args.camera_fps
-        self.capture_min_delay_ms = args.capture_min_delay_ms
         self.settings = bool(args.settings)
         self.gui = bool(args.gui)
 
