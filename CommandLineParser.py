@@ -56,14 +56,6 @@ class CommandLineParser:
             help='The End Of Film (EOF) is signalled by optocoupler 2. In case the optocoupler 2 signal is not '
                  'emitted stop digitizing when specified number of images is reached - default is 7200 frames.'
         )
-        # Add arguments for monitoring frames
-        self.parser.add_argument(
-            '-s', '--show-monitor',
-            dest="monitor",
-            action="store_true",
-            default=False,
-            help='Show monitoring window'
-        )
         # Add arguments for chunk size
         self.parser.add_argument(
             '-c', '--chunk-size',
@@ -72,6 +64,24 @@ class CommandLineParser:
             nargs='?',
             default=12,
             help='Chunk size (number of frames) passed to each process - default is 12 frames'
+        )
+        # Add arguments for camera to set to frames per second
+        self.parser.add_argument(
+            '-f', '--camera-fps',
+            dest="camera_fps",
+            type=int,
+            nargs='?',
+            default=30,
+            help='Frames per second of the camera - default is 30.'
+        )
+        # Add arguments for min delay after capture trigger
+        self.parser.add_argument(
+            '-t', '--capture-min-delay-ms',
+            dest="capture_min_delay_ms",
+            type=int,
+            nargs='?',
+            default=30,
+            help='Minimum delay after capture trigger - default is 65.'
         )
         # Add arguments for direct show settings menu
         self.parser.add_argument(

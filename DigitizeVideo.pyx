@@ -131,6 +131,8 @@ cdef class DigitizeVideo:
         bint bracketing
         int frame_multiplier
         int chunk_size              # images (not film frames) per buffer / per worker task
+        int camera_fps              # fps of camera
+        int capture_min_delay_ms    # delay after capture trigger is recognized
         bint settings
         bint gui
 
@@ -244,6 +246,8 @@ cdef class DigitizeVideo:
         self.bracketing = bool(args.bracketing)
         self.frame_multiplier = 3 if self.bracketing else 1
         self.chunk_size = args.chunk_size - (args.chunk_size % self.frame_multiplier)
+        self.camera_fps = args.camera_fps
+        self.capture_min_delay_ms = args.capture_min_delay_ms
         self.settings = bool(args.settings)
         self.gui = bool(args.gui)
 
@@ -378,7 +382,7 @@ cdef class DigitizeVideo:
         # set preferred resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FPS, self.camera_fps)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # warm up
